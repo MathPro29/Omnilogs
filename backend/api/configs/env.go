@@ -51,7 +51,7 @@ func LoadEnv() *Env {
 		DBPort:     getEnv("DB_PORT", "5432"),
 		DBName:     getEnv("DB_NAME", "omnilogs-api"),
 		DBUsername: getEnv("DB_USERNAME", "postgres"),
-		DBPassword: getEnv("DB_PASSWORD", "postgres"),
+		DBPassword: getEnv("DB_PASSWORD", "admin"),
 
 		JWTSecret:                 getEnv("JWT_SECRET", "change-me"),
 		AccessTokenExpireSeconds:  getEnvInt("ACCESS_TOKEN_EXPIRE_SECONDS", 900),
@@ -65,17 +65,6 @@ func LoadEnv() *Env {
 		AuthRateLimitWindowSeconds:   getEnvInt("AUTH_RATE_LIMIT_WINDOW_SECONDS", 60),
 		UploadRateLimitRequests:      getEnvInt("UPLOAD_RATE_LIMIT_REQUESTS", 20),
 		UploadRateLimitWindowSeconds: getEnvInt("UPLOAD_RATE_LIMIT_WINDOW_SECONDS", 60),
-
-		// UploadProvider:    getEnv("UPLOAD_PROVIDER", "mock"),
-		// UploadMockBaseURL: getEnv("UPLOAD_MOCK_BASE_URL", "https://mock-upload.local/files"),
-
-		// R2Endpoint:        os.Getenv("R2_ENDPOINT"),
-		// R2Region:          getEnv("R2_REGION", "auto"),
-		// R2AccessKeyID:     os.Getenv("R2_ACCESS_KEY_ID"),
-		// R2SecretAccessKey: os.Getenv("R2_SECRET_ACCESS_KEY"),
-		// R2Bucket:          os.Getenv("R2_BUCKET"),
-		// R2PublicBaseURL:   os.Getenv("R2_PUBLIC_BASE_URL"),
-		// R2ObjectPrefix:    getEnv("R2_OBJECT_PREFIX", "local/uploads"),
 	}
 }
 

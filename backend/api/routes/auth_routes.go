@@ -21,13 +21,19 @@ func AuthRoutes(router *gin.Engine, db *gorm.DB, env *configs.Env) {
 	)
 	handler := authhandler.NewHandler(usecase)
 
-	// for user route
+	// This is the shared authentication entry point for every platform role.
 	auth := router.Group("/auth")
 	auth.Use(middleware.AuthRateLimit(env))
 
 	auth.POST("/register", handler.Register)
 	auth.POST("/login", handler.Login)
 	auth.POST("/refresh-token", handler.RefreshToken)
-	auth.GET("/me", middleware.UserAuthMiddleware(env.JWTSecret), middleware.RequireUserOnly(), handler.Me)
+	auth.GET("/me", middleware.UserAuthMiddleware(env.JWTSecret), handler.Me)
 
+}
+
+func RegisterAuthRoutes(router *gin.Engine, db *gorm.DB, env *configs.Env) {
+	AuthRoutes(router, db, env)
+	AdminAuthRoutes(router, db, env)
+	ProductRoutes(router, db, env)
 }

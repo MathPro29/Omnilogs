@@ -4,23 +4,20 @@ import (
 	"errors"
 	"time"
 
-	"omnilogs-api/configs"
 	"omnilogs-api/dto"
 	authrepo "omnilogs-api/internal/auth/repository"
 	"omnilogs-api/models"
 	"omnilogs-api/responses"
 	"omnilogs-api/utils"
 
-	"gopkg.in/gomail.v2"
 	"gorm.io/gorm"
 )
 
-const defaultUserRoleID uint = 1
+const defaultUserRoleID uint = 4
 
 type Usecase interface {
 	Register(req dto.RegisterRequest) (*dto.UserResponse, error)
-	LoginUser(req dto.LoginRequest) (*dto.AuthTokenResponse, error)
-	LoginAdmin(req dto.LoginRequest) (*dto.AuthTokenResponse, error)
+	Login(req dto.LoginRequest) (*dto.AuthTokenResponse, error)
 	ListAllUsers() ([]dto.UserResponse, error)
 	RefreshToken(refreshToken string) (*dto.AuthTokenResponse, error)
 	GetMe(userID uint) (*dto.UserResponse, error)
@@ -54,7 +51,7 @@ func (u *usecase) Register(req dto.RegisterRequest) (*dto.UserResponse, error) {
 		return nil, err
 	}
 
-	passwordHash, err := utils.HashPassword(req.Password)
+	PasswordHash, err := utils.HashPassword(req.Password)
 	if err != nil {
 		return nil, err
 	}
@@ -64,34 +61,16 @@ func (u *usecase) Register(req dto.RegisterRequest) (*dto.UserResponse, error) {
 		LastName:     req.LastName,
 		Email:        req.Email,
 		RoleID:       defaultUserRoleID,
-		PasswordHash: passwordHash,
+		PasswordHash: PasswordHash,
 		PhoneNumber:  req.PhoneNumber,
 	}
 	if err := u.repo.Create(user); err != nil {
 		return nil, err
 	}
-
-	go u.SendMail(dto.SendMailRequest{
-		To:      user.Email,
-		Subject: "Welcome",
-		Body:    "<h1>Welcome To Ticket System</h1>",
-	})
-
 	return toUserResponse(user), nil
 }
 
-func (u *usecase) SendMail(req dto.SendMailRequest) error {
-	m := gomail.NewMessage()
-
-	m.SetHeader("From", configs.Mailer.Username)
-	m.SetHeader("To", req.To)
-	m.SetHeader("Subject", req.Subject)
-	m.SetBody("text/html", req.Body)
-
-	return configs.Mailer.DialAndSend(m)
-}
-
-func (u *usecase) LoginUser(req dto.LoginRequest) (*dto.AuthTokenResponse, error) {
+func (u *usecase) Login(req dto.LoginRequest) (*dto.AuthTokenResponse, error) {
 	user, err := u.authenticate(req)
 	if err != nil {
 		return nil, err
@@ -101,27 +80,6 @@ func (u *usecase) LoginUser(req dto.LoginRequest) (*dto.AuthTokenResponse, error
 	if user.Role != nil {
 		roleName = user.Role.RoleName
 	}
-	if roleName != "user" {
-		return nil, responses.ErrorUserCode["FORBIDDEN"]
-	}
-
-	return u.buildAuthTokens(user, roleName)
-}
-
-func (u *usecase) LoginAdmin(req dto.LoginRequest) (*dto.AuthTokenResponse, error) {
-	user, err := u.authenticate(req)
-	if err != nil {
-		return nil, err
-	}
-
-	roleName := ""
-	if user.Role != nil {
-		roleName = user.Role.RoleName
-	}
-	if roleName != "admin" && roleName != "superadmin" {
-		return nil, responses.ErrorUserCode["FORBIDDEN"]
-	}
-
 	return u.buildAuthTokens(user, roleName)
 }
 
@@ -141,11 +99,11 @@ func (u *usecase) authenticate(req dto.LoginRequest) (*models.User, error) {
 }
 
 func (u *usecase) buildAuthTokens(user *models.User, roleName string) (*dto.AuthTokenResponse, error) {
-	accessToken, err := utils.GenerateToken(user.ID, user.Email, roleName, user.RoleID, utils.TokenTypeAccess, u.jwtSecret, u.accessTokenExpiresIn)
+	accessToken, err := utils.GenerateToken(uint(user.UserID), user.Email, roleName, user.RoleID, utils.TokenTypeAccess, u.jwtSecret, u.accessTokenExpiresIn)
 	if err != nil {
 		return nil, err
 	}
-	refreshToken, err := utils.GenerateToken(user.ID, user.Email, roleName, user.RoleID, utils.TokenTypeRefresh, u.jwtSecret, u.refreshTokenExpiresIn)
+	refreshToken, err := utils.GenerateToken(uint(user.UserID), user.Email, roleName, user.RoleID, utils.TokenTypeRefresh, u.jwtSecret, u.refreshTokenExpiresIn)
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +113,7 @@ func (u *usecase) buildAuthTokens(user *models.User, roleName string) (*dto.Auth
 		RefreshToken:     refreshToken,
 		TokenType:        "Bearer",
 		Role:             roleName,
-		UserID:           user.ID,
+		UserID:           uint(user.UserID),
 		ExpiresIn:        u.accessTokenExpiresInSec,
 		RefreshExpiresIn: u.refreshTokenExpiresInSec,
 	}, nil
@@ -202,13 +160,17 @@ func toUserResponse(user *models.User) *dto.UserResponse {
 	}
 
 	return &dto.UserResponse{
-		ID:        user.ID,
-		FirstName: user.FirstName,
-		LastName:  user.LastName,
-		Email:     user.Email,
-		Role:      roleName,
-		CreatedAt: user.CreatedAt,
-		UpdatedAt: user.UpdatedAt,
+		ID:          uint(user.UserID),
+		UserID:      user.UserID,
+		Username:    user.Username,
+		FirstName:   user.FirstName,
+		LastName:    user.LastName,
+		Email:       user.Email,
+		PhoneNumber: user.PhoneNumber,
+		IsActive:    user.IsActive,
+		Role:        roleName,
+		CreatedAt:   user.CreatedAt,
+		UpdatedAt:   user.UpdatedAt,
 	}
 }
 
@@ -224,7 +186,7 @@ func (u *usecase) GiveAdminAccess(userID uint, adminID uint, roleID uint) error 
 
 	// 2. Update the role for that existing user
 	user.RoleID = roleID
-	if err := u.repo.UpdateRoleID(user.ID, roleID); err != nil {
+	if err := u.repo.UpdateRoleID(uint(user.UserID), roleID); err != nil {
 		return err // Return the database error if the update fails
 	}
 

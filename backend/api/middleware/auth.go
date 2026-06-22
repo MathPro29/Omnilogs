@@ -4,8 +4,8 @@ import (
 	"errors"
 	"strings"
 
-	"ticket-system-api/responses"
-	"ticket-system-api/utils"
+	"omnilogs-api/responses"
+	"omnilogs-api/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -17,14 +17,6 @@ const (
 	ContextRole   = "role"
 	ContextRoleID = "roleId"
 )
-
-func IsUser(c *gin.Context) bool {
-	role, ok := c.Get(ContextRole)
-	if !ok {
-		return false
-	}
-	return toString(role) == "user"
-}
 
 func IsSessionExpired(c *gin.Context, jwtSecret string) bool {
 	authHeader := c.GetHeader("Authorization")
@@ -82,79 +74,14 @@ func UserAuthMiddleware(jwtSecret string) gin.HandlerFunc {
 	}
 }
 
-// check access for only admin and superadmin role
-func AdminAuthMiddleware(adminJWTSecret string) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		authHeader := c.GetHeader("Authorization")
-
-		if IsUser(c) {
-			responses.Forbidden(c, "Access Denied")
-			c.Abort()
-			return
-		}
-
-		if authHeader == "" {
-			responses.Unauthorized(c, "missing authorization header")
-			c.Abort()
-			return
-		}
-
-		parts := strings.SplitN(authHeader, " ", 2)
-		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
-			responses.Unauthorized(c, "invalid authorization header")
-			c.Abort()
-			return
-		}
-
-		claims, err := utils.ParseToken(parts[1], adminJWTSecret)
-		if err != nil {
-			if IsSessionExpired(c, adminJWTSecret) {
-				responses.Error(c, "SESSION_EXPIRED", "session expired", nil)
-				c.Abort()
-				return
-			}
-			responses.Unauthorized(c, "invalid token")
-			c.Abort()
-			return
-		}
-		if err := utils.RequireTokenType(claims, utils.TokenTypeAccess); err != nil {
-			responses.Unauthorized(c, "access token is required")
-			c.Abort()
-			return
-		}
-
-		c.Set(ContextUserID, claims.UserID)
-		c.Set(ContextEmail, claims.Email)
-		c.Set(ContextRole, claims.Role)
-		c.Set(ContextRoleID, claims.RoleID)
-		c.Next()
-	}
-}
-
-func RequireUserOnly() gin.HandlerFunc {
+func RequireAdminPlatformRole() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if _, ok := CurrentUserID(c); !ok {
 			responses.Unauthorized(c, "unauthorized")
 			c.Abort()
 			return
 		}
-		if !IsUser(c) {
-			responses.Forbidden(c, "forbidden user route only")
-			c.Abort()
-			return
-		}
-		c.Next()
-	}
-}
-
-func RequireAdminOrSuperadmin() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if _, ok := CurrentUserID(c); !ok {
-			responses.Unauthorized(c, "unauthorized")
-			c.Abort()
-			return
-		}
-		if !IsAdminOrSuperadmin(c) {
+		if !HasAdminPlatformRole(c) {
 			responses.Forbidden(c, "Forbidden or Permission Denied")
 			c.Abort()
 			return
@@ -172,22 +99,20 @@ func CurrentUserID(c *gin.Context) (uint, bool) {
 	return userID, ok
 }
 
-// admin and superadmin can access all tickets
-
-func IsAdminOrSuperadmin(c *gin.Context) bool {
+// HasAdminPlatformRole reports whether the authenticated platform role may
+// enter the platform administration routes.
+func HasAdminPlatformRole(c *gin.Context) bool {
 	role, ok := c.Get(ContextRole)
 	if !ok {
 		return false
 	}
-	if toString(role) == "user" {
-		return false
-	}
-	return toString(role) == "admin" || toString(role) == "superadmin"
+	roleStr := toString(role)
+	return roleStr == "god" || roleStr == "owner" || roleStr == "superadmin"
 }
 
 // user can only access ticket which is created by him
 func CanAccessTicket(c *gin.Context, ticketUserID uint) bool {
-	if IsAdminOrSuperadmin(c) {
+	if HasAdminPlatformRole(c) {
 		return true
 	}
 

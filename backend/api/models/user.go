@@ -1,23 +1,23 @@
 package models
 
-import (
-	"time"
-
-	"gorm.io/gorm"
-)
+import "time"
 
 type User struct {
-	ID           uint           `gorm:"primarykey" json:"id"`
-	CreatedAt    time.Time      `json:"createdAt"`
-	UpdatedAt    time.Time      `json:"updatedAt"`
-	DeletedAt    gorm.DeletedAt `gorm:"index" json:"-"`
-	FirstName    string         `json:"firstName" gorm:"not null"`
-	LastName     string         `json:"lastName" gorm:"not null"`
-	Email        string         `json:"email" gorm:"uniqueIndex;not null"`
-	PhoneNumber  *string        `json:"phoneNumber" gorm:"type:varchar(20);index"`
-	RoleID       uint           `json:"roleId" gorm:"not null;index;default:1"`
-	Role         *Role          `json:"role" gorm:"foreignKey:RoleID;references:ID"`
-	Provider     string         `json:"-"`
-	ProviderID   string         `json:"-"`
-	PasswordHash string         `json:"-" gorm:"not null"`
+	UserID       int        `gorm:"primaryKey;autoIncrement" json:"user_id"`
+	Username     *string    `json:"username,omitempty"`
+	FirstName    *string    `json:"first_name,omitempty"`
+	LastName     *string    `json:"last_name,omitempty"`
+	Email        string     `gorm:"not null;uniqueIndex" json:"email"`
+	PhoneNumber  *string    `json:"phone_number,omitempty"`
+	PasswordHash string     `gorm:"not null" json:"-"`
+	IsActive     bool       `gorm:"not null;default:true" json:"is_active"`
+	LastLoginAt  *time.Time `gorm:"type:timestamptz" json:"last_login_at,omitempty"`
+	Timestamps
+	DeletedAt *time.Time `gorm:"type:timestamptz;index" json:"deleted_at,omitempty"`
+	RoleID    uint       `gorm:"-" json:"role_id,omitempty"`
+	Role      *UserRole  `gorm:"-" json:"role,omitempty"`
+}
+
+type UserRole struct {
+	RoleName string `json:"role_name"`
 }

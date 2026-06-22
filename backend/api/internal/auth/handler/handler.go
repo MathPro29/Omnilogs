@@ -8,8 +8,8 @@ import (
 	"omnilogs-api/dto"
 	authusecase "omnilogs-api/internal/auth/usecase"
 	"omnilogs-api/middleware"
-	"omnilogs-api/pkg/responses"
-	"omnilogs-api/pkg/utils"
+	"omnilogs-api/responses"
+	"omnilogs-api/utils"
 
 	"github.com/gin-gonic/gin"
 )
@@ -25,13 +25,13 @@ func NewHandler(usecase authusecase.Usecase) *Handler {
 func (h *Handler) Register(c *gin.Context) {
 	var req dto.RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		responses.ValidationError(c, err)
+		responses.Error(c, responses.ErrorCode["INVALID_REQUEST"], responses.ErrorCode["INVALID_REQUEST"], err)
 		return
 	}
 
 	// check phone number if > 10 return invalid phone number
 	if req.PhoneNumber != nil && len(*req.PhoneNumber) > 10 {
-		responses.BadRequest(c, "invalid phone number")
+		responses.Error(c, responses.ErrorCode["INVALID_PHONE_NUMBER"], responses.ErrorCode["INVALID_PHONE_NUMBER"], nil)
 		return
 	}
 
@@ -47,17 +47,17 @@ func (h *Handler) Register(c *gin.Context) {
 
 	// phone number at least 8 character
 	if req.PhoneNumber != nil && len(*req.PhoneNumber) < 8 {
-		responses.BadRequest(c, "invalid phone number")
+		responses.Error(c, responses.ErrorCode["INVALID_PHONE_NUMBER"], responses.ErrorCode["INVALID_PHONE_NUMBER"], nil)
 		return
 	}
 
 	user, err := h.usecase.Register(req)
 	if errors.Is(err, responses.ErrorUserCode["EMAIL_ALREADY_EXISTS"]) {
-		responses.BadRequest(c, "email already exists")
+		responses.Error(c, responses.ErrorCode["EMAIL_ALREADY_EXISTS"], responses.ErrorCode["EMAIL_ALREADY_EXISTS"], nil)
 		return
 	}
 	if err != nil {
-		responses.InternalError(c)
+		responses.Error(c, responses.ErrorCode["INTERNAL_ERROR"], responses.ErrorCode["INTERNAL_ERROR"], err)
 		return
 	}
 
@@ -71,13 +71,9 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 
-	tokens, err := h.usecase.LoginUser(req)
+	tokens, err := h.usecase.Login(req)
 	if errors.Is(err, responses.ErrorUserCode["INVALID_CREDENTIAL"]) {
 		responses.Unauthorized(c, "invalid email or password")
-		return
-	}
-	if errors.Is(err, responses.ErrorUserCode["FORBIDDEN"]) {
-		responses.Forbidden(c, "Forbidden or Permission Denied")
 		return
 	}
 	if err != nil {
@@ -130,30 +126,6 @@ func (h *Handler) Me(c *gin.Context) {
 
 //// ADMIN ZONES
 
-func (h *Handler) LoginAdmin(c *gin.Context) {
-	var req dto.LoginRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		responses.ValidationError(c, err)
-		return
-	}
-
-	tokens, err := h.usecase.LoginAdmin(req)
-	if errors.Is(err, responses.ErrorUserCode["INVALID_CREDENTIAL"]) {
-		responses.Unauthorized(c, "invalid email or password")
-		return
-	}
-	if errors.Is(err, responses.ErrorUserCode["FORBIDDEN"]) {
-		responses.Forbidden(c, "Forbidden or Permission Denied")
-		return
-	}
-	if err != nil {
-		responses.InternalError(c)
-		return
-	}
-
-	utils.Success(c, http.StatusOK, tokens)
-}
-
 func (h *Handler) GiveAdminAccess(c *gin.Context) {
 	// check user is logged in
 	if _, ok := middleware.CurrentUserID(c); !ok {
@@ -161,7 +133,7 @@ func (h *Handler) GiveAdminAccess(c *gin.Context) {
 		return
 	}
 
-	if !middleware.IsAdminOrSuperadmin(c) {
+	if !middleware.HasAdminPlatformRole(c) {
 		responses.Forbidden(c, "forbidden")
 		return
 	}
@@ -174,13 +146,14 @@ func (h *Handler) GiveAdminAccess(c *gin.Context) {
 
 	/*
 		ROLE ID LIST
-		ID 1 = user
-		ID 10 = Admin
-		ID 99 = Superadmin
+		ID 1 = GOD
+		ID 2 = Owner
+		ID 3 = Superadmin
+		ID 4 = User
 	*/
 
 	// check role id is valid
-	if req.RoleID != 1 && req.RoleID != 10 && req.RoleID != 99 {
+	if req.RoleID != 1 && req.RoleID != 2 && req.RoleID != 3 && req.RoleID != 4 {
 		responses.BadRequest(c, "invalid role id")
 		return
 	}
@@ -216,7 +189,7 @@ func (h *Handler) ListAllUsers(c *gin.Context) {
 		return
 	}
 
-	if !middleware.IsAdminOrSuperadmin(c) {
+	if !middleware.HasAdminPlatformRole(c) {
 		responses.Forbidden(c, "forbidden")
 		return
 	}

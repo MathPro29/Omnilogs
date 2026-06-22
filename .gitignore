@@ -22,3 +22,4 @@ bin/
 *.sw?
 .DS_Store
 Thumbs.db
+.cache/

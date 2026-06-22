@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"intern-api/configs"
-	"intern-api/utils"
+	"omnilogs-api/configs"
+	"omnilogs-api/utils"
 
 	"github.com/gin-gonic/gin"
 )
