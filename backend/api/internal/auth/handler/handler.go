@@ -1,0 +1,231 @@
+package handler
+
+import (
+	"errors"
+	"net/http"
+	_ "strconv"
+
+	"omnilogs-api/dto"
+	authusecase "omnilogs-api/internal/auth/usecase"
+	"omnilogs-api/middleware"
+	"omnilogs-api/pkg/responses"
+	"omnilogs-api/pkg/utils"
+
+	"github.com/gin-gonic/gin"
+)
+
+type Handler struct {
+	usecase authusecase.Usecase
+}
+
+func NewHandler(usecase authusecase.Usecase) *Handler {
+	return &Handler{usecase: usecase}
+}
+
+func (h *Handler) Register(c *gin.Context) {
+	var req dto.RegisterRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		responses.ValidationError(c, err)
+		return
+	}
+
+	// check phone number if > 10 return invalid phone number
+	if req.PhoneNumber != nil && len(*req.PhoneNumber) > 10 {
+		responses.BadRequest(c, "invalid phone number")
+		return
+	}
+
+	// check phone number must contain only number
+	if req.PhoneNumber != nil {
+		for _, r := range *req.PhoneNumber {
+			if r < '0' || r > '9' {
+				responses.BadRequest(c, "invalid phone number")
+				return
+			}
+		}
+	}
+
+	// phone number at least 8 character
+	if req.PhoneNumber != nil && len(*req.PhoneNumber) < 8 {
+		responses.BadRequest(c, "invalid phone number")
+		return
+	}
+
+	user, err := h.usecase.Register(req)
+	if errors.Is(err, responses.ErrorUserCode["EMAIL_ALREADY_EXISTS"]) {
+		responses.BadRequest(c, "email already exists")
+		return
+	}
+	if err != nil {
+		responses.InternalError(c)
+		return
+	}
+
+	utils.Success(c, http.StatusCreated, user)
+}
+
+func (h *Handler) Login(c *gin.Context) {
+	var req dto.LoginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		responses.ValidationError(c, err)
+		return
+	}
+
+	tokens, err := h.usecase.LoginUser(req)
+	if errors.Is(err, responses.ErrorUserCode["INVALID_CREDENTIAL"]) {
+		responses.Unauthorized(c, "invalid email or password")
+		return
+	}
+	if errors.Is(err, responses.ErrorUserCode["FORBIDDEN"]) {
+		responses.Forbidden(c, "Forbidden or Permission Denied")
+		return
+	}
+	if err != nil {
+		responses.InternalError(c)
+		return
+	}
+
+	utils.Success(c, http.StatusOK, tokens)
+}
+
+func (h *Handler) RefreshToken(c *gin.Context) {
+	var req dto.RefreshTokenRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		responses.ValidationError(c, err)
+		return
+	}
+
+	tokens, err := h.usecase.RefreshToken(req.RefreshToken)
+	if errors.Is(err, responses.ErrorUserCode["INVALID_REFRESH_TOKEN"]) {
+		responses.Unauthorized(c, "invalid refresh token")
+		return
+	}
+	if err != nil {
+		responses.InternalError(c)
+		return
+	}
+
+	utils.Success(c, http.StatusOK, tokens)
+}
+
+func (h *Handler) Me(c *gin.Context) {
+	userID, ok := middleware.CurrentUserID(c)
+	if !ok {
+		responses.Unauthorized(c, "invalid authenticated user")
+		return
+	}
+
+	user, err := h.usecase.GetMe(userID)
+	if errors.Is(err, responses.ErrorUserCode["USER_NOT_FOUND"]) {
+		responses.NotFound(c, "user not found")
+		return
+	}
+	if err != nil {
+		responses.InternalError(c)
+		return
+	}
+
+	utils.Success(c, http.StatusOK, user)
+}
+
+//// ADMIN ZONES
+
+func (h *Handler) LoginAdmin(c *gin.Context) {
+	var req dto.LoginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		responses.ValidationError(c, err)
+		return
+	}
+
+	tokens, err := h.usecase.LoginAdmin(req)
+	if errors.Is(err, responses.ErrorUserCode["INVALID_CREDENTIAL"]) {
+		responses.Unauthorized(c, "invalid email or password")
+		return
+	}
+	if errors.Is(err, responses.ErrorUserCode["FORBIDDEN"]) {
+		responses.Forbidden(c, "Forbidden or Permission Denied")
+		return
+	}
+	if err != nil {
+		responses.InternalError(c)
+		return
+	}
+
+	utils.Success(c, http.StatusOK, tokens)
+}
+
+func (h *Handler) GiveAdminAccess(c *gin.Context) {
+	// check user is logged in
+	if _, ok := middleware.CurrentUserID(c); !ok {
+		responses.Unauthorized(c, "invalid authenticated user")
+		return
+	}
+
+	if !middleware.IsAdminOrSuperadmin(c) {
+		responses.Forbidden(c, "forbidden")
+		return
+	}
+
+	var req dto.GiveAdminAccessRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		responses.ValidationError(c, err)
+		return
+	}
+
+	/*
+		ROLE ID LIST
+		ID 1 = user
+		ID 10 = Admin
+		ID 99 = Superadmin
+	*/
+
+	// check role id is valid
+	if req.RoleID != 1 && req.RoleID != 10 && req.RoleID != 99 {
+		responses.BadRequest(c, "invalid role id")
+		return
+	}
+	currentUserID, ok := middleware.CurrentUserID(c)
+	if !ok {
+		responses.Unauthorized(c, "invalid authenticated user")
+		return
+	}
+
+	// make sure admin don't change his own role
+	if currentUserID == req.ID {
+		responses.Error(c, "FORBIDDEN", "You cannot change your own role", nil)
+		return
+	}
+
+	// Call usecase for update role
+	err := h.usecase.GiveAdminAccess(currentUserID, req.ID, req.RoleID)
+	if err != nil {
+		if errors.Is(err, responses.ErrorUserCode["USER_NOT_FOUND"]) {
+			responses.NotFound(c, "user not found")
+			return
+		}
+		responses.Error(c, "INTERNAL_ERROR", "failed to update role", err)
+		return
+	}
+
+	utils.Success(c, http.StatusOK, "Role Updated Successfully")
+}
+
+func (h *Handler) ListAllUsers(c *gin.Context) {
+	if _, ok := middleware.CurrentUserID(c); !ok {
+		responses.Unauthorized(c, "invalid authenticated user")
+		return
+	}
+
+	if !middleware.IsAdminOrSuperadmin(c) {
+		responses.Forbidden(c, "forbidden")
+		return
+	}
+
+	users, err := h.usecase.ListAllUsers()
+	if err != nil {
+		responses.InternalError(c)
+		return
+	}
+
+	utils.Success(c, http.StatusOK, users)
+}

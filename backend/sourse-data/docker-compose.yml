@@ -1,0 +1,22 @@
+services:
+  postgres:
+    container_name: intern-postgres
+    image: postgres:16
+    environment:
+      POSTGRES_DB: intern_api
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5455:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # networks:
+    #   - external-local-net
+
+volumes:
+  postgres_data:
+
+# networks:
+#   external-local-net:
+#     name: external-local-net
+#     external: true
