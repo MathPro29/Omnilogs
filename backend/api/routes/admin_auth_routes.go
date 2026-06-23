@@ -2,9 +2,7 @@ package routes
 
 import (
 	"omnilogs-api/configs"
-	authhandler "omnilogs-api/internal/auth/handler"
-	authrepo "omnilogs-api/internal/auth/repository"
-	authusecase "omnilogs-api/internal/auth/usecase"
+	authmodule "omnilogs-api/internal/auth/module"
 	"omnilogs-api/middleware"
 
 	"github.com/gin-gonic/gin"
@@ -12,18 +10,11 @@ import (
 )
 
 func AdminAuthRoutes(router *gin.Engine, db *gorm.DB, env *configs.Env) {
-	repository := authrepo.NewRepository(db)
-	usecase := authusecase.NewUsecase(
-		repository,
-		env.JWTSecret,
-		env.AccessTokenExpireSeconds,
-		env.RefreshTokenExpireSeconds,
-	)
-	handler := authhandler.NewHandler(usecase)
+	handler := authmodule.NewHandler(db, env)
 
 	// Authentication is shared through /auth/login. Only privileged platform
 	// roles may enter routes under /admin.
-	adminProtected := router.Group("/admin")
+	adminProtected := router.Group("/api/v1/admin")
 	adminProtected.Use(middleware.AuthRateLimit(env))
 	adminProtected.Use(middleware.UserAuthMiddleware(env.JWTSecret))
 	adminProtected.Use(middleware.RequireAdminPlatformRole())

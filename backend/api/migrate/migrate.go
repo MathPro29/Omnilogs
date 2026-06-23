@@ -23,6 +23,8 @@ func Migrate(db *gorm.DB, env *configs.Env) {
 	err := db.AutoMigrate(
 		&models.PlatformRole{},
 		&models.PlatformMembership{},
+		&models.AuthSession{},
+		&models.PasswordResetToken{},
 		&models.User{},
 		&models.Product{},
 		&models.ProductEnvironment{},

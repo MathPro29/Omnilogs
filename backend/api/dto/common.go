@@ -3,15 +3,15 @@ package dto
 import "time"
 
 type PaginationRequest struct {
-	Page int `form:"page" binding:"omitempty,min=1"`
+	Page    int `form:"page" binding:"omitempty,min=1"`
 	PerPage int `form:"per_page" binding:"omitempty,min=1,max=100"`
 }
 
 type PaginationResponse struct {
-	Page int `json:"page"`
-	PerPage int `json:"per_page"`
+	Page       int   `json:"page"`
+	PerPage    int   `json:"per_page"`
 	TotalItems int64 `json:"total_items"`
-	TotalPages int `json:"total_pages"`
+	TotalPages int   `json:"total_pages"`
 }
 
 type TimestampResponse struct {
@@ -24,7 +24,7 @@ type IDListRequest struct {
 }
 
 type StatusResponse struct {
-	ID any `json:"id"`
-	Status string `json:"status"`
+	ID      any    `json:"id"`
+	Status  string `json:"status"`
 	Message string `json:"message,omitempty"`
 }

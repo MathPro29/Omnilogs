@@ -61,6 +61,7 @@ func (h *Handler) Register(c *gin.Context) {
 		return
 	}
 
+	c.Set(middleware.ContextUserID, user.ID)
 	utils.Success(c, http.StatusCreated, user)
 }
 
@@ -73,7 +74,7 @@ func (h *Handler) Login(c *gin.Context) {
 
 	tokens, err := h.usecase.Login(req)
 	if errors.Is(err, responses.ErrorUserCode["INVALID_CREDENTIAL"]) {
-		responses.Unauthorized(c, "invalid email or password")
+		responses.Unauthorized(c, "invalid username/email or password")
 		return
 	}
 	if err != nil {
@@ -81,6 +82,7 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 
+	c.Set(middleware.ContextUserID, tokens.UserID)
 	utils.Success(c, http.StatusOK, tokens)
 }
 
@@ -101,7 +103,56 @@ func (h *Handler) RefreshToken(c *gin.Context) {
 		return
 	}
 
+	c.Set(middleware.ContextUserID, tokens.UserID)
 	utils.Success(c, http.StatusOK, tokens)
+}
+
+func (h *Handler) Logout(c *gin.Context) {
+	var req dto.LogoutRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		responses.ValidationError(c, err)
+		return
+	}
+	if err := h.usecase.Logout(req.RefreshToken); err != nil {
+		if errors.Is(err, responses.ErrorUserCode["INVALID_REFRESH_TOKEN"]) {
+			responses.Unauthorized(c, "invalid refresh token")
+			return
+		}
+		responses.InternalError(c)
+		return
+	}
+	utils.Success(c, http.StatusOK, gin.H{"message": "logged out successfully"})
+}
+
+func (h *Handler) ForgotPassword(c *gin.Context) {
+	var req dto.ForgotPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		responses.ValidationError(c, err)
+		return
+	}
+	result, err := h.usecase.ForgotPassword(req)
+	if err != nil {
+		responses.InternalError(c)
+		return
+	}
+	utils.Success(c, http.StatusOK, result)
+}
+
+func (h *Handler) ResetPassword(c *gin.Context) {
+	var req dto.ResetPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		responses.ValidationError(c, err)
+		return
+	}
+	if err := h.usecase.ResetPassword(req); err != nil {
+		if errors.Is(err, responses.ErrorUserCode["INVALID_RESET_TOKEN"]) {
+			responses.BadRequest(c, "invalid or expired reset token")
+			return
+		}
+		responses.InternalError(c)
+		return
+	}
+	utils.Success(c, http.StatusOK, gin.H{"message": "password reset successfully"})
 }
 
 func (h *Handler) Me(c *gin.Context) {
@@ -170,17 +221,25 @@ func (h *Handler) GiveAdminAccess(c *gin.Context) {
 	}
 
 	// Call usecase for update role
-	err := h.usecase.GiveAdminAccess(currentUserID, req.ID, req.RoleID)
+	result, err := h.usecase.GiveAdminAccess(currentUserID, req.ID, req.RoleID)
 	if err != nil {
 		if errors.Is(err, responses.ErrorUserCode["USER_NOT_FOUND"]) {
 			responses.NotFound(c, "user not found")
+			return
+		}
+		if errors.Is(err, authusecase.ErrForbiddenRoleAssignment) {
+			responses.Forbidden(c, "forbidden role assignment")
+			return
+		}
+		if errors.Is(err, authusecase.ErrInvalidRoleAssignment) {
+			responses.BadRequest(c, "invalid role assignment")
 			return
 		}
 		responses.Error(c, "INTERNAL_ERROR", "failed to update role", err)
 		return
 	}
 
-	utils.Success(c, http.StatusOK, "Role Updated Successfully")
+	utils.Success(c, http.StatusOK, result)
 }
 
 func (h *Handler) ListAllUsers(c *gin.Context) {

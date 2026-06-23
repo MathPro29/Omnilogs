@@ -1,0 +1,801 @@
+openapi: 3.0.3
+info:
+  title: OmniLogs Backend API
+  version: 0.1.0
+  description: |
+    Foundational OpenAPI contract for OmniLogs backend.
+    This document starts in Phase 0 and will be expanded alongside each backend phase.
+servers:
+  - url: http://localhost:2910
+    description: Local development
+tags:
+  - name: Health
+  - name: Auth
+  - name: Admin
+  - name: Products
+  - name: Environments
+  - name: Scopes
+  - name: Authorization
+paths:
+  /health/live:
+    get:
+      tags: [Health]
+      summary: Liveness probe
+      responses:
+        '200':
+          description: Service is live
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+  /health/ready:
+    get:
+      tags: [Health]
+      summary: Readiness probe
+      responses:
+        '200':
+          description: Service is ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '503':
+          description: Service dependencies are unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/auth/login:
+    post:
+      tags: [Auth]
+      summary: Login with username or email and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/auth/refresh-token:
+    post:
+      tags: [Auth]
+      summary: Refresh access token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '200':
+          description: Token refreshed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          description: Invalid refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/auth/logout:
+    post:
+      tags: [Auth]
+      summary: Logout and revoke the current refresh token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+      responses:
+        '200':
+          description: Session revoked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+  /api/v1/auth/forgot-password:
+    post:
+      tags: [Auth]
+      summary: Issue a password reset token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordRequest'
+      responses:
+        '200':
+          description: Reset token created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+  /api/v1/auth/reset-password:
+    post:
+      tags: [Auth]
+      summary: Reset password using a reset token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      responses:
+        '200':
+          description: Password reset completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          description: Invalid reset token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/auth/me:
+    get:
+      tags: [Auth]
+      summary: Get current authenticated user
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/admin/give-admin:
+    put:
+      tags: [Admin]
+      summary: Change platform role for a user
+      description: |
+        Updates `platform_memberships.platform_role_id` for the target user.
+        This endpoint does not write role data into the `users` table.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GiveAdminAccessRequest'
+      responses:
+        '200':
+          description: Role updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/GiveAdminAccessResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/admin/show-users:
+    get:
+      tags: [Admin]
+      summary: List all users for platform administrators
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: User list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+  /api/v1/products:
+    get:
+      tags: [Products]
+      summary: List products
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Product list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+    post:
+      tags: [Products]
+      summary: Create product
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProductRequest'
+      responses:
+        '201':
+          description: Product created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+  /api/v1/products/{productId}:
+    get:
+      tags: [Products]
+      summary: Get product by id
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      responses:
+        '200':
+          description: Product detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '404':
+          description: Product not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    patch:
+      tags: [Products]
+      summary: Update product
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProductRequest'
+      responses:
+        '200':
+          description: Product updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+  /api/v1/products/{productId}/projects/{projectId}/features/{featureId}:
+    delete:
+      tags: [Products]
+      summary: Delete a feature category
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/FeatureId'
+      responses:
+        '200':
+          description: Feature deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '404':
+          description: Feature not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/products/{productId}/roles/{roleId}:
+    delete:
+      tags: [Products]
+      summary: Delete a product role
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/RoleId'
+      responses:
+        '200':
+          description: Role deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '409':
+          description: Role is still assigned to memberships
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/products/{productId}/memberships/{membershipId}:
+    delete:
+      tags: [Products]
+      summary: Delete a product membership
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/MembershipId'
+      responses:
+        '200':
+          description: Membership deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '404':
+          description: Membership not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/products/{productId}/environments:
+    get:
+      tags: [Environments]
+      summary: List environments for a product
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      responses:
+        '200':
+          description: Environment list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+    post:
+      tags: [Environments]
+      summary: Create environment
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEnvironmentRequest'
+      responses:
+        '201':
+          description: Environment created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+  /api/v1/products/{productId}/environments/{environmentId}:
+    patch:
+      tags: [Environments]
+      summary: Update environment
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/EnvironmentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateEnvironmentRequest'
+      responses:
+        '200':
+          description: Environment updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+  /api/v1/products/{productId}/memberships/{membershipId}/scopes:
+    get:
+      tags: [Scopes]
+      summary: List scopes for a product membership
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/MembershipId'
+      responses:
+        '200':
+          description: Scope list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+    post:
+      tags: [Scopes]
+      summary: Create a scope for a product membership
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/MembershipId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMembershipScopeRequest'
+      responses:
+        '201':
+          description: Scope created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          description: Invalid scope payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/products/{productId}/memberships/{membershipId}/scopes/{scopeId}:
+    patch:
+      tags: [Scopes]
+      summary: Update a membership scope
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/MembershipId'
+        - $ref: '#/components/parameters/ScopeId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMembershipScopeRequest'
+      responses:
+        '200':
+          description: Scope updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '404':
+          description: Scope not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    delete:
+      tags: [Scopes]
+      summary: Delete a membership scope
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/MembershipId'
+        - $ref: '#/components/parameters/ScopeId'
+      responses:
+        '200':
+          description: Scope deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '404':
+          description: Scope not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/authorization/check:
+    post:
+      tags: [Authorization]
+      summary: Check effective permission
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PermissionCheckRequest'
+      responses:
+        '200':
+          description: Permission evaluation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    ProductId:
+      name: productId
+      in: path
+      required: true
+      schema:
+        type: integer
+    EnvironmentId:
+      name: environmentId
+      in: path
+      required: true
+      schema:
+        type: integer
+    ProjectId:
+      name: projectId
+      in: path
+      required: true
+      schema:
+        type: integer
+    FeatureId:
+      name: featureId
+      in: path
+      required: true
+      schema:
+        type: integer
+    RoleId:
+      name: roleId
+      in: path
+      required: true
+      schema:
+        type: integer
+    MembershipId:
+      name: membershipId
+      in: path
+      required: true
+      schema:
+        type: integer
+    ScopeId:
+      name: scopeId
+      in: path
+      required: true
+      schema:
+        type: integer
+  schemas:
+    SuccessEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          additionalProperties: true
+    ErrorEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          $ref: '#/components/schemas/ErrorBody'
+    ErrorBody:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        status:
+          type: integer
+        details:
+          nullable: true
+    RegisterRequest:
+      type: object
+      required: [first_name, last_name, email, password, confirm_password]
+      properties:
+        username:
+          type: string
+          nullable: true
+        first_name:
+          type: string
+        last_name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone_number:
+          type: string
+          nullable: true
+        password:
+          type: string
+          format: password
+        confirm_password:
+          type: string
+          format: password
+    LoginRequest:
+      type: object
+      required: [identifier, password]
+      properties:
+        identifier:
+          type: string
+        password:
+          type: string
+          format: password
+    RefreshTokenRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+    LogoutRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+    ForgotPasswordRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+    ResetPasswordRequest:
+      type: object
+      required: [token, new_password, confirm_password]
+      properties:
+        token:
+          type: string
+        new_password:
+          type: string
+          format: password
+        confirm_password:
+          type: string
+          format: password
+    GiveAdminAccessRequest:
+      type: object
+      required: [id, role_id]
+      properties:
+        id:
+          type: integer
+        role_id:
+          type: integer
+          enum: [1, 2, 3, 4]
+    GiveAdminAccessResponse:
+      type: object
+      properties:
+        user_id:
+          type: integer
+        storage_table:
+          type: string
+          example: platform_memberships
+        previous_role_id:
+          type: integer
+        previous_role_code:
+          type: string
+        new_role_id:
+          type: integer
+        new_role_code:
+          type: string
+        message:
+          type: string
+    CreateProductRequest:
+      type: object
+      required: [product_name, product_code]
+      properties:
+        product_name:
+          type: string
+        product_code:
+          type: string
+        environments:
+          type: array
+          items:
+            type: object
+            properties:
+              product_id:
+                type: integer
+                nullable: true
+              environment_code:
+                type: string
+              environment_name:
+                type: string
+    UpdateProductRequest:
+      type: object
+      properties:
+        product_name:
+          type: string
+        is_active:
+          type: boolean
+    CreateEnvironmentRequest:
+      type: object
+      required: [environment_code, environment_name]
+      properties:
+        product_id:
+          type: integer
+          nullable: true
+        environment_code:
+          type: string
+        environment_name:
+          type: string
+    UpdateEnvironmentRequest:
+      type: object
+      properties:
+        environment_name:
+          type: string
+    CreateMembershipScopeRequest:
+      type: object
+      required: [scope_level]
+      properties:
+        project_id:
+          type: integer
+          nullable: true
+        category_id:
+          type: integer
+          nullable: true
+        scope_level:
+          type: string
+          enum: [PRODUCT, PROJECT, CATEGORY]
+    UpdateMembershipScopeRequest:
+      type: object
+      required: [scope_level]
+      properties:
+        project_id:
+          type: integer
+          nullable: true
+        category_id:
+          type: integer
+          nullable: true
+        scope_level:
+          type: string
+          enum: [PRODUCT, PROJECT, CATEGORY]
+    PermissionCheckRequest:
+      type: object
+      required: [resource_type, action]
+      properties:
+        product_id:
+          type: integer
+          nullable: true
+        project_id:
+          type: integer
+          nullable: true
+        category_id:
+          type: integer
+          nullable: true
+        resource_type:
+          type: string
+        action:
+          type: string

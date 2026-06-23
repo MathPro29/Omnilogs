@@ -13,16 +13,40 @@ type RegisterRequest struct {
 }
 
 type LoginRequest struct {
-	Email    string `json:"email" binding:"required,email"`
-	Password string `json:"password" binding:"required"`
+	Identifier string `json:"identifier" binding:"required"`
+	Password   string `json:"password" binding:"required"`
 }
 
 type RefreshTokenRequest struct {
 	RefreshToken string `json:"refreshToken" binding:"required"`
 }
+
+type LogoutRequest struct {
+	RefreshToken string `json:"refreshToken" binding:"required"`
+}
+
+type ForgotPasswordRequest struct {
+	Email string `json:"email" binding:"required,email"`
+}
+
+type ResetPasswordRequest struct {
+	Token           string `json:"token" binding:"required"`
+	NewPassword     string `json:"new_password" binding:"required,min=8"`
+	ConfirmPassword string `json:"confirm_password" binding:"required,eqfield=NewPassword"`
+}
 type GiveAdminAccessRequest struct {
 	ID     uint `json:"id" binding:"required,gt=0"`
 	RoleID uint `json:"role_id" binding:"required,oneof=1 2 3 4"`
+}
+
+type GiveAdminAccessResponse struct {
+	UserID           uint   `json:"user_id"`
+	StorageTable     string `json:"storage_table"`
+	PreviousRoleID   uint   `json:"previous_role_id"`
+	PreviousRoleCode string `json:"previous_role_code"`
+	NewRoleID        uint   `json:"new_role_id"`
+	NewRoleCode      string `json:"new_role_code"`
+	Message          string `json:"message"`
 }
 
 type UserDetailResponse struct {
@@ -84,4 +108,9 @@ type AuthTokenResponse struct {
 	UserID           uint   `json:"user_id"`
 	ExpiresIn        int64  `json:"expires_in"`
 	RefreshExpiresIn int64  `json:"refresh_expires_in,omitempty"`
+}
+
+type ForgotPasswordResponse struct {
+	Message    string `json:"message"`
+	ResetToken string `json:"reset_token,omitempty"`
 }

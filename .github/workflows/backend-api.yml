@@ -1,0 +1,43 @@
+name: Backend API CI
+
+on:
+  push:
+    paths:
+      - "backend/api/**"
+      - ".github/workflows/backend-api.yml"
+  pull_request:
+    paths:
+      - "backend/api/**"
+      - ".github/workflows/backend-api.yml"
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend/api
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/api/go.mod
+
+      - name: Check formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        run: go test ./...
+
+      - name: Swagger check
+        run: go run ./cmd/openapi validate

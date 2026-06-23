@@ -9,5 +9,7 @@ type ProductRole struct {
 	RoleCode    string          `gorm:"not null;uniqueIndex:uq_product_role_code,priority:2" json:"role_code"`
 	RoleName    string          `gorm:"not null" json:"role_name"`
 	Permissions json.RawMessage `gorm:"type:jsonb;not null" json:"permissions"`
+	IsDefault   bool            `gorm:"not null;default:false" json:"is_default"`
+	IsActive    bool            `gorm:"not null;default:true" json:"is_active"`
 	Timestamps
 }

@@ -32,6 +32,13 @@ type UpdateProjectFeatureRequest struct {
 	CategoryName *string `json:"category_name,omitempty"`
 	IsActive     *bool   `json:"is_active,omitempty"`
 }
+
+type DeleteProjectFeatureRequest struct {
+	ProductID  int `json:"product_id" binding:"required,gt=0"`
+	ProjectID  int `json:"project_id" binding:"required,gt=0"`
+	CategoryID int `json:"category_id" binding:"required,gt=0"`
+}
+
 type ProjectFeatureResponse struct {
 	CategoryID   int     `json:"category_id"`
 	ProductID    int     `json:"product_id"`

@@ -17,12 +17,13 @@ type AuditLogFilterRequest struct {
 type SystemAuditLogResponse struct {
 	AuditID   string          `json:"audit_id"`
 	UserID    *int            `json:"user_id,omitempty"`
-	ProductID *int            `json:"product_id,omitempty"`	
+	ProductID *int            `json:"product_id,omitempty"`
 	Action    string          `json:"action"`
 	Method    *string         `json:"method,omitempty"`
 	URL       *string         `json:"url,omitempty"`
 	IPAddress *string         `json:"ip_address,omitempty"`
-	QueryJSON json.RawMessage `json:"query_json,omitempty"`
-	Payload   json.RawMessage `json:"payload,omitempty"`
-	CreatedAt *time.Time      `json:"created_at,omitempty"`
+	QueryJSON  json.RawMessage `json:"query_json,omitempty"`
+	Payload    json.RawMessage `json:"payload,omitempty"`
+	StatusCode *int            `json:"status_code,omitempty"`
+	CreatedAt  *time.Time      `json:"created_at,omitempty"`
 }

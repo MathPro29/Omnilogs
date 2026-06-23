@@ -17,6 +17,12 @@ type UpdateRoleRequest struct {
 	Permissions json.RawMessage `json:"permissions,omitempty"`
 	IsActive    *bool           `json:"is_active,omitempty"`
 }
+
+type DeleteRoleRequest struct {
+	ProductID int `json:"product_id" binding:"required,gt=0"`
+	RoleID    int `json:"role_id" binding:"required,gt=0"`
+}
+
 type RoleResponse struct {
 	RoleID      int             `json:"role_id"`
 	RoleCode    string          `json:"role_code"`

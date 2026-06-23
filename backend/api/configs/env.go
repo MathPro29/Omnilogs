@@ -1,13 +1,16 @@
 package configs
 
 import (
+	"errors"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
 
 type Env struct {
+	AppEnv  string
 	AppPort string
 
 	DBHost     string
@@ -29,6 +32,9 @@ type Env struct {
 	UploadRateLimitRequests      int
 	UploadRateLimitWindowSeconds int
 
+	SwaggerEnabled bool
+	ElasticURL     string
+
 	// UploadProvider    string
 	// UploadMockBaseURL string
 
@@ -45,6 +51,7 @@ func LoadEnv() *Env {
 	_ = godotenv.Load()
 
 	return &Env{
+		AppEnv:  getEnv("APP_ENV", "development"),
 		AppPort: getEnv("APP_PORT", "2910"),
 
 		DBHost:     getEnv("DB_HOST", "localhost"),
@@ -65,7 +72,48 @@ func LoadEnv() *Env {
 		AuthRateLimitWindowSeconds:   getEnvInt("AUTH_RATE_LIMIT_WINDOW_SECONDS", 60),
 		UploadRateLimitRequests:      getEnvInt("UPLOAD_RATE_LIMIT_REQUESTS", 20),
 		UploadRateLimitWindowSeconds: getEnvInt("UPLOAD_RATE_LIMIT_WINDOW_SECONDS", 60),
+
+		SwaggerEnabled: getEnvBool("SWAGGER_ENABLED", true),
+		ElasticURL:     getEnv("ELASTICSEARCH_URL", "http://localhost:9200"),
 	}
+}
+
+func (e *Env) Validate() error {
+	var problems []string
+
+	if strings.TrimSpace(e.AppPort) == "" {
+		problems = append(problems, "APP_PORT is required")
+	}
+	if strings.TrimSpace(e.DBHost) == "" {
+		problems = append(problems, "DB_HOST is required")
+	}
+	if strings.TrimSpace(e.DBPort) == "" {
+		problems = append(problems, "DB_PORT is required")
+	}
+	if strings.TrimSpace(e.DBName) == "" {
+		problems = append(problems, "DB_NAME is required")
+	}
+	if strings.TrimSpace(e.DBUsername) == "" {
+		problems = append(problems, "DB_USERNAME is required")
+	}
+	if strings.TrimSpace(e.JWTSecret) == "" || e.JWTSecret == "change-me" {
+		problems = append(problems, "JWT_SECRET must be configured")
+	}
+	if e.AccessTokenExpireSeconds <= 0 {
+		problems = append(problems, "ACCESS_TOKEN_EXPIRE_SECONDS must be greater than 0")
+	}
+	if e.RefreshTokenExpireSeconds <= 0 {
+		problems = append(problems, "REFRESH_TOKEN_EXPIRE_SECONDS must be greater than 0")
+	}
+	if strings.TrimSpace(e.ElasticURL) == "" {
+		problems = append(problems, "ELASTICSEARCH_URL is required")
+	}
+
+	if len(problems) == 0 {
+		return nil
+	}
+
+	return errors.New(strings.Join(problems, "; "))
 }
 
 func getEnv(key string, fallback string) string {

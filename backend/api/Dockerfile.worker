@@ -1,0 +1,12 @@
+FROM golang:1.25 AS builder
+
+WORKDIR /app
+COPY . .
+RUN go build -o /bin/omnilogs-worker ./cmd/worker
+
+FROM debian:bookworm-slim
+
+WORKDIR /app
+COPY --from=builder /bin/omnilogs-worker /usr/local/bin/omnilogs-worker
+
+CMD ["omnilogs-worker"]

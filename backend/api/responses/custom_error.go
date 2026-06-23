@@ -11,6 +11,7 @@ var ErrorCode = map[string]string{
 	"INVALID_CREDENTIAL":   "Invalid credential",
 	"FORBIDDEN":            "Forbidden or Permission Denied",
 	"INTERNAL_ERROR":       "Internal Server Error",
+	"INVALID_RESET_TOKEN":  "Invalid reset token",
 }
 
 var ErrorUserCode = map[string]error{
@@ -19,4 +20,12 @@ var ErrorUserCode = map[string]error{
 	"INVALID_CREDENTIAL":    errors.New("INVALID_CREDENTIAL"),
 	"FORBIDDEN":             errors.New("FORBIDDEN"),
 	"INVALID_REFRESH_TOKEN": errors.New("INVALID_REFRESH_TOKEN"),
+	"INVALID_RESET_TOKEN":   errors.New("INVALID_RESET_TOKEN"),
+}
+
+var ErrorScopeCode = map[string]error{
+	"SCOPE_NOT_FOUND":  errors.New("scope resource not found"),
+	"SCOPE_ACCESS_DENIED":    errors.New("scope access denied"),
+	"SCOPE_CONFLICT":    errors.New("scope resource already exists"),
+	"INVALID_SCOPE":   errors.New("invalid scope relationship"),
 }

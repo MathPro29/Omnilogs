@@ -1,0 +1,15 @@
+FROM golang:1.25 AS builder
+
+WORKDIR /app
+COPY . .
+RUN go build -o /bin/omnilogs-api ./cmd/api
+
+FROM debian:bookworm-slim
+
+WORKDIR /app
+COPY --from=builder /bin/omnilogs-api /usr/local/bin/omnilogs-api
+COPY docs/swagger ./docs/swagger
+COPY api/openapi.yaml ./api/openapi.yaml
+
+EXPOSE 2910
+CMD ["omnilogs-api"]

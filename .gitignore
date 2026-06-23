@@ -23,3 +23,5 @@ bin/
 .DS_Store
 Thumbs.db
 .cache/
+.tmpgocache/
+.tmpgomodcache/
