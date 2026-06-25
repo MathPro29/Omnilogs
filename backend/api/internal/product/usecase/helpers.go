@@ -24,6 +24,17 @@ func validJSON(value json.RawMessage) bool { return len(value) > 0 && json.Valid
 
 func normalizeCode(value string) string { return strings.ToLower(strings.TrimSpace(value)) }
 
+func trimStringPtr(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
+}
+
 func classifyDBError(err error) error {
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return ErrNotFound

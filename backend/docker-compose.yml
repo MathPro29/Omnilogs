@@ -1,10 +1,9 @@
-version: "3.9"
-
 services:
   api:
     build:
       context: ./api
-      dockerfile: Dockerfile.api
+      dockerfile: Dockerfile
+      target: api
     environment:
       APP_ENV: development
       APP_PORT: 2910
@@ -17,6 +16,7 @@ services:
       ACCESS_TOKEN_EXPIRE_SECONDS: 900
       REFRESH_TOKEN_EXPIRE_SECONDS: 604800
       SWAGGER_ENABLED: "true"
+      ELASTICSEARCH_URL: http://elasticsearch:9200
     depends_on:
       - postgres
       - elasticsearch
@@ -26,7 +26,8 @@ services:
   worker:
     build:
       context: ./api
-      dockerfile: Dockerfile.worker
+      dockerfile: Dockerfile
+      target: worker
     environment:
       APP_ENV: development
       APP_PORT: 2911
@@ -39,21 +40,28 @@ services:
       ACCESS_TOKEN_EXPIRE_SECONDS: 900
       REFRESH_TOKEN_EXPIRE_SECONDS: 604800
       SWAGGER_ENABLED: "false"
+      ELASTICSEARCH_URL: http://elasticsearch:9200
     depends_on:
       - postgres
       - elasticsearch
 
   postgres:
     image: postgres:16
+    container_name: omnilogs-postgres
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: admin
       POSTGRES_DB: omnilogs
     ports:
-      - "5432:5432"
+      - "5499:5432"
+    volumes:
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - postgres_data:/var/lib/postgresql/data
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.14.0
+    container_name: omnilogs-elastic
+    hostname: elasticsearch
     environment:
       discovery.type: single-node
       xpack.security.enabled: "false"
@@ -62,3 +70,13 @@ services:
       ES_JAVA_OPTS: -Xms512m -Xmx512m
     ports:
       - "9200:9200"
+    volumes:
+      - elastic_data:/usr/share/elasticsearch/data
+
+volumes:
+  postgres_data:
+    name: omnilogs-demo_postgres_data
+    external: true
+  elastic_data:
+    name: omnilogs-demo_elastic_data
+    external: true

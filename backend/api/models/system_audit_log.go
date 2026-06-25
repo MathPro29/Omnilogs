@@ -16,5 +16,6 @@ type SystemAuditLog struct {
 	QueryJSON  json.RawMessage `gorm:"type:jsonb" json:"query_json,omitempty"`
 	Payload    json.RawMessage `gorm:"type:jsonb" json:"payload,omitempty"`
 	StatusCode *int            `json:"status_code,omitempty"`
+	Reason     *string         `json:"reason,omitempty"`
 	CreatedAt  *time.Time      `gorm:"type:timestamptz" json:"created_at,omitempty"`
 }

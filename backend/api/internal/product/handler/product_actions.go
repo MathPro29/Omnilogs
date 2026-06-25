@@ -27,6 +27,7 @@ func (h *Handler) CreateProduct(c *gin.Context) {
 	}
 	utils.Success(c, http.StatusCreated, value)
 }
+
 func (h *Handler) ListProducts(c *gin.Context) {
 	a, _ := actor(c)
 	values, err := h.usecase.ListProducts(a)
@@ -36,6 +37,7 @@ func (h *Handler) ListProducts(c *gin.Context) {
 	}
 	utils.Success(c, http.StatusOK, values)
 }
+
 func (h *Handler) GetProduct(c *gin.Context) {
 	a, _ := actor(c)
 	productID, ok := idParam(c, "productId")
@@ -49,6 +51,7 @@ func (h *Handler) GetProduct(c *gin.Context) {
 	}
 	utils.Success(c, http.StatusOK, value)
 }
+
 func (h *Handler) UpdateProduct(c *gin.Context) {
 	a, _ := actor(c)
 	productID, ok := idParam(c, "productId")
@@ -65,4 +68,17 @@ func (h *Handler) UpdateProduct(c *gin.Context) {
 		return
 	}
 	utils.Success(c, http.StatusOK, value)
+}
+
+func (h *Handler) DeleteProduct(c *gin.Context) {
+	a, _ := actor(c)
+	productID, ok := idParam(c, "productId")
+	if !ok {
+		return
+	}
+	if err := h.usecase.DeleteProduct(a, productID); err != nil {
+		fail(c, err)
+		return
+	}
+	utils.Success(c, http.StatusOK, gin.H{"product_id": productID, "status": "deleted"})
 }

@@ -122,6 +122,7 @@ type LogIndexRefResponse struct {
 	BatchID            *string    `json:"batch_id,omitempty"`
 	QueueItemID        *int64     `json:"queue_item_id,omitempty"`
 	ResponseStatusCode *int       `json:"response_status_code,omitempty"`
+	Reason             *string    `json:"reason,omitempty"`
 	DurationMs         *int       `json:"duration_ms,omitempty"`
 	LogLevel           *string    `json:"log_level,omitempty"`
 	EventType          *string    `json:"event_type,omitempty"`

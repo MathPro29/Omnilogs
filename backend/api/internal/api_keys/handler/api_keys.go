@@ -9,70 +9,85 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func (h *Handler) CreateMembership(c *gin.Context) {
+func (h *Handler) CreateAPIKey(c *gin.Context) {
 	a, _ := actor(c)
 	productID, ok := idParam(c, "productId")
 	if !ok {
 		return
 	}
-	var req dto.CreateProductMembershipRequest
+
+	var req dto.CreateAPIKeyRequest
 	if !bind(c, &req) {
 		return
 	}
-	value, err := h.usecase.CreateMembership(a, productID, req)
+
+	value, err := h.usecase.CreateAPIKey(a, productID, req)
 	if err != nil {
 		fail(c, err)
 		return
 	}
+
 	utils.Success(c, http.StatusCreated, value)
 }
-func (h *Handler) ListMemberships(c *gin.Context) {
+
+func (h *Handler) ListAPIKeys(c *gin.Context) {
 	a, _ := actor(c)
 	productID, ok := idParam(c, "productId")
 	if !ok {
 		return
 	}
-	values, err := h.usecase.ListMemberships(a, productID)
+
+	values, err := h.usecase.ListAPIKeys(a, productID)
 	if err != nil {
 		fail(c, err)
 		return
 	}
+
 	utils.Success(c, http.StatusOK, values)
 }
-func (h *Handler) UpdateMembership(c *gin.Context) {
+
+func (h *Handler) UpdateAPIKey(c *gin.Context) {
 	a, _ := actor(c)
 	productID, ok := idParam(c, "productId")
 	if !ok {
 		return
 	}
-	id, ok := idParam(c, "membershipId")
+
+	keyID, ok := idParam(c, "keyId")
 	if !ok {
 		return
 	}
-	var req dto.UpdateProductMembershipRequest
+
+	var req dto.UpdateAPIKeyRequest
 	if !bind(c, &req) {
 		return
 	}
-	value, err := h.usecase.UpdateMembership(a, productID, id, req)
+
+	value, err := h.usecase.UpdateAPIKey(a, productID, keyID, req)
 	if err != nil {
 		fail(c, err)
 		return
 	}
+
 	utils.Success(c, http.StatusOK, value)
 }
-func (h *Handler) DeleteMembership(c *gin.Context) {
+
+func (h *Handler) RevokeAPIKey(c *gin.Context) {
 	a, _ := actor(c)
 	productID, ok := idParam(c, "productId")
 	if !ok {
 		return
 	}
-	id, ok := idParam(c, "membershipId")
+
+	keyID, ok := idParam(c, "keyId")
 	if !ok {
 		return
 	}
-	if err := h.usecase.DeleteMembership(a, productID, id); err != nil {
+
+	if err := h.usecase.RevokeAPIKey(a, productID, keyID); err != nil {
 		fail(c, err)
 		return
 	}
-	utils.Success(c, http.StatusOK, gin.H{"membership_id": id, "status": "deleted"})
+
+	utils.Success(c, http.StatusOK, gin.H{"key_id": keyID, "status": "revoked"})
 }

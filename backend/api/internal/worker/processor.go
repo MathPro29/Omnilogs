@@ -7,14 +7,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
-	"log"
-	"net/http"
 	"strings"
 	"time"
 
+	"log/slog"
 	"omnilogs-api/models"
 
+	"github.com/elastic/go-elasticsearch/v8"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -28,20 +27,16 @@ const (
 // PostgreSQL, ส่งแต่ละ log ไปยัง Elasticsearch และอัปเดตตารางติดตามสถานะ
 // เพื่อให้ฝั่ง API สามารถตรวจสอบผลการประมวลผลย้อนหลังได้
 type Processor struct {
-	db         *gorm.DB
-	elasticURL string
-	workerID   string
-	client     *http.Client
+	db       *gorm.DB
+	esClient *elasticsearch.Client
+	workerID string
 }
 
-func NewProcessor(db *gorm.DB, elasticURL string) *Processor {
+func NewProcessor(db *gorm.DB, esClient *elasticsearch.Client) *Processor {
 	return &Processor{
-		db:         db,
-		elasticURL: strings.TrimRight(strings.TrimSpace(elasticURL), "/"),
-		workerID:   "worker-" + newUUID(),
-		client: &http.Client{
-			Timeout: 15 * time.Second,
-		},
+		db:       db,
+		esClient: esClient,
+		workerID: "worker-" + newUUID(),
 	}
 }
 
@@ -52,7 +47,10 @@ func (p *Processor) Run(ctx context.Context) error {
 
 	for {
 		if err := p.processNextBatch(ctx); err != nil {
-			log.Printf("worker %s: batch processing failed: %v", p.workerID, err)
+			slog.Error("batch processing failed",
+				slog.String("worker_id", p.workerID),
+				slog.Any("error", err),
+			)
 		}
 
 		select {
@@ -69,7 +67,11 @@ func (p *Processor) processNextBatch(ctx context.Context) error {
 		return err
 	}
 
-	log.Printf("worker %s: claimed batch %s with %d log(s)", p.workerID, batch.BatchID, batch.TotalLogs)
+	slog.Info("claimed batch",
+		slog.String("worker_id", p.workerID),
+		slog.String("batch_id", batch.BatchID),
+		slog.Int("total_logs", batch.TotalLogs),
+	)
 
 	items, err := p.loadPendingItems(ctx, batch.BatchID)
 	if err != nil {
@@ -295,7 +297,7 @@ func (p *Processor) handleItemFailure(ctx context.Context, batch *models.LogQueu
 	if nextStatus == "RETRY_PENDING" {
 		return fmt.Errorf("retry scheduled: %s", reason)
 	}
-	return fmt.Errorf(reason)
+	return fmt.Errorf("%s", reason)
 }
 
 func (p *Processor) finishBatch(ctx context.Context, batchID, status string, message *string) error {
@@ -336,23 +338,21 @@ func (p *Processor) indexDocument(ctx context.Context, indexName, docID string, 
 		return 0, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, fmt.Sprintf("%s/%s/_doc/%s", p.elasticURL, indexName, docID), bytes.NewReader(body))
+	res, err := p.esClient.Index(
+		indexName,
+		bytes.NewReader(body),
+		p.esClient.Index.WithDocumentID(docID),
+		p.esClient.Index.WithContext(ctx),
+	)
 	if err != nil {
 		return 0, err
 	}
-	req.Header.Set("Content-Type", "application/json")
+	defer res.Body.Close()
 
-	resp, err := p.client.Do(req)
-	if err != nil {
-		return 0, err
+	if res.IsError() {
+		return res.StatusCode, fmt.Errorf("elasticsearch returned status %d: %s", res.StatusCode, res.String())
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= http.StatusBadRequest {
-		payload, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return resp.StatusCode, fmt.Errorf("elasticsearch returned %d: %s", resp.StatusCode, strings.TrimSpace(string(payload)))
-	}
-	return resp.StatusCode, nil
+	return res.StatusCode, nil
 }
 
 type indexedLogMeta struct {

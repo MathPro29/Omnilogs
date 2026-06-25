@@ -19,6 +19,11 @@ type Env struct {
 	DBUsername string
 	DBPassword string
 
+	DBMaxOpenConns            int
+	DBMaxIdleConns            int
+	DBConnMaxIdleTimeSeconds  int
+	DBConnMaxLifetimeSeconds  int
+
 	JWTSecret                 string
 	AccessTokenExpireSeconds  int
 	RefreshTokenExpireSeconds int
@@ -59,6 +64,11 @@ func LoadEnv() *Env {
 		DBName:     getEnv("DB_NAME", "omnilogs-api"),
 		DBUsername: getEnv("DB_USERNAME", "postgres"),
 		DBPassword: getEnv("DB_PASSWORD", "admin"),
+
+		DBMaxOpenConns:            getEnvInt("DB_MAX_OPEN_CONNS", 25),
+		DBMaxIdleConns:            getEnvInt("DB_MAX_IDLE_CONNS", 25),
+		DBConnMaxIdleTimeSeconds:  getEnvInt("DB_CONN_MAX_IDLE_TIME_SECONDS", 300),
+		DBConnMaxLifetimeSeconds:  getEnvInt("DB_CONN_MAX_LIFETIME_SECONDS", 1800),
 
 		JWTSecret:                 getEnv("JWT_SECRET", "change-me"),
 		AccessTokenExpireSeconds:  getEnvInt("ACCESS_TOKEN_EXPIRE_SECONDS", 900),

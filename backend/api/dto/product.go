@@ -14,6 +14,11 @@ type UpdateProductRequest struct {
 	ProductName *string `json:"product_name,omitempty"`
 	IsActive    *bool   `json:"is_active,omitempty"`
 }
+
+type DeleteProductRequest struct {
+	ProductID int `json:"product_id" binding:"required"`
+}
+
 type ProductResponse struct {
 	ProductID           int                   `json:"product_id"`
 	ProductName         string                `json:"product_name"`

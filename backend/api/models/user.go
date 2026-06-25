@@ -1,6 +1,10 @@
 package models
 
-import "time"
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
 
 type User struct {
 	UserID       int        `gorm:"primaryKey;autoIncrement" json:"user_id"`
@@ -13,7 +17,7 @@ type User struct {
 	IsActive     bool       `gorm:"not null;default:true" json:"is_active"`
 	LastLoginAt  *time.Time `gorm:"type:timestamptz" json:"last_login_at,omitempty"`
 	Timestamps
-	DeletedAt *time.Time `gorm:"type:timestamptz;index" json:"deleted_at,omitempty"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at,omitempty"` 
 	RoleID    uint       `gorm:"-" json:"role_id,omitempty"`
 	Role      *UserRole  `gorm:"-" json:"role,omitempty"`
 }

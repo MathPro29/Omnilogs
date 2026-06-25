@@ -12,6 +12,7 @@ type LogIndexRef struct {
 	BatchID            *string    `gorm:"type:uuid;index" json:"batch_id,omitempty"`
 	QueueItemID        *int64     `gorm:"index" json:"queue_item_id,omitempty"`
 	ResponseStatusCode *int       `json:"response_status_code,omitempty"`
+	Reason             *string    `json:"reason,omitempty"`
 	DurationMs         *int       `json:"duration_ms,omitempty"`
 	LogLevel           *string    `json:"log_level,omitempty"`
 	EventType          *string    `json:"event_type,omitempty"`

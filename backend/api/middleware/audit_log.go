@@ -6,11 +6,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"omnilogs-api/models"
+	"omnilogs-api/utils"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -64,6 +66,16 @@ func AuditLogger(db *gorm.DB) gin.HandlerFunc {
 
 		statusCode := c.Writer.Status()
 
+		var reason *string
+		if val, exists := c.Get("audit_reason"); exists {
+			if rStr, ok := val.(string); ok {
+				reason = stringPointer(rStr)
+			}
+		}
+		if reason == nil {
+			reason = stringPointer(http.StatusText(statusCode))
+		}
+
 		record := models.SystemAuditLog{
 			AuditID:    newAuditUUID(),
 			UserID:     auditUserID(c),
@@ -74,13 +86,22 @@ func AuditLogger(db *gorm.DB) gin.HandlerFunc {
 			IPAddress:  stringPointer(c.ClientIP()),
 			QueryJSON:  sanitizeJSONBytes(queryJSON(c.Request.URL.Query())),
 			Payload:    sanitizeJSONBytes(requestBody),
+			Reason:     reason,
 			StatusCode: &statusCode,
 		}
 
-		// go routine to not block the response
-		go func(rec models.SystemAuditLog) {
-			_ = db.Create(&rec).Error
-		}(record)
+		// [KEY:GO ROUTINE] run in background safely using helper function
+		utils.SafeGo(func() {
+			bgDB := utils.GetBackgroundDB(db)
+			if bgDB == nil {
+				log.Printf("[ERROR] Failed to save audit log: DB context is nil")
+				return
+			}
+			// Save the audit log using the background DB context
+			if err := bgDB.Create(&record).Error; err != nil {
+				log.Printf("[DATABASE_FAIL / ฐานข้อมูลล่ม] Failed to save audit log: %v, Data: %+v", err, record)
+			}
+		})
 	}
 }
 

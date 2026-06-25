@@ -2,7 +2,7 @@ package bootstrap
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -14,8 +14,8 @@ import (
 )
 
 func RunWorker(env *configs.Env, db *gorm.DB) error {
-	log.Printf("omnilogs worker starting in %s", env.AppEnv)
-	log.Println("worker ตัวนี้มีหน้าที่ดึง log ที่ค้างในคิวจาก PostgreSQL แล้วส่งต่อไป index ใน Elasticsearch")
+	slog.Info("omnilogs worker starting", "env", env.AppEnv)
+	slog.Info("worker pulls pending logs from PostgreSQL queue and indexes them into Elasticsearch")
 
 	sqlDB, err := db.DB()
 	if err != nil {
@@ -25,7 +25,12 @@ func RunWorker(env *configs.Env, db *gorm.DB) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	processor := workerprocessor.NewProcessor(db, env.ElasticURL)
+	esClient, err := configs.ConnectElasticsearch(env)
+	if err != nil {
+		return err
+	}
+
+	processor := workerprocessor.NewProcessor(db, esClient)
 	done := make(chan error, 1)
 	go func() {
 		// ลูปนี้จะคอยหยิบ batch จากคิวมาประมวลผลและส่งเข้า pipeline ของการ index
@@ -37,7 +42,7 @@ func RunWorker(env *configs.Env, db *gorm.DB) error {
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	select {
 	case sig := <-stop:
-		log.Printf("worker received shutdown signal: %s", sig)
+		slog.Info("worker received shutdown signal", "signal", sig.String())
 		cancel()
 	case err := <-done:
 		cancel()
@@ -58,6 +63,6 @@ func RunWorker(env *configs.Env, db *gorm.DB) error {
 		return err
 	}
 
-	log.Println("worker shutdown completed")
+	slog.Info("worker shutdown completed")
 	return nil
 }

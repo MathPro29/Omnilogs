@@ -2,6 +2,7 @@ package configs
 
 import (
 	"fmt"
+	"time"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -16,6 +17,20 @@ func ConnectDB(env *Env) (*gorm.DB, error) {
 		env.DBName,
 		env.DBPort,
 	)
-	return gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		return nil, err
+	}
 
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, err
+	}
+
+	sqlDB.SetMaxOpenConns(env.DBMaxOpenConns)
+	sqlDB.SetMaxIdleConns(env.DBMaxIdleConns)
+	sqlDB.SetConnMaxLifetime(time.Duration(env.DBConnMaxLifetimeSeconds) * time.Second)
+	sqlDB.SetConnMaxIdleTime(time.Duration(env.DBConnMaxIdleTimeSeconds) * time.Second)
+
+	return db, nil
 }

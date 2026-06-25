@@ -1,0 +1,22 @@
+# Ignore local binaries and build artifacts
+omnilogs-api.exe
+omnilogs-worker.exe
+bin/
+obj/
+
+# Ignore environments and secrets
+.env
+.env.*
+!.env.example
+
+# Ignore git and IDE directories
+.git
+.github
+.vscode
+.idea
+
+# Ignore temporary and test cache files
+.tmpgocache
+.tmpgomodcache
+*~
+*.log

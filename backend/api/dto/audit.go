@@ -25,5 +25,6 @@ type SystemAuditLogResponse struct {
 	QueryJSON  json.RawMessage `json:"query_json,omitempty"`
 	Payload    json.RawMessage `json:"payload,omitempty"`
 	StatusCode *int            `json:"status_code,omitempty"`
+	Reason     *string         `json:"reason,omitempty"`
 	CreatedAt  *time.Time      `json:"created_at,omitempty"`
 }

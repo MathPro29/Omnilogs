@@ -25,3 +25,7 @@ Thumbs.db
 .cache/
 .tmpgocache/
 .tmpgomodcache/
+
+# Github
+.github/workflows/*.yml
+

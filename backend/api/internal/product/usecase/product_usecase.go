@@ -96,3 +96,13 @@ func (u *usecase) UpdateProduct(actor Actor, productID int, req dto.UpdateProduc
 	}
 	return u.GetProduct(actor, productID)
 }
+
+func (u *usecase) DeleteProduct(actor Actor, productID int) error {
+	if err := u.authorize(actor, AccessTarget{ProductID: productID}, "PRODUCT", "DELETE"); err != nil {
+		return err
+	}
+	if err := u.repository.DB().Delete(&models.Product{}, productID).Error; err != nil {
+		return classifyDBError(err)
+	}
+	return nil
+}

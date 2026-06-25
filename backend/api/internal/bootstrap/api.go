@@ -3,7 +3,7 @@ package bootstrap
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -16,13 +16,19 @@ import (
 	"omnilogs-api/middleware"
 	"omnilogs-api/routes"
 
+	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
 func RunAPIServer(env *configs.Env, db *gorm.DB) error {
-	router := NewRouter(env, db)
+	esClient, err := configs.ConnectElasticsearch(env)
+	if err != nil {
+		return err
+	}
+
+	router := NewRouter(env, db, esClient)
 	server := &http.Server{
 		Addr:              ":" + env.AppPort,
 		Handler:           router,
@@ -31,11 +37,12 @@ func RunAPIServer(env *configs.Env, db *gorm.DB) error {
 
 	go func() {
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("server stopped unexpectedly: %v", err)
+			slog.Error("server stopped unexpectedly", "error", err)
+			os.Exit(1)
 		}
 	}()
 
-	log.Printf("omnilogs api listening on %s", server.Addr)
+	slog.Info("omnilogs api listening", "addr", server.Addr)
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
@@ -48,12 +55,14 @@ func RunAPIServer(env *configs.Env, db *gorm.DB) error {
 		return err
 	}
 
-	log.Println("server shutdown completed")
+	slog.Info("server shutdown completed")
 	return nil
 }
 
-func NewRouter(env *configs.Env, db *gorm.DB) *gin.Engine {
-	router := gin.Default()
+func NewRouter(env *configs.Env, db *gorm.DB, esClient *elasticsearch.Client) *gin.Engine {
+	router := gin.New()
+	router.Use(gin.Logger())
+	router.Use(middleware.Recovery())
 
 	config := cors.DefaultConfig()
 	config.AllowMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}
@@ -71,7 +80,7 @@ func NewRouter(env *configs.Env, db *gorm.DB) *gin.Engine {
 		if err := pingDatabase(ctx, db); err != nil {
 			return err
 		}
-		return pingElasticsearch(ctx, env.ElasticURL)
+		return pingElasticsearch(ctx, esClient)
 	})
 	routes.SwaggerRoutes(router, env)
 	routes.RegisterAuthRoutes(router, db, env)
@@ -106,21 +115,17 @@ func pingDatabase(ctx context.Context, db *gorm.DB) error {
 	return sqlDB.PingContext(ctx)
 }
 
-func pingElasticsearch(ctx context.Context, elasticURL string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, elasticURL, nil)
+func pingElasticsearch(ctx context.Context, esClient *elasticsearch.Client) error {
+	res, err := esClient.Info(esClient.Info.WithContext(ctx))
 	if err != nil {
 		return err
 	}
+	defer res.Body.Close()
 
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
+	if res.IsError() {
+		return fmt.Errorf("elasticsearch returned status %d", res.StatusCode)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= http.StatusBadRequest {
-		return fmt.Errorf("elasticsearch returned status %d", resp.StatusCode)
-	}
+	
 
 	return nil
 }

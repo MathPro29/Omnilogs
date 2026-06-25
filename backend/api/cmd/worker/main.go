@@ -2,6 +2,8 @@ package main
 
 import (
 	"log"
+	"log/slog"
+	"os"
 
 	"omnilogs-api/configs"
 	"omnilogs-api/internal/bootstrap"
@@ -13,12 +15,16 @@ func main() {
 		log.Fatalf("invalid environment configuration: %v", err)
 	}
 
+	configs.InitLogger(env)
+
 	db, err := configs.ConnectDB(env)
 	if err != nil {
-		log.Fatalf("connect database failed: %v", err)
+		slog.Error("connect database failed", "error", err)
+		os.Exit(1)
 	}
 
 	if err := bootstrap.RunWorker(env, db); err != nil {
-		log.Fatalf("worker shutdown failed: %v", err)
+		slog.Error("worker shutdown failed", "error", err)
+		os.Exit(1)
 	}
 }
