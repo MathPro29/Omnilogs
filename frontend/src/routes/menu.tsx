@@ -3,6 +3,10 @@ import {
   HomeIcon,
   UsersIcon,
   Cog6ToothIcon,
+  ClipboardDocumentListIcon,
+  BeakerIcon,
+  Squares2X2Icon,
+  ChartBarSquareIcon,
 } from '@heroicons/react/24/outline';
 import { ROUTES, PERMISSIONS, MENU_KEYS } from '@/constants';
 import type { MenuItem } from '@/types';
@@ -20,6 +24,12 @@ import type { MenuItem } from '@/types';
  * 3. ถ้าเป็น submenu ให้ใส่ใน children array
  */
 export const menuConfig: MenuItem[] = [
+  {
+    key: MENU_KEYS.API_TEST,
+    label: 'API Test',
+    icon: <BeakerIcon className="w-5 h-5" /> as ReactNode,
+    path: ROUTES.API_TEST,
+  },
   // ===== แดชบอร์ด =====
   {
     key: MENU_KEYS.DASHBOARD,
@@ -27,6 +37,19 @@ export const menuConfig: MenuItem[] = [
     icon: <HomeIcon className="w-5 h-5" /> as ReactNode,
     path: ROUTES.DASHBOARD,
     requiredPermissions: [PERMISSIONS.DASHBOARD_VIEW],
+  },
+  // ===== Logs Explorer =====
+  {
+    key: MENU_KEYS.LOGS_EXPLORER,
+    label: 'Logs Explorer',
+    icon: <ChartBarSquareIcon className="w-5 h-5" /> as ReactNode,
+    path: ROUTES.LOGS_EXPLORER,
+  },
+  {
+    key: MENU_KEYS.PRODUCTS,
+    label: 'ผลิตภัณฑ์ที่จัดการ',
+    icon: <Squares2X2Icon className="w-5 h-5" /> as ReactNode,
+    path: ROUTES.PRODUCTS,
   },
 
   // ===== จัดการผู้ใช้ (submenu) =====
@@ -51,6 +74,14 @@ export const menuConfig: MenuItem[] = [
     ],
   },
 
+  // ===== บันทึกกิจกรรม (Audits) =====
+  {
+    key: MENU_KEYS.AUDITS,
+    label: 'บันทึกกิจกรรม',
+    icon: <ClipboardDocumentListIcon className="w-5 h-5" /> as ReactNode,
+    path: ROUTES.AUDITS,
+  },
+
   // ===== ตั้งค่าระบบ =====
   {
     key: MENU_KEYS.SETTINGS,
@@ -59,13 +90,4 @@ export const menuConfig: MenuItem[] = [
     path: ROUTES.SETTINGS,
     requiredPermissions: [PERMISSIONS.SETTINGS_VIEW],
   },
-
-  // ===== เพิ่ม menu ใหม่ที่นี่ =====
-  // {
-  //   key: MENU_KEYS.LEAVES,
-  //   label: 'ลาหยุด',
-  //   icon: <CalendarIcon className="w-5 h-5" /> as ReactNode,
-  //   path: ROUTES.LEAVES,
-  //   requiredPermissions: [PERMISSIONS.LEAVE_VIEW],
-  // },
 ];

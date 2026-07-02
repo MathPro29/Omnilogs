@@ -1,27 +1,28 @@
 services:
-  api:
-    build:
-      context: ./api
-      dockerfile: Dockerfile
-      target: api
-    environment:
-      APP_ENV: development
-      APP_PORT: 2910
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: omnilogs
-      DB_USERNAME: postgres
-      DB_PASSWORD: admin
-      JWT_SECRET: development-secret
-      ACCESS_TOKEN_EXPIRE_SECONDS: 900
-      REFRESH_TOKEN_EXPIRE_SECONDS: 604800
-      SWAGGER_ENABLED: "true"
-      ELASTICSEARCH_URL: http://elasticsearch:9200
-    depends_on:
-      - postgres
-      - elasticsearch
-    ports:
-      - "2910:2910"
+#   api:
+#     build:
+#       context: ./api
+#       dockerfile: Dockerfile
+#       target: api
+#     environment:
+#       APP_ENV: development
+#       APP_PORT: 2910
+#       DB_HOST: postgres
+#       DB_PORT: 5432
+#       DB_NAME: omnilogs
+#       DB_USERNAME: postgres
+#       DB_PASSWORD: admin
+#       JWT_SECRET: development-secret
+#       DATA_ENCRYPTION_KEY: abcdefghijklmnopqrstuvwxyz123456
+#       ACCESS_TOKEN_EXPIRE_SECONDS: 900
+#       REFRESH_TOKEN_EXPIRE_SECONDS: 604800
+#       SWAGGER_ENABLED: "true"
+#       ELASTICSEARCH_URL: http://elasticsearch:9200
+#     depends_on:
+#       - postgres
+#       - elasticsearch
+#     ports:
+#       - "2910:2910"
 
   worker:
     build:
@@ -37,6 +38,7 @@ services:
       DB_USERNAME: postgres
       DB_PASSWORD: admin
       JWT_SECRET: development-secret
+      DATA_ENCRYPTION_KEY: abcdefghijklmnopqrstuvwxyz123456
       ACCESS_TOKEN_EXPIRE_SECONDS: 900
       REFRESH_TOKEN_EXPIRE_SECONDS: 604800
       SWAGGER_ENABLED: "false"

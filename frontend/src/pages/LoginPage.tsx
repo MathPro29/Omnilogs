@@ -86,7 +86,7 @@ export function LoginPage() {
           size="large"
         >
           <Form.Item
-            name="username"
+            name="identifier"
             label="ชื่อผู้ใช้"
             rules={[{ required: true, message: 'กรุณากรอกชื่อผู้ใช้' }]}
           >
@@ -139,6 +139,9 @@ export function LoginPage() {
           >
             ทดสอบเข้าสู่ระบบ: admin / admin123
           </Paragraph>
+        </div>
+        <div className="mt-3 text-center">
+          <a href={ROUTES.API_TEST}>API Test</a>
         </div>
       </motion.div>
     </Card>

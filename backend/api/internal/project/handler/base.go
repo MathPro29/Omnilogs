@@ -41,13 +41,13 @@ func bind(c *gin.Context, value any) bool {
 
 func fail(c *gin.Context, err error) {
 	switch {
-	case errors.Is(err, usecase.ErrNotFound):
+	case errors.Is(err, responses.ErrNotFound):
 		responses.NotFound(c, "project resource not found")
-	case errors.Is(err, usecase.ErrForbidden):
+	case errors.Is(err, responses.ErrForbidden):
 		responses.Forbidden(c, "project permission denied")
-	case errors.Is(err, usecase.ErrConflict):
+	case errors.Is(err, responses.ErrConflict):
 		utils.Error(c, http.StatusConflict, "CONFLICT", "project resource already exists")
-	case errors.Is(err, usecase.ErrInvalid):
+	case errors.Is(err, responses.ErrInvalid):
 		responses.BadRequest(c, "invalid project relationship or payload")
 	default:
 		responses.Error(c, "INTERNAL_ERROR", "internal server error", err)

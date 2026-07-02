@@ -3,6 +3,7 @@ package configs
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -12,6 +13,7 @@ import (
 type Env struct {
 	AppEnv  string
 	AppPort string
+	DataEncryptionKey string
 
 	DBHost     string
 	DBPort     string
@@ -53,7 +55,7 @@ type Env struct {
 }
 
 func LoadEnv() *Env {
-	_ = godotenv.Load()
+	loadDotEnv()
 
 	return &Env{
 		AppEnv:  getEnv("APP_ENV", "development"),
@@ -85,11 +87,43 @@ func LoadEnv() *Env {
 
 		SwaggerEnabled: getEnvBool("SWAGGER_ENABLED", true),
 		ElasticURL:     getEnv("ELASTICSEARCH_URL", "http://localhost:9200"),
+
+		DataEncryptionKey: getEnv("DATA_ENCRYPTION_KEY", ""),
 	}
+}
+
+func loadDotEnv() {
+	candidates := []string{
+		".env",
+		"api/.env",
+		"backend/api/.env",
+		filepath.Join("..", ".env"),
+		filepath.Join("..", "api", ".env"),
+	}
+
+	seen := make(map[string]struct{}, len(candidates))
+	paths := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		cleaned := filepath.Clean(candidate)
+		if _, ok := seen[cleaned]; ok {
+			continue
+		}
+		if _, err := os.Stat(cleaned); err == nil {
+			seen[cleaned] = struct{}{}
+			paths = append(paths, cleaned)
+		}
+	}
+
+	if len(paths) == 0 {
+		return
+	}
+
+	_ = godotenv.Load(paths...)
 }
 
 func (e *Env) Validate() error {
 	var problems []string
+	
 
 	if strings.TrimSpace(e.AppPort) == "" {
 		problems = append(problems, "APP_PORT is required")
@@ -119,6 +153,15 @@ func (e *Env) Validate() error {
 		problems = append(problems, "ELASTICSEARCH_URL is required")
 	}
 
+	if len(problems) == 0 {
+		if strings.TrimSpace(e.DataEncryptionKey) == "" {
+			problems = append(problems, "DATA_ENCRYPTION_KEY is required")
+		}
+		if len([]byte(e.DataEncryptionKey)) != 32 {
+			problems = append(problems, "DATA_ENCRYPTION_KEY must be exactly 32 bytes")
+		}
+	}
+	
 	if len(problems) == 0 {
 		return nil
 	}

@@ -13,14 +13,16 @@ import (
 )
 
 type authRepoStub struct {
-	users             map[uint]*models.User
-	roles             map[uint]*models.PlatformRole
-	ownerCanManage    bool
-	updateRoleUserID  uint
-	updateRoleRoleID  uint
-	updateRoleInvoked bool
-	sessions          map[string]*models.AuthSession
-	resetTokens       map[string]*models.PasswordResetToken
+	users                 map[uint]*models.User
+	roles                 map[uint]*models.PlatformRole
+	FindByUsernameInvoked bool
+	FindByUsernameError   error
+	ownerCanManage        bool
+	updateRoleUserID      uint
+	updateRoleRoleID      uint
+	updateRoleInvoked     bool
+	sessions              map[string]*models.AuthSession
+	resetTokens           map[string]*models.PasswordResetToken
 }
 
 func newTestUsecase(repo *authRepoStub) Usecase {
@@ -38,6 +40,18 @@ func (s *authRepoStub) Create(user *models.User) error { return nil }
 func (s *authRepoStub) FindByEmail(email string) (*models.User, error) {
 	for _, user := range s.users {
 		if user.Email == email {
+			return user, nil
+		}
+	}
+	return nil, gorm.ErrRecordNotFound
+}
+func (s *authRepoStub) FindByUsername(username string) (*models.User, error) {
+	s.FindByUsernameInvoked = true
+	if s.FindByUsernameError != nil {
+		return nil, s.FindByUsernameError
+	}
+	for _, user := range s.users {
+		if user.Username != nil && *user.Username == username {
 			return user, nil
 		}
 	}

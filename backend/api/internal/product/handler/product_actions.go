@@ -82,3 +82,17 @@ func (h *Handler) DeleteProduct(c *gin.Context) {
 	}
 	utils.Success(c, http.StatusOK, gin.H{"product_id": productID, "status": "deleted"})
 }
+
+// bulk delete product
+func (h *Handler) BulkDeleteProducts(c *gin.Context) {
+	a, _ := actor(c)
+	var req dto.BulkDeleteProductRequest
+	if !bind(c, &req) {
+		return
+	}
+	if err := h.usecase.BulkDeleteProducts(a, req.ProductIDs); err != nil {
+		fail(c, err)
+		return
+	}
+	utils.Success(c, http.StatusOK, gin.H{"product_ids": req.ProductIDs, "status": "deleted"})
+}

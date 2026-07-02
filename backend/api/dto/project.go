@@ -2,7 +2,7 @@ package dto
 
 type CreateProjectRequest struct {
 	ProductID   int    `json:"product_id,omitempty" binding:"omitempty,gt=0"`
-	ProjectCode string `json:"project_code" binding:"required"`
+	ProjectCode string `json:"project_code,omitempty" binding:"omitempty"`
 	ProjectName string `json:"project_name" binding:"required"`
 }
 type UpdateProjectRequest struct {
@@ -23,7 +23,7 @@ type CreateProjectFeatureRequest struct {
 	ProjectID    int     `json:"project_id,omitempty" binding:"omitempty,gt=0"`
 	ParentID     *int    `json:"parent_id,omitempty" binding:"omitempty,gt=0"`
 	CategoryType *string `json:"category_type,omitempty"`
-	CategoryCode string  `json:"category_code" binding:"required"`
+	CategoryCode string  `json:"category_code,omitempty" binding:"omitempty"`
 	CategoryName string  `json:"category_name" binding:"required"`
 }
 type UpdateProjectFeatureRequest struct {

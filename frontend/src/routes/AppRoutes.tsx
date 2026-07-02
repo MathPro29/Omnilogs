@@ -39,7 +39,7 @@ export function AppRoutes() {
 
       <Routes>
         {/* API Test Route */}
-        <Route path="/api-test" element={<ApiTestPage />} />
+        <Route path={ROUTES.API_TEST} element={<ApiTestPage />} />
 
         {/* Public Routes */}
         <Route element={<AuthLayout />}>

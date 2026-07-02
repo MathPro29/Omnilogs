@@ -118,7 +118,40 @@ const MOCK_USERS: User[] = [
   },
 ];
 
-const USE_MOCK = !import.meta.env.VITE_API_BASE_URL;
+const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true';
+
+interface BackendAdminUser {
+  id?: number;
+  user_id?: number;
+  username?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+  email: string;
+  phone_number?: string | null;
+  is_active?: boolean;
+  role?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+function mapBackendUser(user: BackendAdminUser): User {
+  const fullName = [user.first_name, user.last_name].filter(Boolean).join(' ').trim() || user.username || user.email;
+  const roleName = user.role || 'user';
+
+  return {
+    id: String(user.user_id || user.id || ''),
+    username: user.username || user.email.split('@')[0],
+    email: user.email,
+    fullName,
+    phone: user.phone_number || undefined,
+    position: roleName,
+    status: user.is_active === false ? 'inactive' : 'active',
+    roles: [{ id: roleName, name: roleName, permissions: [] }],
+    permissions: [],
+    createdAt: user.created_at || new Date().toISOString(),
+    updatedAt: user.updated_at || new Date().toISOString(),
+  };
+}
 
 export const userService = {
   getUsers: async (params: UserFilterParams): Promise<PaginatedResponse<User>> => {
@@ -161,11 +194,37 @@ export const userService = {
       };
     }
 
-    const response = await apiClient.get<ApiResponse<PaginatedResponse<User>>>(
-      API_ENDPOINTS.USERS.LIST,
-      { params }
-    );
-    return response.data.data;
+    const response = await apiClient.get<ApiResponse<BackendAdminUser[]>>(API_ENDPOINTS.ADMIN.USERS);
+    const users = response.data.data.map(mapBackendUser);
+
+    let filtered = [...users];
+    if (params.search) {
+      const search = params.search.toLowerCase();
+      filtered = filtered.filter(
+        (u) =>
+          u.fullName.toLowerCase().includes(search) ||
+          u.username.toLowerCase().includes(search) ||
+          u.email.toLowerCase().includes(search)
+      );
+    }
+    if (params.status) {
+      filtered = filtered.filter((u) => u.status === params.status);
+    }
+    if (params.department) {
+      filtered = filtered.filter((u) => u.department === params.department);
+    }
+
+    const total = filtered.length;
+    const start = (params.page - 1) * params.pageSize;
+    const data = filtered.slice(start, start + params.pageSize);
+
+    return {
+      data,
+      total,
+      page: params.page,
+      pageSize: params.pageSize,
+      totalPages: Math.max(1, Math.ceil(total / params.pageSize)),
+    };
   },
 
   getUserById: async (id: string): Promise<User> => {

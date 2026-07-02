@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 
 	"omnilogs-api/dto"
@@ -25,6 +26,8 @@ func (h *Handler) CreateRole(c *gin.Context) {
 		fail(c, err)
 		return
 	}
+	c.Set("audit_reason", fmt.Sprintf("Created product role '%s' (Code: %s)", value.RoleName, value.RoleCode))
+	c.Set("audit_payload", value)
 	utils.Success(c, http.StatusCreated, value)
 }
 
@@ -61,6 +64,8 @@ func (h *Handler) UpdateRole(c *gin.Context) {
 		fail(c, err)
 		return
 	}
+	c.Set("audit_reason", fmt.Sprintf("Updated product role '%s' (ID: %d)", value.RoleName, value.RoleID))
+	c.Set("audit_payload", value)
 	utils.Success(c, http.StatusOK, value)
 }
 
@@ -74,10 +79,13 @@ func (h *Handler) DeleteRole(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if err := h.usecase.DeleteRole(a, productID, id); err != nil {
+	role, err := h.usecase.DeleteRole(a, productID, id)
+	if err != nil {
 		fail(c, err)
 		return
 	}
+	c.Set("audit_reason", fmt.Sprintf("Deleted product role '%s' (ID: %d)", role.RoleName, role.RoleID))
+	c.Set("audit_payload", role)
 	utils.Success(c, http.StatusOK, gin.H{"role_id": id, "status": "deleted"})
 }
 
@@ -97,6 +105,24 @@ func (h *Handler) CreateMembership(c *gin.Context) {
 		return
 	}
 	utils.Success(c, http.StatusCreated, value)
+}
+
+func (h *Handler) CreateMemberships(c *gin.Context) {
+	a, _ := actor(c)
+	productID, ok := idParam(c, "productId")
+	if !ok {
+		return
+	}
+	var req dto.CreateBulkProductMembershipRequest
+	if !bind(c, &req) {
+		return
+	}
+	values, err := h.usecase.CreateMemberships(a, productID, req)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	utils.Success(c, http.StatusCreated, values)
 }
 
 func (h *Handler) ListMemberships(c *gin.Context) {
@@ -172,6 +198,7 @@ func (h *Handler) CreatePermissionRule(c *gin.Context) {
 		fail(c, err)
 		return
 	}
+	c.Set("audit_reason", fmt.Sprintf("Granted %s permission on %s to user %d", req.Action, req.ResourceType, req.UserID))
 	utils.Success(c, http.StatusCreated, value)
 }
 
@@ -204,6 +231,7 @@ func (h *Handler) UpdatePermissionRule(c *gin.Context) {
 		fail(c, err)
 		return
 	}
+	c.Set("audit_reason", fmt.Sprintf("Updated permission rule ID %d", id))
 	utils.Success(c, http.StatusOK, value)
 }
 

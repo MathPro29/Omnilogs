@@ -1,28 +1,27 @@
 package usecase
 
 import (
-	"encoding/json"
 	"testing"
+
+	"omnilogs-api/models"
 )
 
-func TestPermissionJSONAllows(t *testing.T) {
+func TestPermissionListAllows(t *testing.T) {
 	tests := []struct {
 		name string
-		raw  string
+		raw  []models.ProductRolePermission
 		want bool
 	}{
-		{name: "all", raw: `{"all":true}`, want: true},
-		{name: "action list", raw: `{"PROJECT":["READ","UPDATE"]}`, want: true},
-		{name: "action map", raw: `{"project":{"update":true}}`, want: true},
-		{name: "flat permission", raw: `{"PROJECT.UPDATE":true}`, want: true},
-		{name: "denied action", raw: `{"PROJECT":["READ"]}`, want: false},
-		{name: "malformed", raw: `{`, want: false},
+		{name: "matching permission", raw: []models.ProductRolePermission{{ResourceType: "PROJECT", Action: "UPDATE"}}, want: true},
+		{name: "case insensitive", raw: []models.ProductRolePermission{{ResourceType: "project", Action: "update"}}, want: true},
+		{name: "denied action", raw: []models.ProductRolePermission{{ResourceType: "PROJECT", Action: "READ"}}, want: false},
+		{name: "empty", raw: nil, want: false},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := permissionJSONAllows(json.RawMessage(test.raw), "PROJECT", "UPDATE"); got != test.want {
-				t.Fatalf("permissionJSONAllows() = %v, want %v", got, test.want)
+			if got := permissionListAllows(test.raw, "PROJECT", "UPDATE"); got != test.want {
+				t.Fatalf("permissionListAllows() = %v, want %v", got, test.want)
 			}
 		})
 	}

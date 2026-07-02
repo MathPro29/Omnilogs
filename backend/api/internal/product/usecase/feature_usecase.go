@@ -6,6 +6,7 @@ import (
 
 	"omnilogs-api/dto"
 	"omnilogs-api/models"
+	"omnilogs-api/responses"
 
 	"gorm.io/gorm"
 )
@@ -16,15 +17,15 @@ func (u *usecase) CreateFeature(actor Actor, productID, projectID int, req dto.C
 		return nil, err
 	}
 	if (req.ProductID != 0 && req.ProductID != productID) || (req.ProjectID != 0 && req.ProjectID != projectID) || !u.exists(&models.Project{}, "project_id = ? AND product_id = ?", projectID, productID) {
-		return nil, ErrInvalid
+		return nil, responses.ErrInvalid
 	}
 	value := &models.ProjectFeature{ProductID: productID, ProjectID: projectID, ParentID: req.ParentID, CategoryType: req.CategoryType, CategoryCode: normalizeCode(req.CategoryCode), CategoryName: strings.TrimSpace(req.CategoryName), IsActive: true}
 	if value.CategoryCode == "" || value.CategoryName == "" {
-		return nil, ErrInvalid
+		return nil, responses.ErrInvalid
 	}
 	err := u.repository.Transaction(func(tx *gorm.DB) error {
 		if value.ParentID != nil && !existsDB(tx, &models.ProjectFeature{}, "category_id = ? AND product_id = ? AND project_id = ?", *value.ParentID, productID, projectID) {
-			return ErrInvalid
+			return responses.ErrInvalid
 		}
 		if err := tx.Create(value).Error; err != nil {
 			return classifyDBError(err)
@@ -62,7 +63,7 @@ func (u *usecase) UpdateFeature(actor Actor, productID, projectID, id int, req d
 		}
 		if req.ParentID != nil {
 			if *req.ParentID == id || !existsDB(tx, &models.ProjectFeature{}, "category_id = ? AND product_id = ? AND project_id = ?", *req.ParentID, productID, projectID) {
-				return ErrInvalid
+				return responses.ErrInvalid
 			}
 			value.ParentID = req.ParentID
 		}
@@ -72,7 +73,7 @@ func (u *usecase) UpdateFeature(actor Actor, productID, projectID, id int, req d
 		if req.CategoryName != nil {
 			value.CategoryName = strings.TrimSpace(*req.CategoryName)
 			if value.CategoryName == "" {
-				return ErrInvalid
+				return responses.ErrInvalid
 			}
 		}
 		if req.IsActive != nil {
@@ -104,7 +105,7 @@ func (u *usecase) DeleteFeature(actor Actor, productID, projectID, id int) error
 			return err
 		}
 		if childCount > 0 {
-			return ErrInvalid
+			return responses.ErrInvalid
 		}
 		if err := tx.Delete(&models.ProjectFeature{}, "category_id = ? AND product_id = ? AND project_id = ?", id, productID, projectID).Error; err != nil {
 			return classifyDBError(err)

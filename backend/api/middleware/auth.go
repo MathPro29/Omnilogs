@@ -2,6 +2,8 @@ package middleware
 
 import (
 	"errors"
+	"os"
+	"strconv"
 	"strings"
 
 	"omnilogs-api/responses"
@@ -108,6 +110,34 @@ func HasAdminPlatformRole(c *gin.Context) bool {
 	}
 	roleStr := toString(role)
 	return roleStr == "god" || roleStr == "owner" || roleStr == "superadmin"
+}
+
+// if don't have access to user list
+func HasUserListAccess(c *gin.Context) bool {
+	// If the user is a god, they should always have access
+	role, ok := c.Get(ContextRole)
+	if ok && toString(role) == "god" {
+		return true
+	}
+
+	userID, ok := CurrentUserID(c)
+	if !ok {
+		return false
+	}
+
+	allowedEnv := os.Getenv("ALLOWED_USER_IDS")
+	if allowedEnv == "" {
+		return false
+	}
+
+	// not specific by role but user who have access
+	for _, idStr := range strings.Split(allowedEnv, ",") {
+		id, err := strconv.Atoi(strings.TrimSpace(idStr))
+		if err == nil && uint(id) == userID {
+			return true
+		}
+	}
+	return false
 }
 
 // user can only access ticket which is created by him

@@ -15,6 +15,7 @@ func TestEnvValidate(t *testing.T) {
 		AccessTokenExpireSeconds:  900,
 		RefreshTokenExpireSeconds: 604800,
 		ElasticURL:                "http://localhost:9200",
+		DataEncryptionKey:         "abcdefghijklmnopqrstuvwxyz123456",
 	}
 
 	if err := valid.Validate(); err != nil {

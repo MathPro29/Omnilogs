@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"omnilogs-api/models"
+	"omnilogs-api/responses"
 
 	"gorm.io/gorm"
 )
@@ -33,7 +34,7 @@ func rebuildFeaturePaths(db *gorm.DB, projectID int) error {
 			return nil
 		}
 		if state[value.CategoryID] == 1 {
-			return ErrInvalid
+			return responses.ErrInvalid
 		}
 		state[value.CategoryID] = 1
 		if value.ParentID == nil {
@@ -42,7 +43,7 @@ func rebuildFeaturePaths(db *gorm.DB, projectID int) error {
 		} else {
 			parent := byID[*value.ParentID]
 			if parent == nil {
-				return ErrInvalid
+				return responses.ErrInvalid
 			}
 			if err := visit(parent); err != nil {
 				return err

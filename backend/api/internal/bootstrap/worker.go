@@ -30,7 +30,7 @@ func RunWorker(env *configs.Env, db *gorm.DB) error {
 		return err
 	}
 
-	processor := workerprocessor.NewProcessor(db, esClient)
+	processor := workerprocessor.NewProcessor(db, esClient, env.DataEncryptionKey)
 	done := make(chan error, 1)
 	go func() {
 		// ลูปนี้จะคอยหยิบ batch จากคิวมาประมวลผลและส่งเข้า pipeline ของการ index

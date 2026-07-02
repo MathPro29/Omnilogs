@@ -11,6 +11,8 @@ import (
 
 type ResponseBody struct {
 	Success bool            `json:"success"`
+	Code    string          `json:"code,omitempty"`
+	Message string          `json:"message,omitempty"`
 	Data    interface{}     `json:"data,omitempty"`
 	Error   *ErrorBody      `json:"error,omitempty"`
 	Meta    *PaginationMeta `json:"meta,omitempty"` // list[]

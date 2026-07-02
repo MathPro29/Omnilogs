@@ -1,7 +1,6 @@
 package usecase
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -36,6 +35,7 @@ type Usecase interface {
 	CreateEnvironment(Actor, int, dto.CreateEnvironmentRequest) (*models.ProductEnvironment, error)
 	ListEnvironments(Actor, int) ([]models.ProductEnvironment, error)
 	UpdateEnvironment(Actor, int, int, dto.UpdateEnvironmentRequest) (*models.ProductEnvironment, error)
+	DeleteEnvironment(Actor, int, int) error
 }
 
 type usecase struct {
@@ -100,7 +100,12 @@ func (u *usecase) UpdateEnvironment(actor Actor, productID, id int, req dto.Upda
 }
 
 func (u *usecase) authorize(actor Actor, target AccessTarget, resource, action string) error {
-	if actor.PlatformAdmin {
+	var isGlobalAdmin bool
+	var pm models.PlatformMembership
+	if err := u.repo.DB().Where("user_id = ? AND is_active = TRUE AND platform_role_id IN (1, 3)", actor.UserID).Limit(1).Find(&pm).Error; err == nil && pm.PlatformMembershipID != 0 {
+		isGlobalAdmin = true
+	}
+	if isGlobalAdmin {
 		return nil
 	}
 	if target.ProductID <= 0 || !u.exists(&models.Product{}, "product_id = ?", target.ProductID) {
@@ -137,11 +142,32 @@ func (u *usecase) authorize(actor Actor, target AccessTarget, resource, action s
 			return nil
 		}
 		var role models.ProductRole
-		if err := u.repo.DB().Where("role_id = ? AND product_id = ?", membership.RoleID, target.ProductID).First(&role).Error; err == nil && permissionJSONAllows(role.Permissions, resource, action) {
-			return nil
+		if err := u.repo.DB().Preload("Permissions").Where("role_id = ? AND product_id = ?", membership.RoleID, target.ProductID).First(&role).Error; err == nil {
+			if strings.ToUpper(resource) == "FEATURE" || strings.ToUpper(resource) == "CATEGORY" {
+				if role.RoleCode != "owner" {
+					continue
+				}
+			}
+			if permissionListAllows(role.Permissions, resource, action) {
+				return nil
+			}
 		}
 	}
 	return ErrForbidden
+}
+
+func (u *usecase) DeleteEnvironment(actor Actor, productID int, id int) error {
+	if err := u.authorize(actor, AccessTarget{ProductID: productID}, "ENVIRONMENT", "DELETE"); err != nil {
+		return err
+	}
+	var value models.ProductEnvironment
+	if err := u.repo.DB().Where("environment_id = ? AND product_id = ?", id, productID).First(&value).Error; err != nil {
+		return classifyDBError(err)
+	}
+	if err := u.repo.DB().Delete(&value).Error; err != nil {
+		return classifyDBError(err)
+	}
+	return nil
 }
 
 func (u *usecase) scopeAllows(membershipID int, target AccessTarget, allowParentRead bool) bool {
@@ -200,44 +226,11 @@ func ruleMatches(rule models.UserRolePermissionRule, roleID int, target AccessTa
 	return true
 }
 
-func permissionJSONAllows(raw json.RawMessage, resource, action string) bool {
-	var value map[string]any
-	if json.Unmarshal(raw, &value) != nil {
-		return false
-	}
-	if all, ok := value["all"].(bool); ok && all {
-		return true
-	}
+func permissionListAllows(values []models.ProductRolePermission, resource, action string) bool {
 	resource, action = strings.ToUpper(resource), strings.ToUpper(action)
-	for _, key := range []string{resource, strings.ToLower(resource)} {
-		entry, ok := value[key]
-		if !ok {
-			continue
-		}
-		switch typed := entry.(type) {
-		case bool:
-			if typed {
-				return true
-			}
-		case []any:
-			for _, item := range typed {
-				if strings.EqualFold(fmt.Sprint(item), action) {
-					return true
-				}
-			}
-		case map[string]any:
-			for k, item := range typed {
-				if strings.EqualFold(k, action) {
-					allowed, _ := item.(bool)
-					return allowed
-				}
-			}
-		}
-	}
-	for key, item := range value {
-		if strings.EqualFold(key, resource+"."+action) {
-			allowed, _ := item.(bool)
-			return allowed
+	for _, value := range values {
+		if strings.EqualFold(value.ResourceType, resource) && strings.EqualFold(value.Action, action) {
+			return true
 		}
 	}
 	return false

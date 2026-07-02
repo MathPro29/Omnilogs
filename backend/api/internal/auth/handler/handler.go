@@ -9,7 +9,6 @@ import (
 	authusecase "omnilogs-api/internal/auth/usecase"
 	"omnilogs-api/middleware"
 	"omnilogs-api/responses"
-	"omnilogs-api/utils"
 
 	"github.com/gin-gonic/gin"
 )
@@ -25,13 +24,25 @@ func NewHandler(usecase authusecase.Usecase) *Handler {
 func (h *Handler) Register(c *gin.Context) {
 	var req dto.RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		responses.Error(c, responses.ErrorCode["INVALID_REQUEST"], responses.ErrorCode["INVALID_REQUEST"], err)
+		responses.Error(c, "INVALID_REQUEST", responses.ErrorCode["INVALID_REQUEST"], err)
+		return
+	}
+
+	// check if username is provided
+	if req.Username == nil || *req.Username == "" {
+		responses.Error(c, "INVALID_REQUEST", "username is required", nil)
+		return
+	}
+
+	// check if username already exists
+	if err := h.usecase.CheckUserExistsByUsername(*req.Username); err != nil {
+		responses.Error(c, "USERNAME_ALREADY_EXISTS", responses.ErrorCode["USERNAME_ALREADY_EXISTS"], nil)
 		return
 	}
 
 	// check phone number if > 10 return invalid phone number
 	if req.PhoneNumber != nil && len(*req.PhoneNumber) > 10 {
-		responses.Error(c, responses.ErrorCode["INVALID_PHONE_NUMBER"], responses.ErrorCode["INVALID_PHONE_NUMBER"], nil)
+		responses.Error(c, "INVALID_PHONE_NUMBER", responses.ErrorCode["INVALID_PHONE_NUMBER"], nil)
 		return
 	}
 
@@ -47,22 +58,22 @@ func (h *Handler) Register(c *gin.Context) {
 
 	// phone number at least 8 character
 	if req.PhoneNumber != nil && len(*req.PhoneNumber) < 8 {
-		responses.Error(c, responses.ErrorCode["INVALID_PHONE_NUMBER"], responses.ErrorCode["INVALID_PHONE_NUMBER"], nil)
+		responses.Error(c, "INVALID_PHONE_NUMBER", responses.ErrorCode["INVALID_PHONE_NUMBER"], nil)
 		return
 	}
 
 	user, err := h.usecase.Register(req)
 	if errors.Is(err, responses.ErrorUserCode["EMAIL_ALREADY_EXISTS"]) {
-		responses.Error(c, responses.ErrorCode["EMAIL_ALREADY_EXISTS"], responses.ErrorCode["EMAIL_ALREADY_EXISTS"], nil)
+		responses.Error(c, "EMAIL_ALREADY_EXISTS", responses.ErrorCode["EMAIL_ALREADY_EXISTS"], nil)
 		return
 	}
 	if err != nil {
-		responses.Error(c, responses.ErrorCode["INTERNAL_ERROR"], responses.ErrorCode["INTERNAL_ERROR"], err)
+		responses.Error(c, "INTERNAL_ERROR", responses.ErrorCode["INTERNAL_ERROR"], err)
 		return
 	}
 
 	c.Set(middleware.ContextUserID, user.ID)
-	utils.Success(c, http.StatusCreated, user)
+	responses.Success(c, http.StatusCreated, "USER_REGISTERED", user)
 }
 
 func (h *Handler) Login(c *gin.Context) {
@@ -83,7 +94,7 @@ func (h *Handler) Login(c *gin.Context) {
 	}
 
 	c.Set(middleware.ContextUserID, tokens.UserID)
-	utils.Success(c, http.StatusOK, tokens)
+	responses.Success(c, http.StatusOK, "USER_LOGIN", tokens)
 }
 
 func (h *Handler) RefreshToken(c *gin.Context) {
@@ -104,7 +115,7 @@ func (h *Handler) RefreshToken(c *gin.Context) {
 	}
 
 	c.Set(middleware.ContextUserID, tokens.UserID)
-	utils.Success(c, http.StatusOK, tokens)
+	responses.Success(c, http.StatusOK, "USER_REFRESH", tokens)
 }
 
 func (h *Handler) Logout(c *gin.Context) {
@@ -121,7 +132,7 @@ func (h *Handler) Logout(c *gin.Context) {
 		responses.InternalError(c)
 		return
 	}
-	utils.Success(c, http.StatusOK, gin.H{"message": "logged out successfully"})
+	responses.Success(c, http.StatusOK, "USER_LOGOUT", gin.H{"message": "logged out successfully"})
 }
 
 func (h *Handler) ForgotPassword(c *gin.Context) {
@@ -135,7 +146,7 @@ func (h *Handler) ForgotPassword(c *gin.Context) {
 		responses.InternalError(c)
 		return
 	}
-	utils.Success(c, http.StatusOK, result)
+	responses.Success(c, http.StatusOK, "USER_UPDATE", result)
 }
 
 func (h *Handler) ResetPassword(c *gin.Context) {
@@ -152,7 +163,7 @@ func (h *Handler) ResetPassword(c *gin.Context) {
 		responses.InternalError(c)
 		return
 	}
-	utils.Success(c, http.StatusOK, gin.H{"message": "password reset successfully"})
+	responses.Success(c, http.StatusOK, "USER_UPDATE", gin.H{"message": "password reset successfully"})
 }
 
 func (h *Handler) Me(c *gin.Context) {
@@ -172,7 +183,7 @@ func (h *Handler) Me(c *gin.Context) {
 		return
 	}
 
-	utils.Success(c, http.StatusOK, user)
+	responses.Success(c, http.StatusOK, "USER_GET", user)
 }
 
 //// ADMIN ZONES
@@ -239,7 +250,7 @@ func (h *Handler) GiveAdminAccess(c *gin.Context) {
 		return
 	}
 
-	utils.Success(c, http.StatusOK, result)
+	responses.Success(c, http.StatusOK, "USER_UPDATE", result)
 }
 
 func (h *Handler) ListAllUsers(c *gin.Context) {
@@ -253,11 +264,17 @@ func (h *Handler) ListAllUsers(c *gin.Context) {
 		return
 	}
 
+	// check if not get user list access
+	if !middleware.HasUserListAccess(c) {
+		responses.Forbidden(c, "forbidden")
+		return
+	}
+
 	users, err := h.usecase.ListAllUsers()
 	if err != nil {
 		responses.InternalError(c)
 		return
 	}
 
-	utils.Success(c, http.StatusOK, users)
+	responses.Success(c, http.StatusOK, "USER_LIST", users)
 }

@@ -1,11 +1,11 @@
 package usecase
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 
+	"omnilogs-api/responses"
 	"omnilogs-api/models"
 
 	"gorm.io/gorm"
@@ -24,11 +24,11 @@ func normalizeCode(value string) string { return strings.ToLower(strings.TrimSpa
 
 func classifyDBError(err error) error {
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return ErrNotFound
+		return responses.ErrNotFound
 	}
 	message := strings.ToLower(err.Error())
 	if strings.Contains(message, "duplicate key") || strings.Contains(message, "unique constraint") {
-		return ErrConflict
+		return responses.ErrConflict
 	}
 	return err
 }
@@ -41,44 +41,11 @@ func pathContains(path *string, id int) bool {
 	return strings.Contains(","+*path+",", needle)
 }
 
-func permissionJSONAllows(raw json.RawMessage, resource, action string) bool {
-	var value map[string]any
-	if json.Unmarshal(raw, &value) != nil {
-		return false
-	}
-	if all, ok := value["all"].(bool); ok && all {
-		return true
-	}
+func permissionListAllows(values []models.ProductRolePermission, resource, action string) bool {
 	resource, action = strings.ToUpper(resource), strings.ToUpper(action)
-	for _, key := range []string{resource, strings.ToLower(resource)} {
-		entry, ok := value[key]
-		if !ok {
-			continue
-		}
-		switch typed := entry.(type) {
-		case bool:
-			if typed {
-				return true
-			}
-		case []any:
-			for _, item := range typed {
-				if strings.EqualFold(fmt.Sprint(item), action) {
-					return true
-				}
-			}
-		case map[string]any:
-			for k, item := range typed {
-				if strings.EqualFold(k, action) {
-					allowed, _ := item.(bool)
-					return allowed
-				}
-			}
-		}
-	}
-	for key, item := range value {
-		if strings.EqualFold(key, resource+"."+action) {
-			allowed, _ := item.(bool)
-			return allowed
+	for _, value := range values {
+		if strings.EqualFold(value.ResourceType, resource) && strings.EqualFold(value.Action, action) {
+			return true
 		}
 	}
 	return false

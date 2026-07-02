@@ -76,4 +76,11 @@ export const dashboardService = {
     );
     return response.data.data;
   },
+  getAuditLogs: async (params?: { product_id?: number; project_id?: number; feature_id?: number; limit?: number; offset?: number }): Promise<{ total: number; limit: number; offset: number; data: any[] }> => {
+    const response = await apiClient.get<ApiResponse<{ total: number; limit: number; offset: number; data: any[] }>>(
+      '/dashboard/audit-logs',
+      { params }
+    );
+    return response.data.data;
+  },
 };

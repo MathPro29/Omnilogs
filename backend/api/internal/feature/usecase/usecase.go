@@ -6,6 +6,7 @@ import (
 
 	"omnilogs-api/dto"
 	"omnilogs-api/models"
+	"omnilogs-api/utils"
 
 	"gorm.io/gorm"
 )
@@ -18,7 +19,11 @@ func (u *usecase) CreateFeature(actor Actor, productID, projectID int, req dto.C
 	if (req.ProductID != 0 && req.ProductID != productID) || (req.ProjectID != 0 && req.ProjectID != projectID) || !u.exists(&models.Project{}, "project_id = ? AND product_id = ?", projectID, productID) {
 		return nil, ErrInvalid
 	}
-	value := &models.ProjectFeature{ProductID: productID, ProjectID: projectID, ParentID: req.ParentID, CategoryType: req.CategoryType, CategoryCode: normalizeCode(req.CategoryCode), CategoryName: strings.TrimSpace(req.CategoryName), IsActive: true}
+	categoryCode := normalizeCode(req.CategoryCode)
+	if categoryCode == "" {
+		categoryCode = utils.GenerateCode(req.CategoryName)
+	}
+	value := &models.ProjectFeature{ProductID: productID, ProjectID: projectID, ParentID: req.ParentID, CategoryType: req.CategoryType, CategoryCode: categoryCode, CategoryName: strings.TrimSpace(req.CategoryName), IsActive: true}
 	if value.CategoryCode == "" || value.CategoryName == "" {
 		return nil, ErrInvalid
 	}

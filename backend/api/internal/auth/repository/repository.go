@@ -13,6 +13,7 @@ type Repository interface {
 	Create(user *models.User) error
 	FindByEmail(email string) (*models.User, error)
 	FindByIdentifier(identifier string) (*models.User, error)
+	FindByUsername(username string) (*models.User, error)
 	FindByID(userID uint) (*models.User, error)
 	ListAllUsers() ([]models.User, error)
 	UpdateRoleID(userID uint, roleID uint) error
@@ -140,6 +141,17 @@ func (r *repository) FindByEmail(email string) (*models.User, error) {
 func (r *repository) FindByIdentifier(identifier string) (*models.User, error) {
 	var user models.User
 	if err := r.db.Where("email = ? OR username = ?", identifier, identifier).First(&user).Error; err != nil {
+		return nil, err
+	}
+	if err := r.populateUserRole(&user); err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+func (r *repository) FindByUsername(username string) (*models.User, error) {
+	var user models.User
+	if err := r.db.Where("username = ?", username).First(&user).Error; err != nil {
 		return nil, err
 	}
 	if err := r.populateUserRole(&user); err != nil {

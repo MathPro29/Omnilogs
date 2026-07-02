@@ -128,8 +128,8 @@ export function AdminLayout() {
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.15 }}
               >
-                <Text strong style={{ color: 'white', fontSize: '1.5rem' }}>
-                  HR
+                <Text strong style={{ color: 'white', fontSize: '1.2rem' }}>
+                  OMNI
                 </Text>
               </motion.div>
             ) : (
@@ -141,7 +141,7 @@ export function AdminLayout() {
                 transition={{ duration: 0.15 }}
               >
                 <h1 style={{ color: 'white', fontSize: '1.25rem', fontWeight: 700 }}>
-                  HR Admin
+                  OMNILOGS
                 </h1>
               </motion.div>
             )}

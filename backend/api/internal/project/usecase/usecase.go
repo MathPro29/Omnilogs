@@ -6,6 +6,8 @@ import (
 
 	"omnilogs-api/dto"
 	"omnilogs-api/models"
+	"omnilogs-api/responses"
+	"omnilogs-api/utils"
 )
 
 func (u *usecase) CreateProject(actor Actor, productID int, req dto.CreateProjectRequest) (*models.Project, error) {
@@ -13,11 +15,15 @@ func (u *usecase) CreateProject(actor Actor, productID int, req dto.CreateProjec
 		return nil, err
 	}
 	if req.ProductID != 0 && req.ProductID != productID {
-		return nil, ErrInvalid
+		return nil, responses.ErrInvalid
 	}
-	value := &models.Project{ProductID: productID, ProjectCode: normalizeCode(req.ProjectCode), ProjectName: strings.TrimSpace(req.ProjectName), IsActive: true}
+	projectCode := normalizeCode(req.ProjectCode)
+	if projectCode == "" {
+		projectCode = utils.GenerateCode(req.ProjectName)
+	}
+	value := &models.Project{ProductID: productID, ProjectCode: projectCode, ProjectName: strings.TrimSpace(req.ProjectName), IsActive: true}
 	if value.ProjectCode == "" || value.ProjectName == "" {
-		return nil, ErrInvalid
+		return nil, responses.ErrInvalid
 	}
 	if err := u.repository.DB().Create(value).Error; err != nil {
 		return nil, classifyDBError(err)
@@ -58,7 +64,7 @@ func (u *usecase) UpdateProject(actor Actor, productID, id int, req dto.UpdatePr
 	if req.ProjectName != nil {
 		name := strings.TrimSpace(*req.ProjectName)
 		if name == "" {
-			return nil, ErrInvalid
+			return nil, responses.ErrInvalid
 		}
 		updates["project_name"] = name
 	}
@@ -70,7 +76,7 @@ func (u *usecase) UpdateProject(actor Actor, productID, id int, req dto.UpdatePr
 		return nil, classifyDBError(res.Error)
 	}
 	if res.RowsAffected == 0 {
-		return nil, ErrNotFound
+		return nil, responses.ErrNotFound
 	}
 	return u.GetProject(actor, productID, id)
 }

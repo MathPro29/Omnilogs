@@ -7,7 +7,47 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func Success(c *gin.Context, status int, code string, data interface{}) {
+	message, exists := SuccessCode[code]
+	if !exists {
+		message = "success"
+	}
+	if data == nil {
+		data = gin.H{}
+	}
+	c.JSON(status, utils.ResponseBody{
+		Success: true,
+		Code:    code,
+		Message: message,
+		Data:    data,
+	})
+}
+
+func SuccessWithMeta(c *gin.Context, status int, code string, data interface{}, meta utils.PaginationMeta) {
+	message, exists := SuccessCode[code]
+	if !exists {
+		message = "success"
+	}
+	if data == nil {
+		data = gin.H{}
+	}
+	c.JSON(status, utils.ResponseBody{
+		Success: true,
+		Code:    code,
+		Message: message,
+		Data:    data,
+		Meta:    &meta,
+	})
+}
+
 func Error(c *gin.Context, code string, message string, err error) {
+	if message == "" {
+		if msg, exists := ErrorCode[code]; exists {
+			message = msg
+		} else {
+			message = code
+		}
+	}
 	status := http.StatusBadRequest
 	switch code {
 	case "INTERNAL_ERROR", "INTERNAL_SERVER_ERROR":

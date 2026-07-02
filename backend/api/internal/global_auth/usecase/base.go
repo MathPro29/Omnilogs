@@ -1,18 +1,9 @@
 package usecase
 
 import (
-	"errors"
-
 	"omnilogs-api/dto"
 	"omnilogs-api/internal/global_auth/repository"
 	"omnilogs-api/models"
-)
-
-var (
-	ErrNotFound  = errors.New("access resource not found")
-	ErrForbidden = errors.New("access denied")
-	ErrConflict  = errors.New("access resource already exists")
-	ErrInvalid   = errors.New("invalid access relationship")
 )
 
 type Actor struct {
@@ -30,8 +21,9 @@ type Usecase interface {
 	CreateRole(Actor, int, dto.CreateProductRoleRequest) (*models.ProductRole, error)
 	ListRoles(Actor, int) ([]models.ProductRole, error)
 	UpdateRole(Actor, int, int, dto.UpdateRoleRequest) (*models.ProductRole, error)
-	DeleteRole(Actor, int, int) error
+	DeleteRole(Actor, int, int) (*models.ProductRole, error)
 	CreateMembership(Actor, int, dto.CreateProductMembershipRequest) (*models.ProductMembership, error)
+	CreateMemberships(Actor, int, dto.CreateBulkProductMembershipRequest) ([]models.ProductMembership, error)
 	ListMemberships(Actor, int) ([]models.ProductMembership, error)
 	UpdateMembership(Actor, int, int, dto.UpdateProductMembershipRequest) (*models.ProductMembership, error)
 	DeleteMembership(Actor, int, int) error

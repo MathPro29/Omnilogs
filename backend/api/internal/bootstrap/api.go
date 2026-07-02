@@ -14,6 +14,7 @@ import (
 
 	"omnilogs-api/configs"
 	"omnilogs-api/middleware"
+	"omnilogs-api/middleware/audit"
 	"omnilogs-api/routes"
 
 	"github.com/elastic/go-elasticsearch/v8"
@@ -74,7 +75,7 @@ func NewRouter(env *configs.Env, db *gorm.DB, esClient *elasticsearch.Client) *g
 	router.Use(cors.New(config))
 	router.Use(middleware.RequestID())
 	router.Use(middleware.GlobalRateLimit(env))
-	router.Use(middleware.AuditLogger(db))
+	router.Use(audit.Logger(db, env.DataEncryptionKey))
 
 	routes.HealthRoutes(router, func(ctx context.Context) error {
 		if err := pingDatabase(ctx, db); err != nil {
@@ -84,6 +85,9 @@ func NewRouter(env *configs.Env, db *gorm.DB, esClient *elasticsearch.Client) *g
 	})
 	routes.SwaggerRoutes(router, env)
 	routes.RegisterAuthRoutes(router, db, env)
+	routes.DashboardRoutes(router, db, esClient, env)
+	routes.MainLogRoutes(router, db, esClient, env)
+	routes.AuditRoutes(router, db, esClient, env)
 
 	return router
 }

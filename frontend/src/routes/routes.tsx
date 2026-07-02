@@ -5,6 +5,11 @@ import {
   UsersPage,
   SettingsPage,
   ForbiddenPage,
+  AuditsPage,
+  ProductCatalogPage,
+  AccessControlPage,
+  ApiTestPage,
+  LogsExplorerPage,
 } from '@/pages';
 
 /**
@@ -33,25 +38,40 @@ export interface RouteConfig {
  */
 export const adminRoutes: RouteConfig[] = [
   {
+    path: ROUTES.API_TEST,
+    element: <ApiTestPage />,
+  },
+  {
     path: ROUTES.DASHBOARD,
     element: <DashboardPage />,
     requiredPermissions: [PERMISSIONS.DASHBOARD_VIEW],
+  },
+  {
+    path: ROUTES.PRODUCTS,
+    element: <ProductCatalogPage />,
   },
   {
     path: ROUTES.USERS,
     element: <UsersPage />,
     requiredPermissions: [PERMISSIONS.USER_VIEW],
   },
-  // TODO: เพิ่มหน้าในอนาคต
-  // {
-  //   path: ROUTES.ROLES,
-  //   element: <RolesPage />,
-  //   requiredPermissions: [PERMISSIONS.ROLE_VIEW],
-  // },
+  {
+    path: ROUTES.ROLES,
+    element: <AccessControlPage />,
+    requiredPermissions: [PERMISSIONS.ROLE_VIEW],
+  },
   {
     path: ROUTES.SETTINGS,
     element: <SettingsPage />,
     requiredPermissions: [PERMISSIONS.SETTINGS_VIEW],
+  },
+  {
+    path: ROUTES.AUDITS,
+    element: <AuditsPage />,
+  },
+  {
+    path: ROUTES.LOGS_EXPLORER,
+    element: <LogsExplorerPage />,
   },
   {
     path: ROUTES.FORBIDDEN,

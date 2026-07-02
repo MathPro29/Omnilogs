@@ -8,7 +8,12 @@ import (
 )
 
 func (u *usecase) authorize(actor Actor, target AccessTarget, resource, action string) error {
-	if actor.PlatformAdmin {
+	var isGlobalAdmin bool
+	var pm models.PlatformMembership
+	if err := u.repository.DB().Where("user_id = ? AND is_active = TRUE AND platform_role_id IN (1, 3)", actor.UserID).Limit(1).Find(&pm).Error; err == nil && pm.PlatformMembershipID != 0 {
+		isGlobalAdmin = true
+	}
+	if isGlobalAdmin {
 		return nil
 	}
 	if target.ProductID <= 0 || !u.exists(&models.Product{}, "product_id = ?", target.ProductID) {
@@ -45,8 +50,15 @@ func (u *usecase) authorize(actor Actor, target AccessTarget, resource, action s
 			return nil
 		}
 		var role models.ProductRole
-		if err := u.repository.DB().Where("role_id = ? AND product_id = ?", membership.RoleID, target.ProductID).First(&role).Error; err == nil && permissionJSONAllows(role.Permissions, resource, action) {
-			return nil
+		if err := u.repository.DB().Preload("Permissions").Where("role_id = ? AND product_id = ?", membership.RoleID, target.ProductID).First(&role).Error; err == nil {
+			if strings.ToUpper(resource) == "FEATURE" || strings.ToUpper(resource) == "CATEGORY" {
+				if role.RoleCode != "owner" {
+					continue
+				}
+			}
+			if permissionListAllows(role.Permissions, resource, action) {
+				return nil
+			}
 		}
 	}
 	return ErrForbidden

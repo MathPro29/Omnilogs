@@ -1,8 +1,6 @@
 package usecase
 
 import (
-	"encoding/json"
-	"fmt"
 	"strings"
 	"time"
 
@@ -10,7 +8,12 @@ import (
 )
 
 func (u *usecase) authorize(actor Actor, productID int, action string) error {
-	if actor.PlatformAdmin {
+	var isGlobalAdmin bool
+	var pm models.PlatformMembership
+	if err := u.repository.DB().Where("user_id = ? AND is_active = TRUE AND platform_role_id IN (1, 3)", actor.UserID).Limit(1).Find(&pm).Error; err == nil && pm.PlatformMembershipID != 0 {
+		isGlobalAdmin = true
+	}
+	if isGlobalAdmin {
 		return nil
 	}
 	if productID <= 0 || !existsDB(u.repository.DB(), &models.Product{}, "product_id = ?", productID) {
@@ -55,7 +58,7 @@ func (u *usecase) authorize(actor Actor, productID int, action string) error {
 		}
 
 		var role models.ProductRole
-		if err := u.repository.DB().Where("role_id = ? AND product_id = ?", membership.RoleID, productID).First(&role).Error; err == nil && permissionJSONAllows(role.Permissions, "API_KEY", action) {
+		if err := u.repository.DB().Preload("Permissions").Where("role_id = ? AND product_id = ?", membership.RoleID, productID).First(&role).Error; err == nil && permissionListAllows(role.Permissions, "API_KEY", action) {
 			return nil
 		}
 	}
@@ -71,45 +74,11 @@ func scopeAllows(u *usecase, membershipID, productID int) bool {
 	return len(scopes) > 0
 }
 
-func permissionJSONAllows(raw json.RawMessage, resource, action string) bool {
-	var value map[string]any
-	if json.Unmarshal(raw, &value) != nil {
-		return false
-	}
-	if all, ok := value["all"].(bool); ok && all {
-		return true
-	}
-
+func permissionListAllows(values []models.ProductRolePermission, resource, action string) bool {
 	resource, action = strings.ToUpper(resource), strings.ToUpper(action)
-	for _, key := range []string{resource, strings.ToLower(resource)} {
-		entry, ok := value[key]
-		if !ok {
-			continue
-		}
-		switch typed := entry.(type) {
-		case bool:
-			if typed {
-				return true
-			}
-		case []any:
-			for _, item := range typed {
-				if strings.EqualFold(fmt.Sprint(item), action) {
-					return true
-				}
-			}
-		case map[string]any:
-			for k, item := range typed {
-				if strings.EqualFold(k, action) {
-					allowed, _ := item.(bool)
-					return allowed
-				}
-			}
-		}
-	}
-	for key, item := range value {
-		if strings.EqualFold(key, resource+"."+action) {
-			allowed, _ := item.(bool)
-			return allowed
+	for _, value := range values {
+		if strings.EqualFold(value.ResourceType, resource) && strings.EqualFold(value.Action, action) {
+			return true
 		}
 	}
 	return false

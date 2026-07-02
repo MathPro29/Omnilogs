@@ -1,13 +1,17 @@
 // ===== Route Paths =====
 export const ROUTES = {
   LOGIN: '/login',
+  API_TEST: '/api-test',
   DASHBOARD: '/dashboard',
+  PRODUCTS: '/products',
   USERS: '/users',
   USER_CREATE: '/users/create',
   USER_EDIT: '/users/:id/edit',
   USER_DETAIL: '/users/:id',
-  ROLES: '/roles',
+  ROLES: '/access-control',
   SETTINGS: '/settings',
+  AUDITS: '/audits',
+  LOGS_EXPLORER: '/logs-explorer',
   FORBIDDEN: '/403',
   NOT_FOUND: '/404',
 } as const;
@@ -75,11 +79,15 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
 
 // ===== Menu Keys =====
 export const MENU_KEYS = {
+  API_TEST: 'api-test',
   DASHBOARD: 'dashboard',
+  PRODUCTS: 'products',
   USER_MANAGEMENT: 'user-management',
   USERS: 'users',
-  ROLES: 'roles',
+  ROLES: 'access-control',
   SETTINGS: 'settings',
+  AUDITS: 'audits',
+  LOGS_EXPLORER: 'logs-explorer',
 } as const;
 
 // ===== API Endpoints =====
@@ -107,6 +115,9 @@ export const API_ENDPOINTS = {
   SETTINGS: {
     GET: '/settings',
     UPDATE: '/settings',
+  },
+  ADMIN: {
+    USERS: '/admin/show-users',
   },
 } as const;
 

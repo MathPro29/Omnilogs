@@ -2,7 +2,7 @@ import { z } from 'zod/v4';
 
 // ===== Login Schema =====
 export const loginSchema = z.object({
-  username: z
+  identifier: z
     .string()
     .min(1, 'กรุณากรอกชื่อผู้ใช้')
     .min(3, 'ชื่อผู้ใช้ต้องมีอย่างน้อย 3 ตัวอักษร'),

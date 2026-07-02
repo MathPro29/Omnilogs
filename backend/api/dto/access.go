@@ -5,6 +5,11 @@ import (
 	"time"
 )
 
+type RolePermissionAssignment struct {
+	ResourceType string `json:"resource_type" binding:"required,oneof=PRODUCT PROJECT FEATURE CATEGORY ROLE ACCESS USER API_KEY ENVIRONMENT LOG"`
+	Action       string `json:"action" binding:"required,oneof=CREATE READ UPDATE DELETE GRANT REVOKE EXPORT VIEW_SENSITIVE"`
+}
+
 type CreateRoleTemplateRequest struct {
 	RoleCode         string  `json:"role_code" binding:"required"`
 	RoleName         string  `json:"role_name" binding:"required"`
@@ -12,10 +17,10 @@ type CreateRoleTemplateRequest struct {
 	IsSystemTemplate bool    `json:"is_system_template"`
 }
 type UpdateRoleRequest struct {
-	RoleName    *string         `json:"role_name,omitempty"`
-	Description *string         `json:"description,omitempty"`
-	Permissions json.RawMessage `json:"permissions,omitempty"`
-	IsActive    *bool           `json:"is_active,omitempty"`
+	RoleName    *string                    `json:"role_name,omitempty"`
+	Description *string                    `json:"description,omitempty"`
+	Permissions []RolePermissionAssignment `json:"permissions,omitempty"`
+	IsActive    *bool                      `json:"is_active,omitempty"`
 }
 
 type DeleteRoleRequest struct {
@@ -24,12 +29,12 @@ type DeleteRoleRequest struct {
 }
 
 type RoleResponse struct {
-	RoleID      int             `json:"role_id"`
-	RoleCode    string          `json:"role_code"`
-	RoleName    string          `json:"role_name"`
-	Description *string         `json:"description,omitempty"`
-	Permissions json.RawMessage `json:"permissions,omitempty"`
-	IsActive    bool            `json:"is_active"`
+	RoleID      int                        `json:"role_id"`
+	RoleCode    string                     `json:"role_code"`
+	RoleName    string                     `json:"role_name"`
+	Description *string                    `json:"description,omitempty"`
+	Permissions []RolePermissionAssignment `json:"permissions,omitempty"`
+	IsActive    bool                       `json:"is_active"`
 	TimestampResponse
 }
 
@@ -70,11 +75,11 @@ type PlatformRoleResponse struct {
 }
 
 type CreateProductRoleRequest struct {
-	ProductID   int             `json:"product_id,omitempty" binding:"omitempty,gt=0"`
-	TemplateID  *int            `json:"template_id,omitempty"`
-	RoleCode    string          `json:"role_code" binding:"required"`
-	RoleName    string          `json:"role_name" binding:"required"`
-	Permissions json.RawMessage `json:"permissions" binding:"required"`
+	ProductID   int                        `json:"product_id,omitempty" binding:"omitempty,gt=0"`
+	TemplateID  *int                       `json:"template_id,omitempty"`
+	RoleCode    string                     `json:"role_code" binding:"required"`
+	RoleName    string                     `json:"role_name" binding:"required"`
+	Permissions []RolePermissionAssignment `json:"permissions" binding:"required,min=1,dive"`
 }
 
 type CreatePlatformMembershipRequest struct {
@@ -105,8 +110,11 @@ type UpdateMembershipScopeRequest struct {
 type CreateProductMembershipRequest struct {
 	UserID    int        `json:"user_id" binding:"required,gt=0"`
 	ProductID int        `json:"product_id,omitempty" binding:"omitempty,gt=0"`
-	RoleID    int        `json:"role_id" binding:"required,gt=0"`
+	RoleID    int        `json:"role_id,omitempty" binding:"omitempty,gt=0"`
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+}
+type CreateBulkProductMembershipRequest struct {
+	Memberships []CreateProductMembershipRequest `json:"memberships" binding:"required,min=1,dive"`
 }
 type UpdateProductMembershipRequest struct {
 	RoleID    *int       `json:"role_id,omitempty" binding:"omitempty,gt=0"`

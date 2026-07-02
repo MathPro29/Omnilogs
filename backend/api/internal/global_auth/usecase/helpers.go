@@ -1,13 +1,13 @@
 package usecase
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 
 	"omnilogs-api/dto"
 	"omnilogs-api/models"
+	"omnilogs-api/responses"
 
 	"gorm.io/gorm"
 )
@@ -21,17 +21,15 @@ func existsDB(db *gorm.DB, model any, query string, args ...any) bool {
 	return db.Model(model).Where(query, args...).Count(&count).Error == nil && count > 0
 }
 
-func validJSON(value json.RawMessage) bool { return len(value) > 0 && json.Valid(value) }
-
 func normalizeCode(value string) string { return strings.ToLower(strings.TrimSpace(value)) }
 
 func classifyDBError(err error) error {
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return ErrNotFound
+		return responses.ErrNotFound
 	}
 	message := strings.ToLower(err.Error())
 	if strings.Contains(message, "duplicate key") || strings.Contains(message, "unique constraint") {
-		return ErrConflict
+		return responses.ErrConflict
 	}
 	return err
 }
@@ -48,44 +46,43 @@ func pathContains(path *string, id int) bool {
 	return strings.Contains(","+*path+",", needle)
 }
 
-func permissionJSONAllows(raw json.RawMessage, resource, action string) bool {
-	var value map[string]any
-	if json.Unmarshal(raw, &value) != nil {
+func validRolePermissions(values []dto.RolePermissionAssignment) bool {
+	if len(values) == 0 {
 		return false
 	}
-	if all, ok := value["all"].(bool); ok && all {
-		return true
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		resource := strings.ToUpper(strings.TrimSpace(value.ResourceType))
+		action := strings.ToUpper(strings.TrimSpace(value.Action))
+		if resource == "" || action == "" {
+			return false
+		}
+		key := resource + ":" + action
+		if _, ok := seen[key]; ok {
+			return false
+		}
+		seen[key] = struct{}{}
 	}
+	return true
+}
+
+func toRolePermissions(roleID int, values []dto.RolePermissionAssignment) []models.ProductRolePermission {
+	permissions := make([]models.ProductRolePermission, 0, len(values))
+	for _, value := range values {
+		permissions = append(permissions, models.ProductRolePermission{
+			RoleID:       roleID,
+			ResourceType: strings.ToUpper(strings.TrimSpace(value.ResourceType)),
+			Action:       strings.ToUpper(strings.TrimSpace(value.Action)),
+		})
+	}
+	return permissions
+}
+
+func permissionListAllows(values []models.ProductRolePermission, resource, action string) bool {
 	resource, action = strings.ToUpper(resource), strings.ToUpper(action)
-	for _, key := range []string{resource, strings.ToLower(resource)} {
-		entry, ok := value[key]
-		if !ok {
-			continue
-		}
-		switch typed := entry.(type) {
-		case bool:
-			if typed {
-				return true
-			}
-		case []any:
-			for _, item := range typed {
-				if strings.EqualFold(fmt.Sprint(item), action) {
-					return true
-				}
-			}
-		case map[string]any:
-			for k, item := range typed {
-				if strings.EqualFold(k, action) {
-					allowed, _ := item.(bool)
-					return allowed
-				}
-			}
-		}
-	}
-	for key, item := range value {
-		if strings.EqualFold(key, resource+"."+action) {
-			allowed, _ := item.(bool)
-			return allowed
+	for _, value := range values {
+		if strings.EqualFold(value.ResourceType, resource) && strings.EqualFold(value.Action, action) {
+			return true
 		}
 	}
 	return false

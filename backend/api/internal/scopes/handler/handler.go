@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -82,6 +83,16 @@ func (h *Handler) CreateScope(c *gin.Context) {
 		fail(c, err)
 		return
 	}
+	var projIDVal, catIDVal int
+	if value.ProjectID != nil {
+		projIDVal = *value.ProjectID
+	}
+	if value.CategoryID != nil {
+		catIDVal = *value.CategoryID
+	}
+	c.Set("audit_reason", fmt.Sprintf("Created access scope: Level: %s (ProjectID: %d, CategoryID: %d) for membership %d", 
+		value.ScopeLevel, projIDVal, catIDVal, value.MembershipID))
+	c.Set("audit_payload", value)
 	utils.Success(c, http.StatusCreated, value)
 }
 
@@ -126,6 +137,16 @@ func (h *Handler) UpdateScope(c *gin.Context) {
 		fail(c, err)
 		return
 	}
+	var projIDVal, catIDVal int
+	if value.ProjectID != nil {
+		projIDVal = *value.ProjectID
+	}
+	if value.CategoryID != nil {
+		catIDVal = *value.CategoryID
+	}
+	c.Set("audit_reason", fmt.Sprintf("Updated access scope ID %d: Level: %s (ProjectID: %d, CategoryID: %d)", 
+		value.ScopeID, value.ScopeLevel, projIDVal, catIDVal))
+	c.Set("audit_payload", value)
 	utils.Success(c, http.StatusOK, value)
 }
 
@@ -143,9 +164,20 @@ func (h *Handler) DeleteScope(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if err := h.usecase.DeleteScope(a, productID, membershipID, id); err != nil {
+	value, err := h.usecase.DeleteScope(a, productID, membershipID, id)
+	if err != nil {
 		fail(c, err)
 		return
 	}
+	var projIDVal, catIDVal int
+	if value.ProjectID != nil {
+		projIDVal = *value.ProjectID
+	}
+	if value.CategoryID != nil {
+		catIDVal = *value.CategoryID
+	}
+	c.Set("audit_reason", fmt.Sprintf("Deleted access scope ID %d: Level: %s (ProjectID: %d, CategoryID: %d)", 
+		value.ScopeID, value.ScopeLevel, projIDVal, catIDVal))
+	c.Set("audit_payload", value)
 	utils.Success(c, http.StatusOK, gin.H{"scope_id": id, "status": "deleted"})
 }

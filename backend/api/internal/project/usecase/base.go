@@ -1,18 +1,9 @@
 package usecase
 
 import (
-	"errors"
-
 	"omnilogs-api/dto"
 	"omnilogs-api/internal/project/repository"
 	"omnilogs-api/models"
-)
-
-var (
-	ErrNotFound  = errors.New("project resource not found")
-	ErrForbidden = errors.New("project access denied")
-	ErrConflict  = errors.New("project resource already exists")
-	ErrInvalid   = errors.New("invalid project relationship")
 )
 
 type Actor struct {

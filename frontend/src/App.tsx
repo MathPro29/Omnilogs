@@ -3,6 +3,7 @@ import { ConfigProvider } from 'antd';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { antdThemeConfig, antdLocale } from '@/app/theme';
 import { AppRoutes } from '@/routes';
+import { AutoLogProcessor } from '@/components/AutoLogProcessor';
 
 // ===== Query Client =====
 const queryClient = new QueryClient({
@@ -21,6 +22,7 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <ConfigProvider theme={antdThemeConfig} locale={antdLocale}>
         <BrowserRouter>
+          <AutoLogProcessor />
           <AppRoutes />
         </BrowserRouter>
       </ConfigProvider>

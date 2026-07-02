@@ -23,3 +23,4 @@ func (r *repository) DB() *gorm.DB { return r.db }
 func (r *repository) Transaction(fn func(*gorm.DB) error) error {
 	return r.db.Transaction(fn)
 }
+

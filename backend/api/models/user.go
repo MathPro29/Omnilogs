@@ -17,9 +17,9 @@ type User struct {
 	IsActive     bool       `gorm:"not null;default:true" json:"is_active"`
 	LastLoginAt  *time.Time `gorm:"type:timestamptz" json:"last_login_at,omitempty"`
 	Timestamps
-	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at,omitempty"` 
-	RoleID    uint       `gorm:"-" json:"role_id,omitempty"`
-	Role      *UserRole  `gorm:"-" json:"role,omitempty"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at,omitempty"`
+	RoleID    uint           `gorm:"-" json:"role_id,omitempty"`
+	Role      *UserRole      `gorm:"-" json:"role,omitempty"`
 }
 
 type UserRole struct {

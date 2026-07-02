@@ -2,6 +2,7 @@ package configs
 
 import (
 	"fmt"
+	"log/slog"
 	"time"
 
 	"gorm.io/driver/postgres"
@@ -17,9 +18,29 @@ func ConnectDB(env *Env) (*gorm.DB, error) {
 		env.DBName,
 		env.DBPort,
 	)
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+
+	var db *gorm.DB
+	var err error
+	maxRetries := 15
+	retryInterval := 2 * time.Second
+
+	for i := 0; i < maxRetries; i++ {
+		db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
+		if err == nil {
+			// Successfully connected
+			break
+		}
+
+		slog.Warn("failed to connect to database, retrying...", 
+			"attempt", i+1, 
+			"max_retries", maxRetries, 
+			"error", err,
+		)
+		time.Sleep(retryInterval)
+	}
+
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to connect to database after %d attempts: %w", maxRetries, err)
 	}
 
 	sqlDB, err := db.DB()

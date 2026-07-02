@@ -1,7 +1,11 @@
 package migrate
 
 import (
+	"encoding/json"
+	"fmt"
 	"log"
+	"strings"
+
 	"omnilogs-api/configs"
 	"omnilogs-api/models"
 
@@ -30,6 +34,7 @@ func Migrate(db *gorm.DB, env *configs.Env) {
 		&models.ProductEnvironment{},
 		&models.ProductAPIKey{},
 		&models.ProductRole{},
+		&models.ProductRolePermission{},
 		&models.ProductMembership{},
 		&models.ProductMembershipScope{},
 		&models.Project{},
@@ -58,7 +63,118 @@ func Migrate(db *gorm.DB, env *configs.Env) {
 		log.Fatalf("AutoMigrate failed: %v", err)
 	}
 
+	if err := backfillLegacyProductRolePermissions(db); err != nil {
+		log.Fatalf("Product role permission backfill failed: %v", err)
+	}
+
 	seedPlatformRoles(db)
+}
+
+type legacyProductRolePermissionRow struct {
+	RoleID      int
+	Permissions []byte
+}
+
+func backfillLegacyProductRolePermissions(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&models.ProductRole{}) || !db.Migrator().HasTable(&models.ProductRolePermission{}) {
+		return nil
+	}
+	if !db.Migrator().HasColumn(&models.ProductRole{}, "permissions") {
+		return nil
+	}
+
+	var rows []legacyProductRolePermissionRow
+	if err := db.Raw("SELECT role_id, permissions FROM product_roles WHERE permissions IS NOT NULL").Scan(&rows).Error; err != nil {
+		return err
+	}
+
+	for _, row := range rows {
+		var existing int64
+		if err := db.Model(&models.ProductRolePermission{}).Where("role_id = ?", row.RoleID).Count(&existing).Error; err != nil {
+			return err
+		}
+		if existing > 0 {
+			continue
+		}
+
+		permissions := parseLegacyPermissions(row.RoleID, row.Permissions)
+		if len(permissions) == 0 {
+			continue
+		}
+		if err := db.Create(&permissions).Error; err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func parseLegacyPermissions(roleID int, raw []byte) []models.ProductRolePermission {
+	var value map[string]any
+	if json.Unmarshal(raw, &value) != nil {
+		return nil
+	}
+
+	var permissions []models.ProductRolePermission
+	add := func(resource, action string) {
+		permissions = append(permissions, models.ProductRolePermission{
+			RoleID:       roleID,
+			ResourceType: strings.ToUpper(strings.TrimSpace(resource)),
+			Action:       strings.ToUpper(strings.TrimSpace(action)),
+		})
+	}
+
+	for key, item := range value {
+		if strings.EqualFold(key, "all") {
+			continue
+		}
+
+		if strings.Contains(key, ".") {
+			parts := strings.SplitN(key, ".", 2)
+			if len(parts) == 2 {
+				if allowed, ok := item.(bool); ok && allowed {
+					add(parts[0], parts[1])
+				}
+			}
+			continue
+		}
+
+		resource := key
+		switch typed := item.(type) {
+		case []any:
+			for _, action := range typed {
+				add(resource, fmt.Sprint(action))
+			}
+		case map[string]any:
+			for action, allowed := range typed {
+				if yes, ok := allowed.(bool); ok && yes {
+					add(resource, action)
+				}
+			}
+		case bool:
+			if typed {
+				for _, action := range []string{"CREATE", "READ", "UPDATE", "DELETE", "GRANT", "REVOKE", "EXPORT", "VIEW_SENSITIVE"} {
+					add(resource, action)
+				}
+			}
+		}
+	}
+
+	return dedupePermissions(permissions)
+}
+
+func dedupePermissions(values []models.ProductRolePermission) []models.ProductRolePermission {
+	seen := map[string]struct{}{}
+	result := make([]models.ProductRolePermission, 0, len(values))
+	for _, value := range values {
+		key := fmt.Sprintf("%d:%s:%s", value.RoleID, value.ResourceType, value.Action)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }
 
 func repairOrphanProductEnvironments(db *gorm.DB) error {

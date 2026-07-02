@@ -1,7 +1,6 @@
 package usecase
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -30,7 +29,7 @@ type Usecase interface {
 	CreateScope(Actor, int, int, dto.CreateMembershipScopeRequest) (*models.ProductMembershipScope, error)
 	ListScopes(Actor, int, int) ([]models.ProductMembershipScope, error)
 	UpdateScope(Actor, int, int, int, dto.UpdateMembershipScopeRequest) (*models.ProductMembershipScope, error)
-	DeleteScope(Actor, int, int, int) error
+	DeleteScope(Actor, int, int, int) (*models.ProductMembershipScope, error)
 }
 
 type usecase struct {
@@ -48,6 +47,30 @@ func (u *usecase) CreateScope(actor Actor, productID, membershipID int, req dto.
 	}
 	if !u.exists(&models.ProductMembership{}, "membership_id = ? AND product_id = ?", membershipID, productID) || !validScope(u.db, productID, req.ScopeLevel, req.ProjectID, req.CategoryID) {
 		return nil, responses.ErrorScopeCode["INVALID_SCOPE"]
+	}
+	var existing models.ProductMembershipScope
+	err := u.db.Where(
+		"membership_id = ? AND product_id = ? AND scope_level = ? AND ((project_id IS NULL AND ?::int IS NULL) OR project_id = ?) AND ((category_id IS NULL AND ?::int IS NULL) OR category_id = ?)",
+		membershipID,
+		productID,
+		req.ScopeLevel,
+		req.ProjectID,
+		req.ProjectID,
+		req.CategoryID,
+		req.CategoryID,
+	).Limit(1).Find(&existing).Error
+	if err != nil {
+		return nil, classifyDBError(err)
+	}
+
+	if existing.ScopeID != 0 {
+		if !existing.IsActive {
+			existing.IsActive = true
+			if err := u.repo.UpdateScope(&existing); err != nil {
+				return nil, classifyDBError(err)
+			}
+		}
+		return &existing, nil
 	}
 	value := &models.ProductMembershipScope{
 		MembershipID: membershipID,
@@ -97,25 +120,30 @@ func (u *usecase) UpdateScope(actor Actor, productID, membershipID, id int, req 
 	return scope, nil
 }
 
-func (u *usecase) DeleteScope(actor Actor, productID, membershipID, id int) error {
+func (u *usecase) DeleteScope(actor Actor, productID, membershipID, id int) (*models.ProductMembershipScope, error) {
 	if err := u.authorize(actor, AccessTarget{ProductID: productID}, "ACCESS", "GRANT"); err != nil {
-		return err
+		return nil, err
 	}
 	scope, err := u.repo.GetScopeByID(id)
 	if err != nil {
-		return classifyDBError(err)
+		return nil, classifyDBError(err)
 	}
 	if scope.ProductID != productID || scope.MembershipID != membershipID {
-		return responses.ErrorScopeCode["FORBIDDEN"]
+		return nil, responses.ErrorScopeCode["FORBIDDEN"]
 	}
 	if err := u.repo.DeleteScope(scope); err != nil {
-		return classifyDBError(err)
+		return nil, classifyDBError(err)
 	}
-	return nil
+	return scope, nil
 }
 
 func (u *usecase) authorize(actor Actor, target AccessTarget, resource, action string) error {
-	if actor.PlatformAdmin {
+	var isGlobalAdmin bool
+	var pm models.PlatformMembership
+	if err := u.db.Where("user_id = ? AND is_active = TRUE AND platform_role_id IN (1, 3)", actor.UserID).Limit(1).Find(&pm).Error; err == nil && pm.PlatformMembershipID != 0 {
+		isGlobalAdmin = true
+	}
+	if isGlobalAdmin {
 		return nil
 	}
 	if target.ProductID <= 0 || !u.exists(&models.Product{}, "product_id = ?", target.ProductID) {
@@ -152,8 +180,15 @@ func (u *usecase) authorize(actor Actor, target AccessTarget, resource, action s
 			return nil
 		}
 		var role models.ProductRole
-		if err := u.db.Where("role_id = ? AND product_id = ?", membership.RoleID, target.ProductID).First(&role).Error; err == nil && permissionJSONAllows(role.Permissions, resource, action) {
-			return nil
+		if err := u.db.Preload("Permissions").Where("role_id = ? AND product_id = ?", membership.RoleID, target.ProductID).First(&role).Error; err == nil {
+			if strings.ToUpper(resource) == "FEATURE" || strings.ToUpper(resource) == "CATEGORY" {
+				if role.RoleCode != "owner" {
+					continue
+				}
+			}
+			if permissionListAllows(role.Permissions, resource, action) {
+				return nil
+			}
 		}
 	}
 	return responses.ErrorScopeCode["FORBIDDEN"]
@@ -231,44 +266,11 @@ func ruleMatches(rule models.UserRolePermissionRule, roleID int, target AccessTa
 	return true
 }
 
-func permissionJSONAllows(raw json.RawMessage, resource, action string) bool {
-	var value map[string]any
-	if json.Unmarshal(raw, &value) != nil {
-		return false
-	}
-	if all, ok := value["all"].(bool); ok && all {
-		return true
-	}
+func permissionListAllows(values []models.ProductRolePermission, resource, action string) bool {
 	resource, action = strings.ToUpper(resource), strings.ToUpper(action)
-	for _, key := range []string{resource, strings.ToLower(resource)} {
-		entry, ok := value[key]
-		if !ok {
-			continue
-		}
-		switch typed := entry.(type) {
-		case bool:
-			if typed {
-				return true
-			}
-		case []any:
-			for _, item := range typed {
-				if strings.EqualFold(fmt.Sprint(item), action) {
-					return true
-				}
-			}
-		case map[string]any:
-			for k, item := range typed {
-				if strings.EqualFold(k, action) {
-					allowed, _ := item.(bool)
-					return allowed
-				}
-			}
-		}
-	}
-	for key, item := range value {
-		if strings.EqualFold(key, resource+"."+action) {
-			allowed, _ := item.(bool)
-			return allowed
+	for _, value := range values {
+		if strings.EqualFold(value.ResourceType, resource) && strings.EqualFold(value.Action, action) {
+			return true
 		}
 	}
 	return false

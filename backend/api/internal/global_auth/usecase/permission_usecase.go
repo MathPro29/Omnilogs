@@ -5,18 +5,19 @@ import (
 
 	"omnilogs-api/dto"
 	"omnilogs-api/models"
+	"omnilogs-api/responses"
 )
 
 func (u *usecase) CreatePermissionRule(actor Actor, req dto.CreatePermissionRuleRequest) (*models.UserRolePermissionRule, error) {
 	if req.ProductID == nil {
 		if !actor.PlatformAdmin {
-			return nil, ErrForbidden
+			return nil, responses.ErrInvalid
 		}
 	} else if err := u.authorize(actor, AccessTarget{ProductID: *req.ProductID, ProjectID: req.ProjectID, CategoryID: req.CategoryID}, "ACCESS", "GRANT"); err != nil {
 		return nil, err
 	}
 	if !u.exists(&models.User{}, "user_id = ?", req.UserID) {
-		return nil, ErrInvalid
+		return nil, responses.ErrInvalid
 	}
 	value := &models.UserRolePermissionRule{UserID: req.UserID, ProductID: req.ProductID, RoleID: req.RoleID, ProjectID: req.ProjectID, CategoryID: req.CategoryID, ResourceType: req.ResourceType, Action: req.Action, Effect: req.Effect, ScopeLevel: req.ScopeLevel, GrantedBy: &actor.UserID, IsActive: true, ExpiresAt: req.ExpiresAt}
 	if err := u.repository.DB().Create(value).Error; err != nil {
@@ -40,7 +41,7 @@ func (u *usecase) UpdatePermissionRule(actor Actor, id int, req dto.UpdatePermis
 	}
 	if value.ProductID == nil {
 		if !actor.PlatformAdmin {
-			return nil, ErrForbidden
+			return nil, responses.ErrForbidden
 		}
 	} else if err := u.authorize(actor, AccessTarget{ProductID: *value.ProductID}, "ACCESS", "GRANT"); err != nil {
 		return nil, err
@@ -73,7 +74,7 @@ func (u *usecase) CheckPermission(actor Actor, req dto.PermissionCheckRequest) (
 	if err == nil {
 		return &dto.PermissionCheckResponse{Allowed: true, Reason: "platform role, product role, or explicit rule allowed access"}, nil
 	}
-	if errors.Is(err, ErrForbidden) {
+	if errors.Is(err, responses.ErrForbidden) {
 		return &dto.PermissionCheckResponse{Allowed: false, Reason: "no matching permission"}, nil
 	}
 	return nil, err

@@ -20,4 +20,5 @@ func EnvironmentRoutes(router *gin.Engine, db *gorm.DB, env *configs.Env) {
 	products.POST("/:productId/environments", handler.CreateEnvironment)
 	products.GET("/:productId/environments", handler.ListEnvironments)
 	products.PATCH("/:productId/environments/:environmentId", handler.UpdateEnvironment)
+	products.DELETE("/:productId/environments/:environmentId", handler.DeleteEnvironment)
 }

@@ -8,4 +8,6 @@ type ProductEnvironment struct {
 	EnvironmentCode string     `gorm:"not null;uniqueIndex:uq_product_environment,priority:2" json:"environment_code"`
 	EnvironmentName string     `gorm:"not null" json:"environment_name"`
 	CreatedAt       *time.Time `gorm:"type:timestamptz" json:"created_at,omitempty"`
+	DeletedAt       *time.Time `gorm:"type:timestamptz" json:"deleted_at,omitempty"`
+	UpdatedAt       *time.Time `gorm:"type:timestamptz" json:"updated_at,omitempty"`
 }

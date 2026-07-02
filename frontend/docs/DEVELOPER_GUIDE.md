@@ -435,7 +435,8 @@ function DashboardPage() {
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `VITE_API_BASE_URL` | No | `/api` | ถ้าไม่ตั้ง = ใช้ mock data |
+| `VITE_API_BASE_URL` | No | `/api` | Base URL ของ backend API |
+| `VITE_USE_MOCK` | No | `false` | ตั้งเป็น `true` เมื่อต้องการใช้ mock data |
 
 ---
 
