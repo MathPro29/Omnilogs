@@ -10,6 +10,7 @@ import {
   AccessControlPage,
   ApiTestPage,
   LogsExplorerPage,
+  RetentionTestPage,
 } from '@/pages';
 
 /**
@@ -49,6 +50,10 @@ export const adminRoutes: RouteConfig[] = [
   {
     path: ROUTES.PRODUCTS,
     element: <ProductCatalogPage />,
+  },
+  {
+    path: ROUTES.RETENTION_TEST,
+    element: <RetentionTestPage />,
   },
   {
     path: ROUTES.USERS,

@@ -153,21 +153,43 @@ export function DashboardPage() {
     setSelectedCategoryId(null);
   }, [selectedProjectId]);
 
-  // Sync generator environment options when product changes
+  // Automatically select the first product when products list is loaded
   useEffect(() => {
-    if (generatorEnvironments.length > 0) {
-      generatorForm.setFieldValue('environmentId', generatorEnvironments[0].environmentId);
+    if (products.length > 0 && selectedProductId === null) {
+      setSelectedProductId(products[0].productId);
+    }
+  }, [products, selectedProductId]);
+
+  // Synchronize generator form fields when monitor selections change
+  useEffect(() => {
+    if (selectedProductId) {
+      generatorForm.setFieldValue('productId', selectedProductId);
+    }
+  }, [selectedProductId, generatorForm]);
+
+  useEffect(() => {
+    if (selectedEnvironmentId) {
+      generatorForm.setFieldValue('environmentId', selectedEnvironmentId);
     } else {
       generatorForm.setFieldValue('environmentId', null);
     }
-    generatorForm.setFieldValue('projectId', null);
-    generatorForm.setFieldValue('categoryId', null);
-  }, [generatorProductId, generatorEnvironments, generatorForm]);
+  }, [selectedEnvironmentId, generatorForm]);
 
-  // Sync category selection when project changes
   useEffect(() => {
-    generatorForm.setFieldValue('categoryId', null);
-  }, [generatorProjectId, generatorForm]);
+    if (selectedProjectId) {
+      generatorForm.setFieldValue('projectId', selectedProjectId);
+    } else {
+      generatorForm.setFieldValue('projectId', null);
+    }
+  }, [selectedProjectId, generatorForm]);
+
+  useEffect(() => {
+    if (selectedCategoryId) {
+      generatorForm.setFieldValue('categoryId', selectedCategoryId);
+    } else {
+      generatorForm.setFieldValue('categoryId', null);
+    }
+  }, [selectedCategoryId, generatorForm]);
 
   // ----------------------------------------------------
   // 2. Fetching & Generating Logs
@@ -328,6 +350,20 @@ export function DashboardPage() {
                   message: 'User completed action successfully',
                 }}
                 onFinish={(values) => generateLogMutation.mutate(values)}
+                onValuesChange={(changedValues) => {
+                  if ('productId' in changedValues) {
+                    setSelectedProductId(changedValues.productId);
+                  }
+                  if ('environmentId' in changedValues) {
+                    setSelectedEnvironmentId(changedValues.environmentId);
+                  }
+                  if ('projectId' in changedValues) {
+                    setSelectedProjectId(changedValues.projectId);
+                  }
+                  if ('categoryId' in changedValues) {
+                    setSelectedCategoryId(changedValues.categoryId);
+                  }
+                }}
               >
                 <Form.Item
                   label="1. ผลิตภัณฑ์ปลายทาง (Product)"

@@ -65,5 +65,5 @@ func shouldSkipAudit(method, path string) bool {
 	if method == http.MethodOptions {
 		return true
 	}
-	return strings.HasPrefix(path, "/health") || strings.HasPrefix(path, "/swagger") || strings.HasPrefix(path, "/api/v1/queues")
+	return strings.HasPrefix(path, "/health") || strings.HasPrefix(path, "/swagger")
 }

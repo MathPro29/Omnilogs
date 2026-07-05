@@ -10,4 +10,5 @@ export { ProductCatalogPage } from './ProductCatalogPage';
 export { ProductRoleConsolePage } from './ProductRoleConsolePage';
 export { default as AuditsPage } from './Audits';
 export { LogsExplorerPage } from './LogsExplorerPage';
+export { RetentionTestPage } from './RetentionTestPage';
 

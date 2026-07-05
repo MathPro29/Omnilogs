@@ -200,6 +200,7 @@ type LogArchiveResponse struct {
 	Status              *string    `json:"status,omitempty"`
 	ExportedAt          *time.Time `json:"exported_at,omitempty"`
 	RestoredAt          *time.Time `json:"restored_at,omitempty"`
+	DeletedAt           *time.Time `json:"deleted_at,omitempty"`
 	PurgedAt            *time.Time `json:"purged_at,omitempty"`
 	TimestampResponse
 }

@@ -12,6 +12,7 @@ const RESOURCE_ACTIONS: Array<{ resource: string; actions: string[] }> = [
   { resource: 'API_KEY', actions: ['CREATE', 'READ', 'UPDATE', 'DELETE'] },
   { resource: 'ENVIRONMENT', actions: ['CREATE', 'READ', 'UPDATE', 'DELETE'] },
   { resource: 'LOG', actions: ['READ', 'EXPORT', 'VIEW_SENSITIVE'] },
+  { resource: 'ELASTIC_INDEX_POLICY', actions: ['CREATE', 'READ', 'UPDATE', 'DELETE'] },
 ];
 
 function permissionKey(resourceType: string, action: string) {

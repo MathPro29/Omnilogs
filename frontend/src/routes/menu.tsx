@@ -7,6 +7,7 @@ import {
   BeakerIcon,
   Squares2X2Icon,
   ChartBarSquareIcon,
+  ArchiveBoxIcon,
 } from '@heroicons/react/24/outline';
 import { ROUTES, PERMISSIONS, MENU_KEYS } from '@/constants';
 import type { MenuItem } from '@/types';
@@ -50,6 +51,12 @@ export const menuConfig: MenuItem[] = [
     label: 'ผลิตภัณฑ์ที่จัดการ',
     icon: <Squares2X2Icon className="w-5 h-5" /> as ReactNode,
     path: ROUTES.PRODUCTS,
+  },
+  {
+    key: MENU_KEYS.RETENTION_TEST,
+    label: 'ทดสอบ Retention',
+    icon: <ArchiveBoxIcon className="w-5 h-5" /> as ReactNode,
+    path: ROUTES.RETENTION_TEST,
   },
 
   // ===== จัดการผู้ใช้ (submenu) =====

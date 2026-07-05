@@ -21,6 +21,7 @@ type LogArchive struct {
 	Status              *string    `gorm:"index" json:"status,omitempty"`
 	ExportedAt          *time.Time `gorm:"type:timestamptz" json:"exported_at,omitempty"`
 	RestoredAt          *time.Time `gorm:"type:timestamptz" json:"restored_at,omitempty"`
+	DeletedAt           *time.Time `gorm:"type:timestamptz" json:"deleted_at,omitempty"`
 	PurgedAt            *time.Time `gorm:"type:timestamptz" json:"purged_at,omitempty"`
 	Timestamps
 }

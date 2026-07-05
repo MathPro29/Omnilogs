@@ -14,6 +14,9 @@ type LogObjectStorageRef struct {
 	FileFormat      *string    `json:"file_format,omitempty"`
 	SizeBytes       *int64     `json:"size_bytes,omitempty"`
 	Checksum        *string    `json:"checksum,omitempty"`
+	EncryptedPayload *string   `gorm:"type:text" json:"-"`
+	EncryptionKeyRef *string   `json:"encryption_key_ref,omitempty"`
+	EncryptionAlgorithm *string `json:"encryption_algorithm,omitempty"`
 	IsEncrypted     bool       `gorm:"not null;default:false" json:"is_encrypted"`
 	RetentionUntil  *time.Time `gorm:"type:timestamptz;index" json:"retention_until,omitempty"`
 	PurgedAt        *time.Time `gorm:"type:timestamptz;index" json:"purged_at,omitempty"`

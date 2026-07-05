@@ -24,7 +24,10 @@ type Repository interface {
 	GetSensitiveFieldDefinitions(ctx context.Context, productID int) ([]models.LogFieldDefinition, error)
 	GetLogMaskingRules(ctx context.Context, productID int) ([]models.LogMaskingRule, error)
 	CreateSensitiveFieldSecret(ctx context.Context, secret *models.LogSensitiveFieldSecret) error
+	UpsertObjectStorageRef(ctx context.Context, ref *models.LogObjectStorageRef) error
 	DeleteQueueItem(ctx context.Context, queueItemID int64) error
+	GetActiveIndexPolicies(ctx context.Context) ([]models.ElasticIndexPolicy, error)
+	CreateLogArchive(ctx context.Context, archive *models.LogArchive) error
 }
 
 type repository struct {
@@ -198,4 +201,45 @@ func (r *repository) GetLogMaskingRules(ctx context.Context, productID int) ([]m
 }
 func (r *repository) CreateSensitiveFieldSecret(ctx context.Context, secret *models.LogSensitiveFieldSecret) error {
 	return r.db.WithContext(ctx).Create(secret).Error
+}
+
+func (r *repository) UpsertObjectStorageRef(ctx context.Context, ref *models.LogObjectStorageRef) error {
+	var existing models.LogObjectStorageRef
+	err := r.db.WithContext(ctx).
+		Where("log_id = ? AND object_type = ?", ref.LogID, ref.ObjectType).
+		First(&existing).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return r.db.WithContext(ctx).Create(ref).Error
+		}
+		return err
+	}
+
+	ref.ObjectRefID = existing.ObjectRefID
+	return r.db.WithContext(ctx).Model(&existing).Updates(map[string]any{
+		"product_id":            ref.ProductID,
+		"environment_id":        ref.EnvironmentID,
+		"storage_provider":      ref.StorageProvider,
+		"bucket_name":           ref.BucketName,
+		"object_path":           ref.ObjectPath,
+		"file_format":           ref.FileFormat,
+		"size_bytes":            ref.SizeBytes,
+		"checksum":              ref.Checksum,
+		"encrypted_payload":     ref.EncryptedPayload,
+		"encryption_key_ref":    ref.EncryptionKeyRef,
+		"encryption_algorithm":  ref.EncryptionAlgorithm,
+		"is_encrypted":          ref.IsEncrypted,
+		"retention_until":       ref.RetentionUntil,
+		"purged_at":             ref.PurgedAt,
+	}).Error
+}
+
+func (r *repository) GetActiveIndexPolicies(ctx context.Context) ([]models.ElasticIndexPolicy, error) {
+	var list []models.ElasticIndexPolicy
+	err := r.db.WithContext(ctx).Where("retention_enabled = TRUE AND retention_days IS NOT NULL AND is_active = TRUE").Find(&list).Error
+	return list, err
+}
+
+func (r *repository) CreateLogArchive(ctx context.Context, archive *models.LogArchive) error {
+	return r.db.WithContext(ctx).Create(archive).Error
 }

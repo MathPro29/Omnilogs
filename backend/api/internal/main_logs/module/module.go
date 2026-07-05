@@ -10,9 +10,9 @@ import (
 	"gorm.io/gorm"
 )
 
-func NewHandler(db *gorm.DB, esClient *elasticsearch.Client) *handler.Handler {
+func NewHandler(db *gorm.DB, esClient *elasticsearch.Client, encryptionKey string) *handler.Handler {
 	repo := auditrepo.NewRepository(db)
 	audits := auditusecase.NewUsecase(repo)
-	mainLogs := mainlogusecase.NewUsecase(db, esClient, audits)
+	mainLogs := mainlogusecase.NewUsecase(db, esClient, audits, encryptionKey)
 	return handler.NewHandler(mainLogs)
 }

@@ -194,6 +194,15 @@ func repairOrphanProductEnvironments(db *gorm.DB) error {
 			return err
 		}
 
+		// Ensure the table schema is up to date with any newly added product_environments columns
+		if err := tx.Exec(`
+			ALTER TABLE migration_orphan_product_environments 
+			ADD COLUMN IF NOT EXISTS deleted_at timestamptz,
+			ADD COLUMN IF NOT EXISTS updated_at timestamptz
+		`).Error; err != nil {
+			return err
+		}
+
 		if err := tx.Exec(`
 			INSERT INTO migration_orphan_product_environments
 			SELECT pe.*, NOW()::timestamptz AS archived_at

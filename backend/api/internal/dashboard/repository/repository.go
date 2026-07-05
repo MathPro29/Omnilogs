@@ -161,10 +161,10 @@ func (r *repository) SearchLogs(ctx context.Context, query dto.LogQuery) (map[st
 		return nil, fmt.Errorf("failed to encode query: %w", err)
 	}
 
-	indexPattern := fmt.Sprintf("omnilogs-product-%d-*", query.ProductID)
+	indices := r.resolveSearchIndices(query.ProductID)
 	res, err := r.esClient.Search(
 		r.esClient.Search.WithContext(ctx),
-		r.esClient.Search.WithIndex(indexPattern),
+		r.esClient.Search.WithIndex(indices...),
 		r.esClient.Search.WithBody(&buf),
 		r.esClient.Search.WithTrackTotalHits(true),
 	)
@@ -294,10 +294,10 @@ func (r *repository) GetLogStats(ctx context.Context, query dto.LogQuery) (map[s
 		return nil, fmt.Errorf("failed to encode query: %w", err)
 	}
 
-	indexPattern := fmt.Sprintf("omnilogs-product-%d-*", query.ProductID)
+	indices := r.resolveSearchIndices(query.ProductID)
 	res, err := r.esClient.Search(
 		r.esClient.Search.WithContext(ctx),
-		r.esClient.Search.WithIndex(indexPattern),
+		r.esClient.Search.WithIndex(indices...),
 		r.esClient.Search.WithBody(&buf),
 	)
 	if err != nil {
@@ -377,4 +377,20 @@ func (r *repository) GetAuditLogs(ctx context.Context, q dto.AuditLogQuery) ([]m
 	}
 
 	return auditLogs, total, nil
+}
+
+func (r *repository) resolveSearchIndices(productID int) []string {
+	indices := []string{fmt.Sprintf("omnilogs-product-%d-*", productID)}
+	var policies []models.ElasticIndexPolicy
+	if err := r.db.Where("product_id = ? AND is_active = TRUE", productID).Find(&policies).Error; err == nil {
+		for _, policy := range policies {
+			if strings.TrimSpace(policy.IndexPrefix) != "" {
+				prefix := strings.ToLower(strings.TrimSpace(policy.IndexPrefix))
+				prefix = strings.ReplaceAll(prefix, "_", "-")
+				prefix = strings.ReplaceAll(prefix, " ", "-")
+				indices = append(indices, fmt.Sprintf("%s-*", prefix))
+			}
+		}
+	}
+	return indices
 }

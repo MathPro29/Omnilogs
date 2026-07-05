@@ -13,7 +13,7 @@ import (
 
 func AuditRoutes(router *gin.Engine, db *gorm.DB, esClient *elasticsearch.Client, env *configs.Env) {
 	auditHandler := auditmodule.NewHandler(db)
-	mainLogHandler := mainlogmodule.NewHandler(db, esClient)
+	mainLogHandler := mainlogmodule.NewHandler(db, esClient, env.DataEncryptionKey)
 
 	group := router.Group("/api/v1/audit-logs")
 	group.Use(middleware.UserAuthMiddleware(env.JWTSecret))

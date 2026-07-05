@@ -9,9 +9,10 @@ import { AutoLogProcessor } from '@/components/AutoLogProcessor';
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 5 * 60 * 1000, // 5 นาที
+      staleTime: 1000,
       retry: 1,
       refetchOnWindowFocus: false,
+      refetchInterval: 3000, // Real-time update every 3 seconds globally
     },
   },
 });

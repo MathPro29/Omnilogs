@@ -5,12 +5,16 @@ import (
 	apikeyshandler "omnilogs-api/internal/api_keys/handler"
 	apikeysrepo "omnilogs-api/internal/api_keys/repository"
 	apikeysusecase "omnilogs-api/internal/api_keys/usecase"
+	elasticIndexPolicyHandler "omnilogs-api/internal/elastic_index_policy/handler"
+	elasticIndexPolicyRepo "omnilogs-api/internal/elastic_index_policy/repository"
+	elasticIndexPolicyUsecase "omnilogs-api/internal/elastic_index_policy/usecase"
 	featurehandler "omnilogs-api/internal/feature/handler"
 	featurerepo "omnilogs-api/internal/feature/repository"
 	featureusecase "omnilogs-api/internal/feature/usecase"
 	globalauthhandler "omnilogs-api/internal/global_auth/handler"
 	globalauthrepo "omnilogs-api/internal/global_auth/repository"
 	globalauthusecase "omnilogs-api/internal/global_auth/usecase"
+	logArchiveHandler "omnilogs-api/internal/log_archive/handler"
 	producthandler "omnilogs-api/internal/product/handler"
 	productrepo "omnilogs-api/internal/product/repository"
 	productusecase "omnilogs-api/internal/product/usecase"
@@ -27,6 +31,11 @@ import (
 )
 
 func ProductRoutes(router *gin.Engine, db *gorm.DB, env *configs.Env) {
+	esClient, err := configs.ConnectElasticsearch(env)
+	if err != nil {
+		panic(err)
+	}
+
 	productHandler := producthandler.NewHandler(productusecase.NewUsecase(productrepo.NewRepository(db)))
 	apiKeysHandler := apikeyshandler.NewHandler(apikeysusecase.NewUsecase(apikeysrepo.NewRepository(db)))
 	projectHandler := projecthandler.NewHandler(projectusecase.NewUsecase(projectrepo.NewRepository(db)))
@@ -47,7 +56,11 @@ func ProductRoutes(router *gin.Engine, db *gorm.DB, env *configs.Env) {
 	products.GET("/:productId", productHandler.GetProduct)
 	products.PATCH("/:productId", productHandler.UpdateProduct)
 	products.DELETE("/:productId", productHandler.DeleteProduct)
-	products.DELETE("/product/bulk-delete",productHandler.BulkDeleteProducts)
+	products.DELETE("/product/bulk-delete", productHandler.BulkDeleteProducts)
+
+	archiveHandler := logArchiveHandler.NewHandler(db, esClient)
+	products.GET("/:productId/log-archives", archiveHandler.List)
+	products.POST("/:productId/log-archives/:archiveId/restore", archiveHandler.Restore)
 
 	products.POST("/:productId/api-keys", apiKeysHandler.CreateAPIKey)
 	products.GET("/:productId/api-keys", apiKeysHandler.ListAPIKeys)
@@ -87,4 +100,16 @@ func ProductRoutes(router *gin.Engine, db *gorm.DB, env *configs.Env) {
 	permissions := router.Group("/api/v1/authorization")
 	permissions.Use(middleware.UserAuthMiddleware(env.JWTSecret))
 	permissions.POST("/check", accessHandler.CheckPermission)
+
+	elasticIndexPolicyHandler := elasticIndexPolicyHandler.NewHandler(elasticIndexPolicyUsecase.NewUsecase(elasticIndexPolicyRepo.NewRepository(db, esClient)))
+	elasticIndexPolicies := products.Group("/:productId/elastic-index-policies")
+	elasticIndexPolicies.Use(middleware.UserAuthMiddleware(env.JWTSecret))
+	elasticIndexPolicies.POST("", elasticIndexPolicyHandler.Create)
+	elasticIndexPolicies.GET("", elasticIndexPolicyHandler.List)
+	elasticIndexPolicies.GET("/:elasticPolicyId", elasticIndexPolicyHandler.GetByID)
+	elasticIndexPolicies.PATCH("/:elasticPolicyId", elasticIndexPolicyHandler.Update)
+	elasticIndexPolicies.DELETE("/:elasticPolicyId", elasticIndexPolicyHandler.Delete)
+	// push to archives
+	elasticIndexPolicies.POST("/:elasticPolicyId/push-to-archives", elasticIndexPolicyHandler.PushToArchives)
+	elasticIndexPolicies.DELETE("/clear-logs", elasticIndexPolicyHandler.ClearAllLogs)
 }

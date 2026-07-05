@@ -11,6 +11,7 @@ import (
 	auditusecase "omnilogs-api/internal/audit_logs/usecase"
 	"omnilogs-api/models"
 	"omnilogs-api/responses"
+	"omnilogs-api/utils"
 
 	"github.com/elastic/go-elasticsearch/v8"
 	"gorm.io/gorm"
@@ -78,10 +79,11 @@ type usecase struct {
 	db           *gorm.DB
 	esClient     *elasticsearch.Client
 	auditUsecase auditusecase.Usecase
+	encryptionKey string
 }
 
-func NewUsecase(db *gorm.DB, esClient *elasticsearch.Client, auditUsecase auditusecase.Usecase) Usecase {
-	return &usecase{db: db, esClient: esClient, auditUsecase: auditUsecase}
+func NewUsecase(db *gorm.DB, esClient *elasticsearch.Client, auditUsecase auditusecase.Usecase, encryptionKey string) Usecase {
+	return &usecase{db: db, esClient: esClient, auditUsecase: auditUsecase, encryptionKey: encryptionKey}
 }
 
 func (u *usecase) Search(ctx context.Context, input SearchInput, requestID, traceID, ipAddress, userAgent *string) (*SearchResult, error) {
@@ -106,10 +108,10 @@ func (u *usecase) Search(ctx context.Context, input SearchInput, requestID, trac
 		return nil, err
 	}
 
-	indexPattern := fmt.Sprintf("omnilogs-product-%d-*", input.ProductID)
+	indices := u.resolveSearchIndices(input.ProductID)
 	res, err := u.esClient.Search(
 		u.esClient.Search.WithContext(ctx),
-		u.esClient.Search.WithIndex(indexPattern),
+		u.esClient.Search.WithIndex(indices...),
 		u.esClient.Search.WithBody(&buf),
 		u.esClient.Search.WithTrackTotalHits(true),
 	)
@@ -251,14 +253,14 @@ func (u *usecase) findMainLogByID(ctx context.Context, productID int64, logID st
 
 	res, err := u.esClient.Get(ref.ElasticIndex, ref.ElasticDocumentID, u.esClient.Get.WithContext(ctx))
 	if err != nil {
-		return nil, err
+		return u.findMainLogFromPostgresPayload(ctx, &ref)
 	}
 	defer res.Body.Close()
 	if res.StatusCode == 404 {
-		return nil, ErrMainLogNotFound
+		return u.findMainLogFromPostgresPayload(ctx, &ref)
 	}
 	if res.IsError() {
-		return nil, fmt.Errorf("elasticsearch returned status %d", res.StatusCode)
+		return u.findMainLogFromPostgresPayload(ctx, &ref)
 	}
 
 	var payload map[string]any
@@ -267,6 +269,47 @@ func (u *usecase) findMainLogByID(ctx context.Context, productID int64, logID st
 	}
 	source, _ := payload["_source"].(map[string]any)
 	value := mapMainLog(ref.ElasticDocumentID, source)
+	return &value, nil
+}
+
+func (u *usecase) findMainLogFromPostgresPayload(ctx context.Context, ref *models.LogIndexRef) (*MainLogDocument, error) {
+	var objectRef models.LogObjectStorageRef
+	if err := u.db.WithContext(ctx).
+		Where("log_id = ? AND object_type = ?", ref.LogID, "INPUT_PAYLOAD").
+		Order("created_at DESC NULLS LAST").
+		First(&objectRef).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrMainLogNotFound
+		}
+		return nil, err
+	}
+
+	if objectRef.EncryptedPayload == nil || strings.TrimSpace(*objectRef.EncryptedPayload) == "" {
+		return nil, ErrMainLogNotFound
+	}
+
+	decryptedPayload, err := utils.DecryptAESGCM(*objectRef.EncryptedPayload, []byte(u.encryptionKey))
+	if err != nil {
+		return nil, err
+	}
+
+	var payload any
+	if err := json.Unmarshal([]byte(decryptedPayload), &payload); err != nil {
+		return nil, err
+	}
+
+	source := map[string]any{
+		"product_id":     ref.ProductID,
+		"environment_id": ref.EnvironmentID,
+		"@timestamp":     ref.Timestamp.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"),
+		"payload":        payload,
+		"restored_from":  "postgres_payload",
+	}
+	if ref.SourceID != nil {
+		source["source_id"] = *ref.SourceID
+	}
+
+	value := mapMainLog(ref.LogID, source)
 	return &value, nil
 }
 
@@ -461,4 +504,20 @@ func optionalInt64FromPayload(source map[string]any, key string) *int64 {
 		return nil
 	}
 	return optionalInt64FromMap(payload, key)
+}
+
+func (u *usecase) resolveSearchIndices(productID int64) []string {
+	indices := []string{fmt.Sprintf("omnilogs-product-%d-*", productID)}
+	var policies []models.ElasticIndexPolicy
+	if err := u.db.Where("product_id = ? AND is_active = TRUE", productID).Find(&policies).Error; err == nil {
+		for _, policy := range policies {
+			if strings.TrimSpace(policy.IndexPrefix) != "" {
+				prefix := strings.ToLower(strings.TrimSpace(policy.IndexPrefix))
+				prefix = strings.ReplaceAll(prefix, "_", "-")
+				prefix = strings.ReplaceAll(prefix, " ", "-")
+				indices = append(indices, fmt.Sprintf("%s-*", prefix))
+			}
+		}
+	}
+	return indices
 }

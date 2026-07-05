@@ -41,6 +41,8 @@ type LogIngestionPolicyResponse struct {
 type CreateElasticIndexPolicyRequest struct {
 	ProductID        int     `json:"product_id" binding:"required,gt=0"`
 	EnvironmentID    *int    `json:"environment_id,omitempty" binding:"omitempty,gt=0"`
+	ProjectID        *int    `json:"project_id,omitempty" binding:"omitempty,gt=0"`
+	CategoryID       *int    `json:"category_id,omitempty" binding:"omitempty,gt=0"`
 	IndexPrefix      string  `json:"index_prefix" binding:"required"`
 	IndexPattern     *string `json:"index_pattern,omitempty"`
 	WriteAlias       *string `json:"write_alias,omitempty"`
@@ -52,6 +54,9 @@ type CreateElasticIndexPolicyRequest struct {
 }
 
 type UpdateElasticIndexPolicyRequest struct {
+	ElasticPolicyID  int     `json:"elastic_policy_id" binding:"required,gt=0"`
+	ProjectID        *int    `json:"project_id,omitempty" binding:"omitempty,gt=0"`
+	CategoryID       *int    `json:"category_id,omitempty" binding:"omitempty,gt=0"`
 	IndexPattern     *string `json:"index_pattern,omitempty"`
 	WriteAlias       *string `json:"write_alias,omitempty"`
 	RolloverType     *string `json:"rollover_type,omitempty"`
@@ -62,10 +67,29 @@ type UpdateElasticIndexPolicyRequest struct {
 	IsActive         *bool   `json:"is_active,omitempty"`
 }
 
+type DeleteElasticIndexPolicyRequest struct {
+	ProductID       int  `json:"product_id" binding:"required,gt=0"`
+	EnvironmentID   *int `json:"environment_id,omitempty" binding:"omitempty,gt=0"`
+	ElasticPolicyID int  `json:"elastic_policy_id" binding:"required,gt=0"`
+}
+
+type ListElasticIndexPolicyRequest struct {
+	ProductID     int  `form:"product_id" binding:"omitempty,gt=0"`
+	EnvironmentID *int `form:"environment_id,omitempty" binding:"omitempty,gt=0"`
+}
+
+type GetElasticIndexPolicyRequest struct {
+	ProductID       int  `form:"product_id" binding:"required,gt=0"`
+	EnvironmentID   *int `form:"environment_id,omitempty" binding:"omitempty,gt=0"`
+	ElasticPolicyID int  `form:"elastic_policy_id" binding:"required,gt=0"`
+}
+
 type ElasticIndexPolicyResponse struct {
 	ElasticPolicyID  int     `json:"elastic_policy_id"`
 	ProductID        int     `json:"product_id"`
 	EnvironmentID    *int    `json:"environment_id,omitempty"`
+	ProjectID        *int    `json:"project_id,omitempty"`
+	CategoryID       *int    `json:"category_id,omitempty"`
 	IndexPrefix      string  `json:"index_prefix"`
 	IndexPattern     *string `json:"index_pattern,omitempty"`
 	WriteAlias       *string `json:"write_alias,omitempty"`
@@ -76,4 +100,17 @@ type ElasticIndexPolicyResponse struct {
 	SchemaVersion    string  `json:"schema_version"`
 	IsActive         bool    `json:"is_active"`
 	TimestampResponse
+}
+
+type PushToArchivesRequest struct {
+	ProductID       int    `json:"product_id"`
+	EnvironmentID   *int   `json:"environment_id,omitempty" binding:"omitempty,gt=0"`
+	ElasticPolicyID int    `json:"elastic_policy_id"`
+	FromDate        string `json:"from_date" binding:"required"`
+	ToDate          string `json:"to_date" binding:"required"`
+}
+
+type PushToArchivesResponse struct {
+	SuccessCount int `json:"success_count"`
+	FailedCount  int `json:"failed_count"`
 }

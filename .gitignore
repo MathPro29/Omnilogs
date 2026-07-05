@@ -23,9 +23,9 @@ bin/
 .DS_Store
 Thumbs.db
 .cache/
+.gocache/
 .tmpgocache/
 .tmpgomodcache/
 
 # Github
 .github/workflows/*.yml
-

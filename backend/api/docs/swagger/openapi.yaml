@@ -1039,6 +1039,123 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SuccessEnvelope'
+  /api/v1/products/{productId}/elastic-index-policies:
+    post:
+      tags: [Products]
+      summary: Create elastic index policy
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateElasticIndexPolicyRequest'
+      responses:
+        '201':
+          description: Policy created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          description: Invalid request payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    get:
+      tags: [Products]
+      summary: List elastic index policies
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ListElasticIndexPolicyRequest'
+      responses:
+        '200':
+          description: List of policies
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+  /api/v1/products/{productId}/elastic-index-policies/{elasticPolicyId}:
+    get:
+      tags: [Products]
+      summary: Get elastic index policy by id
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/ElasticPolicyId'
+      responses:
+        '200':
+          description: Policy detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '404':
+          description: Policy not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    patch:
+      tags: [Products]
+      summary: Update elastic index policy
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/ElasticPolicyId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateElasticIndexPolicyRequest'
+      responses:
+        '200':
+          description: Policy updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '404':
+          description: Policy not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    delete:
+      tags: [Products]
+      summary: Delete elastic index policy
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/ElasticPolicyId'
+      responses:
+        '200':
+          description: Policy deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '404':
+          description: Policy not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
 components:
   securitySchemes:
     bearerAuth:
@@ -1046,6 +1163,12 @@ components:
       scheme: bearer
       bearerFormat: JWT
   parameters:
+    ElasticPolicyId:
+      name: elasticPolicyId
+      in: path
+      required: true
+      schema:
+        type: integer
     ProductId:
       name: productId
       in: path
@@ -1599,4 +1722,75 @@ components:
         created_at:
           type: string
           format: date-time
+          nullable: true
+    CreateElasticIndexPolicyRequest:
+      type: object
+      required: [product_id, index_prefix, rollover_type]
+      properties:
+        product_id:
+          type: integer
+        environment_id:
+          type: integer
+          nullable: true
+        index_prefix:
+          type: string
+        index_pattern:
+          type: string
+          nullable: true
+        write_alias:
+          type: string
+          nullable: true
+        rollover_type:
+          type: string
+          enum: [size, age]
+        number_of_shards:
+          type: integer
+          nullable: true
+        number_of_replicas:
+          type: integer
+          nullable: true
+        retention_days:
+          type: integer
+          nullable: true
+        schema_version:
+          type: string
+          nullable: true
+    UpdateElasticIndexPolicyRequest:
+      type: object
+      required: [elastic_policy_id]
+      properties:
+        elastic_policy_id:
+          type: integer
+        index_pattern:
+          type: string
+          nullable: true
+        write_alias:
+          type: string
+          nullable: true
+        rollover_type:
+          type: string
+          enum: [size, age]
+          nullable: true
+        number_of_shards:
+          type: integer
+          nullable: true
+        number_of_replicas:
+          type: integer
+          nullable: true
+        retention_days:
+          type: integer
+          nullable: true
+        schema_version:
+          type: string
+          nullable: true
+        is_active:
+          type: boolean
+          nullable: true
+    ListElasticIndexPolicyRequest:
+      type: object
+      properties:
+        product_id:
+          type: integer
+        environment_id:
+          type: integer
           nullable: true

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"omnilogs-api/models"
+	"omnilogs-api/utils"
 )
 
 // ตัวรับ Batch Process Task
@@ -67,10 +68,14 @@ func (u *usecase) processClaimedBatch(ctx context.Context, batch *models.LogQueu
 // processItem คือหัวใจหลักของ Worker ที่ทำหน้าที่ประมวลผล Log 1 รายการ
 // ขั้นตอน: ล้างข้อมูลเก่า -> ตรวจสอบข้อมูล -> Validate โครงสร้าง -> ทำ Data Masking -> บันทึกเข้า Elasticsearch -> สร้าง Index Reference ลง DB
 func (u *usecase) processItem(ctx context.Context, batch *models.LogQueueBatch, item *models.LogQueueItem) error {
-	// ส่วนที่ 1: ล้าง Payload เก่าที่อาจค้างใน Object Storage ก่อนเริ่มประมวลผลรอบใหม่
-	if err := u.repo.DeleteQueueItem(ctx, item.QueueItemID); err != nil {
+	// ส่วนที่ 1: ทำเครื่องหมายว่า item นี้กำลังถูก worker ตัวนี้ประมวลผล
+	now := time.Now()
+	if err := u.repo.MarkItemProcessing(ctx, item.QueueItemID, u.workerID, now); err != nil {
 		return err
 	}
+	item.WorkerID = stringPtr(u.workerID)
+	item.ProcessingAttempts++
+	item.ProcessingStartedAt = &now
 
 	if batch.ProductID == nil || batch.EnvironmentID == nil {
 		// Worker ส่ง Log เข้า Elasticsearch ไม่ได้จนกว่าจะรู้ Product และ Environment
@@ -109,6 +114,7 @@ func (u *usecase) processItem(ctx context.Context, batch *models.LogQueueBatch, 
 	// ===============================================
 
 	docID := newUUID()
+	originalPayloadBytes := append([]byte(nil), item.InputPayload...)
 
 	// ส่วนที่ 4: ตรวจ Hierarchy ก่อนเกิด Side Effect ใด ๆ
 	// ถ้าความสัมพันธ์ผิด จะบันทึก Log Failure และหยุดก่อนเก็บ Secret หรือส่ง Elasticsearch
@@ -190,7 +196,53 @@ func (u *usecase) processItem(ctx context.Context, batch *models.LogQueueBatch, 
 	if err := u.repo.UpsertIndexRef(ctx, &indexRef); err != nil {
 		return u.handleItemFailure(ctx, batch, item, "DATABASE", "INDEX_REF_CREATE_FAILED", err.Error())
 	}
+	if err := u.storeOriginalPayload(ctx, docID, *batch.ProductID, batch.EnvironmentID, originalPayloadBytes, indexedAt); err != nil {
+		return u.handleItemFailure(ctx, batch, item, "DATABASE", "PAYLOAD_ARCHIVE_CREATE_FAILED", err.Error())
+	}
 
-	// เมื่อบันทึก Reference สำเร็จ จึงปิด Queue Item เป็น PROCESSED
-	return u.repo.MarkItemProcessed(ctx, item.QueueItemID, indexedAt)
+	// เมื่อบันทึก Reference สำเร็จ จึงลบ Queue Item ออกจากตารางคิว
+return u.repo.DeleteQueueItem(ctx, item.QueueItemID)
+}
+
+func (u *usecase) storeOriginalPayload(ctx context.Context, logID string, productID int, environmentID *int, payload []byte, indexedAt time.Time) error {
+	encryptedPayload, err := utils.EncryptAESGCM(string(payload), []byte(u.encryptionKey))
+	if err != nil {
+		return err
+	}
+
+	// Retention settings
+	var retentionUntil time.Time 
+	policy, err:= u.repo.FindIndexPolicy(ctx, productID, environmentID)
+	if err == nil && policy != nil && policy.RetentionDays != nil {
+		retentionUntil = time.Now().AddDate(0, 0, *policy.RetentionDays)
+	} else {
+		retentionUntil = time.Now().AddDate(1, 0, 0)
+	}
+
+	sizeBytes := int64(len(payload))
+	checksum := utils.SHA256Hex(string(payload))
+	fileFormat := "JSON"
+	keyRef := "DATA_ENCRYPTION_KEY"
+	algorithm := "AES-256-GCM"
+	objectPath := fmt.Sprintf("postgres://log-payloads/%s", logID)
+
+	ref := &models.LogObjectStorageRef{
+		ObjectRefID:         newUUID(),
+		LogID:               logID,
+		ProductID:           productID,
+		EnvironmentID:       environmentID,
+		StorageProvider:     "POSTGRES",
+		ObjectPath:          objectPath,
+		ObjectType:          "INPUT_PAYLOAD",
+		FileFormat:          &fileFormat,
+		SizeBytes:           &sizeBytes,
+		Checksum:            &checksum,
+		EncryptedPayload:    &encryptedPayload,
+		EncryptionKeyRef:    &keyRef,
+		EncryptionAlgorithm: &algorithm,
+		IsEncrypted:         true,
+		RetentionUntil:      &retentionUntil,
+	}
+
+	return u.repo.UpsertObjectStorageRef(ctx, ref)
 }

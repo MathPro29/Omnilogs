@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	_ "strconv"
 
@@ -73,6 +74,14 @@ func (h *Handler) Register(c *gin.Context) {
 	}
 
 	c.Set(middleware.ContextUserID, user.ID)
+	c.Set("audit_reason", fmt.Sprintf("Registered new user account for email '%s'", user.Email))
+	c.Set("audit_payload", gin.H{
+		"user_id":     user.UserID,
+		"email":       user.Email,
+		"username":    user.Username,
+		"is_active":   user.IsActive,
+		"activity":    "REGISTER",
+	})
 	responses.Success(c, http.StatusCreated, "USER_REGISTERED", user)
 }
 
@@ -94,6 +103,13 @@ func (h *Handler) Login(c *gin.Context) {
 	}
 
 	c.Set(middleware.ContextUserID, tokens.UserID)
+	c.Set("audit_reason", fmt.Sprintf("User login succeeded for identifier '%s'", req.Identifier))
+	c.Set("audit_payload", gin.H{
+		"user_id":    tokens.UserID,
+		"role":       tokens.Role,
+		"activity":   "LOGIN",
+		"identifier": req.Identifier,
+	})
 	responses.Success(c, http.StatusOK, "USER_LOGIN", tokens)
 }
 
@@ -115,6 +131,12 @@ func (h *Handler) RefreshToken(c *gin.Context) {
 	}
 
 	c.Set(middleware.ContextUserID, tokens.UserID)
+	c.Set("audit_reason", fmt.Sprintf("User refreshed session for user ID %d", tokens.UserID))
+	c.Set("audit_payload", gin.H{
+		"user_id":  tokens.UserID,
+		"role":     tokens.Role,
+		"activity": "REFRESH_TOKEN",
+	})
 	responses.Success(c, http.StatusOK, "USER_REFRESH", tokens)
 }
 
@@ -132,6 +154,10 @@ func (h *Handler) Logout(c *gin.Context) {
 		responses.InternalError(c)
 		return
 	}
+	c.Set("audit_reason", "User logout succeeded")
+	c.Set("audit_payload", gin.H{
+		"activity": "LOGOUT",
+	})
 	responses.Success(c, http.StatusOK, "USER_LOGOUT", gin.H{"message": "logged out successfully"})
 }
 
@@ -146,6 +172,11 @@ func (h *Handler) ForgotPassword(c *gin.Context) {
 		responses.InternalError(c)
 		return
 	}
+	c.Set("audit_reason", fmt.Sprintf("Password reset requested for email '%s'", req.Email))
+	c.Set("audit_payload", gin.H{
+		"email":    req.Email,
+		"activity": "FORGOT_PASSWORD",
+	})
 	responses.Success(c, http.StatusOK, "USER_UPDATE", result)
 }
 
@@ -163,6 +194,10 @@ func (h *Handler) ResetPassword(c *gin.Context) {
 		responses.InternalError(c)
 		return
 	}
+	c.Set("audit_reason", "Password reset completed successfully")
+	c.Set("audit_payload", gin.H{
+		"activity": "RESET_PASSWORD",
+	})
 	responses.Success(c, http.StatusOK, "USER_UPDATE", gin.H{"message": "password reset successfully"})
 }
 
@@ -249,6 +284,8 @@ func (h *Handler) GiveAdminAccess(c *gin.Context) {
 		responses.Error(c, "INTERNAL_ERROR", "failed to update role", err)
 		return
 	}
+	c.Set("audit_reason", fmt.Sprintf("Changed platform role for user %d to role %d", req.ID, req.RoleID))
+	c.Set("audit_payload", result)
 
 	responses.Success(c, http.StatusOK, "USER_UPDATE", result)
 }
@@ -275,6 +312,11 @@ func (h *Handler) ListAllUsers(c *gin.Context) {
 		responses.InternalError(c)
 		return
 	}
+	c.Set("audit_reason", fmt.Sprintf("Listed all users (%d records)", len(users)))
+	c.Set("audit_payload", gin.H{
+		"count":    len(users),
+		"activity": "LIST_ALL_USERS",
+	})
 
 	responses.Success(c, http.StatusOK, "USER_LIST", users)
 }

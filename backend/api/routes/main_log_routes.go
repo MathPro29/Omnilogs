@@ -11,7 +11,7 @@ import (
 )
 
 func MainLogRoutes(router *gin.Engine, db *gorm.DB, esClient *elasticsearch.Client, env *configs.Env) {
-	handler := mainlogmodule.NewHandler(db, esClient)
+	handler := mainlogmodule.NewHandler(db, esClient, env.DataEncryptionKey)
 
 	group := router.Group("/api/v1/logs")
 	group.Use(middleware.UserAuthMiddleware(env.JWTSecret))

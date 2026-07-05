@@ -12,6 +12,7 @@ export const ROUTES = {
   SETTINGS: '/settings',
   AUDITS: '/audits',
   LOGS_EXPLORER: '/logs-explorer',
+  RETENTION_TEST: '/retention-test',
   FORBIDDEN: '/403',
   NOT_FOUND: '/404',
 } as const;
@@ -88,6 +89,7 @@ export const MENU_KEYS = {
   SETTINGS: 'settings',
   AUDITS: 'audits',
   LOGS_EXPLORER: 'logs-explorer',
+  RETENTION_TEST: 'retention-test',
 } as const;
 
 // ===== API Endpoints =====

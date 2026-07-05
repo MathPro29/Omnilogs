@@ -39,13 +39,13 @@ func main() {
 
 	// 3. Clear Postgres Logs References
 	fmt.Println("--- Clearing Postgres Log Tables ---")
-	
+
 	clearTable := func(model interface{}, tableName string) {
 		result := db.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(model)
 		if result.Error != nil {
-			fmt.Printf("❌ Failed to clear table %s: %v\n", tableName, result.Error)
+			fmt.Printf("Failed to clear table %s: %v\n", tableName, result.Error)
 		} else {
-			fmt.Printf("✅ Cleared table %s (deleted %d rows)\n", tableName, result.RowsAffected)
+			fmt.Printf("Cleared table %s (deleted %d rows)\n", tableName, result.RowsAffected)
 		}
 	}
 
@@ -61,7 +61,7 @@ func main() {
 	// Query dynamic index prefixes from policies to make sure we clear custom indices as well
 	var policies []models.ElasticIndexPolicy
 	if err := db.Find(&policies).Error; err != nil {
-		fmt.Printf("⚠️ Failed to load index policies: %v\n", err)
+		fmt.Printf("Failed to load index policies: %v\n", err)
 	}
 
 	targets := []string{"omnilogs-*"}
@@ -109,19 +109,19 @@ func main() {
 	}
 
 	if err != nil {
-		fmt.Printf("❌ Failed to delete indices: %v\n", err)
+		fmt.Printf("Failed to delete indices: %v\n", err)
 	} else {
 		defer res.Body.Close()
 		if res.IsError() {
 			if res.StatusCode == 404 {
-				fmt.Println("✅ No matching indices found in Elasticsearch to delete.")
+				fmt.Println("No matching indices found in Elasticsearch to delete.")
 			} else {
-				fmt.Printf("❌ Elasticsearch delete returned error (Status %d): %s\n", res.StatusCode, res.String())
+				fmt.Printf("Elasticsearch delete returned error (Status %d): %s\n", res.StatusCode, res.String())
 			}
 		} else {
-			fmt.Println("✅ Successfully deleted indices from Elasticsearch.")
+			fmt.Println("Successfully deleted indices from Elasticsearch.")
 		}
 	}
 
-	fmt.Println("\n🎉 Clear Logs Completed!")
+	fmt.Println("\n Clear Logs Completed!")
 }

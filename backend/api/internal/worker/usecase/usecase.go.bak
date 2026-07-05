@@ -58,7 +58,7 @@ func (u *usecase) Run(ctx context.Context) error {
 
 	for {
 		// Run retention checks periodically (24 hours)
-		if time.Since(u.lastRetentionCheck) > 30*time.Second {
+		if time.Since(u.lastRetentionCheck) > 24*time.Hour {
 			if err := u.runRetentionCheck(ctx); err != nil {
 				slog.Error("retention check failed", "error", err)
 			} else {
@@ -99,84 +99,52 @@ func (u *usecase) runRetentionCheck(ctx context.Context) error {
 			prefix = fmt.Sprintf("omnilogs-product-%d", policy.ProductID)
 		}
 
-		targets := []string{prefix + "-*"}
-		defaultPrefix := fmt.Sprintf("omnilogs-product-%d", policy.ProductID)
-		if prefix != defaultPrefix {
-			targets = append(targets, defaultPrefix+"-*")
-		}
-
 		// Retrieve all indices matching the prefix pattern from Elasticsearch
 		res, err := u.esClient.Indices.Get(
-			targets,
+			[]string{prefix + "-*"},
 			u.esClient.Indices.Get.WithContext(ctx),
 		)
 		if err != nil {
 			slog.Error("failed to get indices from ES", "prefix", prefix, "error", err)
 			continue
 		}
+		defer res.Body.Close()
 
-		func() {
-			defer res.Body.Close()
+		if res.IsError() {
+			if res.StatusCode != 404 {
+				slog.Error("ES returned error getting indices", "prefix", prefix, "status", res.StatusCode)
+			}
+			continue
+		}
 
-			if res.IsError() {
-				if res.StatusCode != 404 {
-					slog.Error("ES returned error getting indices", "prefix", prefix, "status", res.StatusCode)
-				}
-				return
+		var info map[string]any
+		if err := json.NewDecoder(res.Body).Decode(&info); err != nil {
+			slog.Error("failed to decode ES response", "error", err)
+			continue
+		}
+
+		retentionDays := *policy.RetentionDays
+		cutoff := time.Now().UTC().AddDate(0, 0, -retentionDays)
+
+		for indexName := range info {
+			parts := strings.Split(indexName, "-")
+			if len(parts) < 2 {
+				continue
 			}
 
-			var info map[string]any
-			if err := json.NewDecoder(res.Body).Decode(&info); err != nil {
-				slog.Error("failed to decode ES response", "error", err)
-				return
+			dateStr := parts[len(parts)-1]
+			date, err := time.Parse("2006.01.02", dateStr)
+			if err != nil {
+				continue
 			}
 
-			retentionDays := *policy.RetentionDays
-			cutoff := time.Now().UTC().AddDate(0, 0, -retentionDays)
-			today := time.Now().UTC().Truncate(24 * time.Hour)
-
-			for indexName := range info {
-				parts := strings.Split(indexName, "-")
-				if len(parts) < 2 {
-					continue
-				}
-
-				dateStr := parts[len(parts)-1]
-				date, err := time.Parse("2006.01.02", dateStr)
-				if err != nil {
-					continue
-				}
-
-				// Check if the index is today or future (or not expired)
-				if !date.Before(today) || !date.Before(cutoff) {
-					continue
-				}
-
+			if date.Before(cutoff) {
 				slog.Info("index expired, moving to archive and deleting", "index", indexName, "cutoff", cutoff)
-
-				// Lock Index as Read-only before archiving
-				lockRes, lockErr := u.esClient.Indices.PutSettings(
-					strings.NewReader(`{"index":{"blocks.write":true}}`),
-					u.esClient.Indices.PutSettings.WithIndex(indexName),
-					u.esClient.Indices.PutSettings.WithContext(ctx),
-				)
-				if lockErr == nil {
-					lockRes.Body.Close()
-				}
 
 				// 1. Archive actual Elasticsearch logs and PostgreSQL system_audit_logs
 				totalLogs, compressedSize, localPath, archiveErr := archive_utils.ArchiveIndex(ctx, u.repo.DB(), u.esClient, indexName, policy.ProductID)
 				if archiveErr != nil {
 					slog.Error("failed to archive index", "index", indexName, "error", archiveErr)
-					// Unlock if failed
-					unlockRes, unlockErr := u.esClient.Indices.PutSettings(
-						strings.NewReader(`{"index":{"blocks.write":false}}`),
-						u.esClient.Indices.PutSettings.WithIndex(indexName),
-						u.esClient.Indices.PutSettings.WithContext(ctx),
-					)
-					if unlockErr == nil {
-						unlockRes.Body.Close()
-					}
 					continue
 				}
 
@@ -204,15 +172,6 @@ func (u *usecase) runRetentionCheck(ctx context.Context) error {
 
 				if err := u.repo.CreateLogArchive(ctx, archive); err != nil {
 					slog.Error("failed to create log archive record", "index", indexName, "error", err)
-					// Unlock if failed
-					unlockRes, unlockErr := u.esClient.Indices.PutSettings(
-						strings.NewReader(`{"index":{"blocks.write":false}}`),
-						u.esClient.Indices.PutSettings.WithIndex(indexName),
-						u.esClient.Indices.PutSettings.WithContext(ctx),
-					)
-					if unlockErr == nil {
-						unlockRes.Body.Close()
-					}
 					continue
 				}
 
@@ -233,7 +192,7 @@ func (u *usecase) runRetentionCheck(ctx context.Context) error {
 					slog.Info("successfully archived and deleted index", "index", indexName)
 				}
 			}
-		}()
+		}
 	}
 	return nil
 }
