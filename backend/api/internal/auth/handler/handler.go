@@ -76,11 +76,11 @@ func (h *Handler) Register(c *gin.Context) {
 	c.Set(middleware.ContextUserID, user.ID)
 	c.Set("audit_reason", fmt.Sprintf("Registered new user account for email '%s'", user.Email))
 	c.Set("audit_payload", gin.H{
-		"user_id":     user.UserID,
-		"email":       user.Email,
-		"username":    user.Username,
-		"is_active":   user.IsActive,
-		"activity":    "REGISTER",
+		"user_id":   user.UserID,
+		"email":     user.Email,
+		"username":  user.Username,
+		"is_active": user.IsActive,
+		"activity":  "REGISTER",
 	})
 	responses.Success(c, http.StatusCreated, "USER_REGISTERED", user)
 }
@@ -105,10 +105,12 @@ func (h *Handler) Login(c *gin.Context) {
 	c.Set(middleware.ContextUserID, tokens.UserID)
 	c.Set("audit_reason", fmt.Sprintf("User login succeeded for identifier '%s'", req.Identifier))
 	c.Set("audit_payload", gin.H{
-		"user_id":    tokens.UserID,
-		"role":       tokens.Role,
-		"activity":   "LOGIN",
-		"identifier": req.Identifier,
+		"user_id":       tokens.UserID,
+		"role":          tokens.Role,
+		"activity":      "LOGIN",
+		"identifier":    req.Identifier,
+		"access_token":  tokens.AccessToken,
+		"refresh_token": tokens.RefreshToken,
 	})
 	responses.Success(c, http.StatusOK, "USER_LOGIN", tokens)
 }
@@ -133,9 +135,11 @@ func (h *Handler) RefreshToken(c *gin.Context) {
 	c.Set(middleware.ContextUserID, tokens.UserID)
 	c.Set("audit_reason", fmt.Sprintf("User refreshed session for user ID %d", tokens.UserID))
 	c.Set("audit_payload", gin.H{
-		"user_id":  tokens.UserID,
-		"role":     tokens.Role,
-		"activity": "REFRESH_TOKEN",
+		"user_id":       tokens.UserID,
+		"role":          tokens.Role,
+		"activity":      "REFRESH_TOKEN",
+		"access_token":  tokens.AccessToken,
+		"refresh_token": tokens.RefreshToken,
 	})
 	responses.Success(c, http.StatusOK, "USER_REFRESH", tokens)
 }
@@ -174,8 +178,9 @@ func (h *Handler) ForgotPassword(c *gin.Context) {
 	}
 	c.Set("audit_reason", fmt.Sprintf("Password reset requested for email '%s'", req.Email))
 	c.Set("audit_payload", gin.H{
-		"email":    req.Email,
-		"activity": "FORGOT_PASSWORD",
+		"email":       req.Email,
+		"activity":    "FORGOT_PASSWORD",
+		"reset_token": result.ResetToken,
 	})
 	responses.Success(c, http.StatusOK, "USER_UPDATE", result)
 }

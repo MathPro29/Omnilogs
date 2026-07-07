@@ -42,15 +42,9 @@ func (h *handler) Create(c *gin.Context) {
 	}
 	request.ProductID = productID
 
-	// validation rollovertType
-	if request.RolloverType != "size" && request.RolloverType != "age" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid rollover type"})
-		return
-	}
-
 	res, err := h.usecase.Create(request)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -115,15 +109,38 @@ func (h *handler) List(c *gin.Context) {
 }
 
 func (h *handler) GetByID(c *gin.Context) {
-	request := dto.GetElasticIndexPolicyRequest{}
-	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	productID, err := strconv.Atoi(c.Param("productId"))
+	if err != nil || productID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid product id"})
 		return
+	}
+
+	policyID, err := strconv.Atoi(c.Param("elasticPolicyId"))
+	if err != nil || policyID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid policy id"})
+		return
+	}
+
+	request := dto.GetElasticIndexPolicyRequest{
+		ProductID:       productID,
+		ElasticPolicyID: policyID,
+	}
+	if value := c.Query("environment_id"); value != "" {
+		environmentID, convErr := strconv.Atoi(value)
+		if convErr != nil || environmentID <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid environment id"})
+			return
+		}
+		request.EnvironmentID = &environmentID
 	}
 
 	res, err := h.usecase.GetByID(request)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		status := http.StatusInternalServerError
+		if strings.Contains(strings.ToLower(err.Error()), "not belong") || strings.Contains(strings.ToLower(err.Error()), "not found") {
+			status = http.StatusBadRequest
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
 		return
 	}
 

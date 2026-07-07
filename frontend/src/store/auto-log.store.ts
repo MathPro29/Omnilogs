@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { ProjectFeature } from '@/types';
 
 export interface AutoLogConfig {
   productId: number;
@@ -8,7 +9,7 @@ export interface AutoLogConfig {
   featureFullPath?: string | null;
   featurePathIds?: string | null;
   eventType: string;
-  features?: any[];
+  features?: ProjectFeature[];
 }
 
 interface AutoLogState {

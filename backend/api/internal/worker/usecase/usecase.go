@@ -3,26 +3,24 @@ package usecase
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 	"time"
 
+	"omnilogs-api/configs"
 	"omnilogs-api/internal/archive_utils"
+	"omnilogs-api/internal/queue"
 	workerrepo "omnilogs-api/internal/worker/repository"
 	"omnilogs-api/models"
 
 	"github.com/elastic/go-elasticsearch/v8"
+	"github.com/nats-io/nats.go"
 )
 
-const (
-	DefaultPollInterval = 5 * time.Second  // ความถี่ในการดึงคิวจาก Database มาประมวลผล
-	DefaultLockTimeout  = 15 * time.Minute // ระยะเวลาล็อกงานไม่ให้ Worker ตัวอื่นหยิบซ้ำในระหว่างทำงาน
-)
+const DefaultPollInterval = 2 * time.Second
 
-// Usecase กำหนดฟังก์ชันหลักของ Worker ที่ทำหน้าที่ประมวลผลคิว
-// - Run: ใช้สำหรับรัน Worker แบบ Background Service (ทำงานวนลูปไปเรื่อยๆ)
-// - RunOnce: ใช้สำหรับเรียกทำงานแค่ 1 รอบ (ใช้ตอนที่ API รับข้อมูลแล้วสั่งประมวลผลทันที)
 type Usecase interface {
 	Run(ctx context.Context) error
 	RunOnce(ctx context.Context) (bool, error)
@@ -33,31 +31,33 @@ type usecase struct {
 	esClient           *elasticsearch.Client
 	workerID           string
 	pollInterval       time.Duration
-	lockTimeout        time.Duration
 	encryptionKey      string
 	lastRetentionCheck time.Time
+	natsQueue          *configs.NATSQueue
+	subscription       *nats.Subscription
 }
 
-func NewUsecase(repo workerrepo.Repository, esClient *elasticsearch.Client, encryptionKey string) Usecase {
+func NewUsecase(repo workerrepo.Repository, esClient *elasticsearch.Client, encryptionKey string, natsQueue *configs.NATSQueue) Usecase {
 	return &usecase{
 		repo:               repo,
 		esClient:           esClient,
 		workerID:           "worker-" + newUUID(),
 		pollInterval:       DefaultPollInterval,
-		lockTimeout:        DefaultLockTimeout,
 		encryptionKey:      encryptionKey,
-		lastRetentionCheck: time.Time{}, // initialize as zero time so check runs on start
+		lastRetentionCheck: time.Time{},
+		natsQueue:          natsQueue,
 	}
 }
 
-// Run เริ่มทำงาน Worker แบบลูปอนันต์ (Daemon)
-// จะทำงานดึงคิวทุกๆ pollInterval ถ้าไม่มีคิวก็รอจนครบเวลาแล้วดึงใหม่
 func (u *usecase) Run(ctx context.Context) error {
+	if u.natsQueue == nil {
+		return errors.New("nats queue is not configured")
+	}
+
 	ticker := time.NewTicker(u.pollInterval)
 	defer ticker.Stop()
 
 	for {
-		// Run retention checks periodically (24 hours)
 		if time.Since(u.lastRetentionCheck) > 30*time.Second {
 			if err := u.runRetentionCheck(ctx); err != nil {
 				slog.Error("retention check failed", "error", err)
@@ -66,21 +66,56 @@ func (u *usecase) Run(ctx context.Context) error {
 			}
 		}
 
-		// พยายามดึงและประมวลผล Batch หนึ่งตัว
-		if err := u.processNextBatch(ctx); err != nil {
-			slog.Error("batch processing failed",
+		if _, err := u.RunOnce(ctx); err != nil {
+			slog.Error("jetstream batch processing failed",
 				slog.String("worker_id", u.workerID),
 				slog.Any("error", err),
 			)
 		}
 
-		// รอจนกว่าจะครบเวลา หรือ Context ถูกสั่งหยุด (Graceful Shutdown)
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
 		}
 	}
+}
+
+func (u *usecase) RunOnce(ctx context.Context) (bool, error) {
+	if u.natsQueue == nil {
+		return false, errors.New("nats queue is not configured")
+	}
+
+	sub, err := u.getSubscription()
+	if err != nil {
+		return false, err
+	}
+
+	msgs, err := sub.Fetch(u.natsQueue.FetchBatchSize, nats.MaxWait(u.natsQueue.FetchMaxWait))
+	if err != nil {
+		if errors.Is(err, nats.ErrTimeout) {
+			return false, nil
+		}
+		return false, err
+	}
+	if len(msgs) == 0 {
+		return false, nil
+	}
+
+	return true, u.processFetchedMessages(ctx, msgs)
+}
+
+func (u *usecase) getSubscription() (*nats.Subscription, error) {
+	if u.subscription != nil {
+		return u.subscription, nil
+	}
+
+	sub, err := u.natsQueue.PullSubscribe()
+	if err != nil {
+		return nil, err
+	}
+	u.subscription = sub
+	return sub, nil
 }
 
 func (u *usecase) runRetentionCheck(ctx context.Context) error {
@@ -105,7 +140,6 @@ func (u *usecase) runRetentionCheck(ctx context.Context) error {
 			targets = append(targets, defaultPrefix+"-*")
 		}
 
-		// Retrieve all indices matching the prefix pattern from Elasticsearch
 		res, err := u.esClient.Indices.Get(
 			targets,
 			u.esClient.Indices.Get.WithContext(ctx),
@@ -146,15 +180,36 @@ func (u *usecase) runRetentionCheck(ctx context.Context) error {
 				if err != nil {
 					continue
 				}
-
-				// Check if the index is today or future (or not expired)
 				if !date.Before(today) || !date.Before(cutoff) {
 					continue
 				}
 
 				slog.Info("index expired, moving to archive and deleting", "index", indexName, "cutoff", cutoff)
 
-				// Lock Index as Read-only before archiving
+				var ingestPolicy models.LogIngestionPolicy
+				hasIngestPolicy := true
+				err = u.repo.DB().WithContext(ctx).
+					Where("product_id = ? AND (environment_id = ? OR environment_id IS NULL)", policy.ProductID, policy.EnvironmentID).
+					Order("environment_id DESC NULLS LAST").
+					First(&ingestPolicy).Error
+				if err != nil {
+					hasIngestPolicy = false
+				}
+
+				archiveEnabled := false
+				archiveFormat := "JSON"
+				archiveStoragePath := fmt.Sprintf("data/archives/product-%d", policy.ProductID)
+
+				if hasIngestPolicy {
+					archiveEnabled = ingestPolicy.ArchiveEnabled
+					if ingestPolicy.ArchiveFormat != nil && *ingestPolicy.ArchiveFormat != "" {
+						archiveFormat = *ingestPolicy.ArchiveFormat
+					}
+					if ingestPolicy.ArchiveStoragePath != nil && *ingestPolicy.ArchiveStoragePath != "" {
+						archiveStoragePath = *ingestPolicy.ArchiveStoragePath
+					}
+				}
+
 				lockRes, lockErr := u.esClient.Indices.PutSettings(
 					strings.NewReader(`{"index":{"blocks.write":true}}`),
 					u.esClient.Indices.PutSettings.WithIndex(indexName),
@@ -164,59 +219,49 @@ func (u *usecase) runRetentionCheck(ctx context.Context) error {
 					lockRes.Body.Close()
 				}
 
-				// 1. Archive actual Elasticsearch logs and PostgreSQL system_audit_logs
-				totalLogs, compressedSize, localPath, archiveErr := archive_utils.ArchiveIndex(ctx, u.repo.DB(), u.esClient, indexName, policy.ProductID)
-				if archiveErr != nil {
-					slog.Error("failed to archive index", "index", indexName, "error", archiveErr)
-					// Unlock if failed
-					unlockRes, unlockErr := u.esClient.Indices.PutSettings(
-						strings.NewReader(`{"index":{"blocks.write":false}}`),
-						u.esClient.Indices.PutSettings.WithIndex(indexName),
-						u.esClient.Indices.PutSettings.WithContext(ctx),
-					)
-					if unlockErr == nil {
-						unlockRes.Body.Close()
+				if archiveEnabled {
+					totalLogs, compressedSize, localPath, archiveErr := archive_utils.ArchiveIndex(ctx, u.repo.DB(), u.esClient, indexName, policy.ProductID, archiveFormat, archiveStoragePath)
+					if archiveErr != nil {
+						slog.Error("failed to archive index", "index", indexName, "error", archiveErr)
+						unlockRes, unlockErr := u.esClient.Indices.PutSettings(
+							strings.NewReader(`{"index":{"blocks.write":false}}`),
+							u.esClient.Indices.PutSettings.WithIndex(indexName),
+							u.esClient.Indices.PutSettings.WithContext(ctx),
+						)
+						if unlockErr == nil {
+							unlockRes.Body.Close()
+						}
+						continue
 					}
-					continue
-				}
 
-				now := time.Now()
-				dateStart := date.UTC()
-				dateEnd := date.UTC().Add(24*time.Hour - time.Second)
-				status, provider, format := "COMPLETED", "LOCAL", "JSON"
+					now := time.Now()
+					dateStart := date.UTC()
+					dateEnd := date.UTC().Add(24*time.Hour - time.Second)
+					status, provider := "COMPLETED", "LOCAL"
 
-				archive := &models.LogArchive{
-					ArchiveID:           newUUID(),
-					ProductID:           policy.ProductID,
-					EnvironmentID:       policy.EnvironmentID,
-					ArchiveYear:         date.Year(),
-					ArchiveMonth:        int(date.Month()),
-					DateFrom:            &dateStart,
-					DateTo:              &dateEnd,
-					StorageProvider:     provider,
-					FilePath:            &localPath,
-					FileFormat:          &format,
-					TotalLogs:           &totalLogs,
-					CompressedSizeBytes: &compressedSize,
-					Status:              &status,
-					ExportedAt:          &now,
-				}
-
-				if err := u.repo.CreateLogArchive(ctx, archive); err != nil {
-					slog.Error("failed to create log archive record", "index", indexName, "error", err)
-					// Unlock if failed
-					unlockRes, unlockErr := u.esClient.Indices.PutSettings(
-						strings.NewReader(`{"index":{"blocks.write":false}}`),
-						u.esClient.Indices.PutSettings.WithIndex(indexName),
-						u.esClient.Indices.PutSettings.WithContext(ctx),
-					)
-					if unlockErr == nil {
-						unlockRes.Body.Close()
+					archive := &models.LogArchive{
+						ArchiveID:           newUUID(),
+						ProductID:           policy.ProductID,
+						EnvironmentID:       policy.EnvironmentID,
+						ArchiveYear:         date.Year(),
+						ArchiveMonth:        int(date.Month()),
+						DateFrom:            &dateStart,
+						DateTo:              &dateEnd,
+						StorageProvider:     provider,
+						FilePath:            &localPath,
+						FileFormat:          &archiveFormat,
+						TotalLogs:           &totalLogs,
+						CompressedSizeBytes: &compressedSize,
+						Status:              &status,
+						ExportedAt:          &now,
 					}
-					continue
+
+					if err := u.repo.CreateLogArchive(ctx, archive); err != nil {
+						slog.Error("failed to create log archive record", "index", indexName, "error", err)
+						continue
+					}
 				}
 
-				// 2. Delete the index from Elasticsearch
 				delRes, err := u.esClient.Indices.Delete(
 					[]string{indexName},
 					u.esClient.Indices.Delete.WithContext(ctx),
@@ -226,44 +271,16 @@ func (u *usecase) runRetentionCheck(ctx context.Context) error {
 					continue
 				}
 				delRes.Body.Close()
-
-				if delRes.IsError() {
-					slog.Error("ES returned error deleting index", "index", indexName, "status", delRes.StatusCode)
-				} else {
-					slog.Info("successfully archived and deleted index", "index", indexName)
-				}
 			}
 		}()
 	}
 	return nil
 }
 
-func stringPtr(s string) *string {
-	return &s
-}
-
-// RunOnce ดึงคิวมาประมวลผลเพียง 1 Batch
-// คืนค่า true ถ้ามีคิวให้ประมวลผล คืนค่า false ถ้าไม่มีคิวเหลืออยู่ในระบบ
-func (u *usecase) RunOnce(ctx context.Context) (bool, error) {
-	// ค้นหาและ Claim คิวเพื่อป้องกัน Worker ตัวอื่นมาหยิบซ้ำ (Distributed Lock)
-	batch, err := u.repo.ClaimNextBatch(ctx, u.workerID, u.lockTimeout)
-	if err != nil {
-		return false, err
+func decodeMessage(msg *nats.Msg) (queue.LogMessage, error) {
+	var envelope queue.LogMessage
+	if err := json.Unmarshal(msg.Data, &envelope); err != nil {
+		return queue.LogMessage{}, err
 	}
-	if batch == nil {
-		return false, nil // ไม่มีคิว
-	}
-	// ประมวลผล Batch ที่ Claim มาได้
-	return true, u.processClaimedBatch(ctx, batch)
+	return envelope, nil
 }
-
-func (u *usecase) processNextBatch(ctx context.Context) error {
-	batch, err := u.repo.ClaimNextBatch(ctx, u.workerID, u.lockTimeout)
-	if err != nil || batch == nil {
-		return err
-	}
-
-	return u.processClaimedBatch(ctx, batch)
-}
-
-var _ Usecase = (*usecase)(nil)

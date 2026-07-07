@@ -7,6 +7,65 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+var auditSpecialActionSuffixes = map[string]struct{}{
+	"push-to-archives": {},
+	"restore":          {},
+	"review":           {},
+	"reveal":           {},
+}
+
+var auditUserActivityPaths = map[string]struct{}{
+	"/api/v1/auth/register":        {},
+	"/api/v1/auth/login":           {},
+	"/api/v1/auth/refresh-token":   {},
+	"/api/v1/auth/logout":          {},
+	"/api/v1/auth/forgot-password": {},
+	"/api/v1/auth/reset-password":  {},
+}
+
+var auditExcludedPaths = map[string]struct{}{
+	"/api/v1/queues/consume": {},
+}
+
+func shouldRecordAuditEvent(c *gin.Context) bool {
+	fullPath := c.FullPath()
+	if fullPath == "" {
+		fullPath = c.Request.URL.Path
+	}
+
+	fullPath = strings.TrimSpace(fullPath)
+	if fullPath == "" {
+		return false
+	}
+
+	if strings.HasPrefix(fullPath, "/api/v1/audit-logs") || strings.HasPrefix(fullPath, "/api/v1/dashboard") || strings.HasPrefix(fullPath, "/api/v1/queues") {
+		return false
+	}
+
+	// ตัด endpoint ภายในระบบที่เป็นงานประมวลผลออกจาก audit log เพื่อลด noise
+	if _, ok := auditExcludedPaths[fullPath]; ok {
+		return false
+	}
+
+	if _, ok := auditUserActivityPaths[fullPath]; ok {
+		return true
+	}
+
+	switch strings.ToUpper(strings.TrimSpace(c.Request.Method)) {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+		return true
+	case http.MethodGet:
+		parts := parseAuditPathParts(c)
+		for _, part := range parts {
+			if _, ok := auditSpecialActionSuffixes[strings.ToLower(strings.TrimSpace(part))]; ok {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 func parseAuditPathParts(c *gin.Context) []string {
 	fullPath := c.FullPath()
 	if fullPath == "" {

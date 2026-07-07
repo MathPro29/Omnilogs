@@ -1,21 +1,69 @@
 import { useEffect, useRef } from 'react';
 import { productAdminService } from '@/services';
 import { useAutoLogStore } from '@/store/auto-log.store';
+import type { ProjectFeature } from '@/types';
 
-const NASA_LOG_SEQUENCE = [
-  { targetCategory: 'Head_logs', level: 'INFO', message: 'เริ่มกระบวนการตรวจสอบระบบยานอวกาศส่วนหัว (Head) ก่อนปล่อยตัว' },
-  { targetCategory: 'Engine_logs', level: 'DEBUG', message: 'กำลังตรวจสอบสถานะเซ็นเซอร์ระบบขับเคลื่อนทั้งหมด (Engine)' },
-  { targetCategory: 'Temp_logs', level: 'WARN', message: 'พบความผิดปกติเล็กน้อยที่เซ็นเซอร์อุณหภูมิ (Temp)' },
-  { targetCategory: 'Temp_logs', level: 'INFO', message: 'เปิดใช้งานระบบทำความเย็นสำรองเพื่อลดอุณหภูมิ (Temp)' },
-  { targetCategory: 'Compass_logs', level: 'DEBUG', message: 'กำลังปรับเทียบระบบนำทางและทิศทางเข้าสู่วงโคจร (Compass)' },
-  { targetCategory: 'Rader_logs', level: 'ERROR', message: 'การเชื่อมต่อเรดาร์สัญญาณกับสถานีภาคพื้นดินขัดข้องชั่วคราว (Rader)' },
-  { targetCategory: 'Rader_logs', level: 'INFO', message: 'ระบบสลับไปใช้เรดาร์ช่องสัญญาณสำรองสำเร็จ กู้คืนการเชื่อมต่อ (Rader)' },
-  { targetCategory: 'Passenger_logs', level: 'INFO', message: 'ผู้โดยสารเข้าสู่ที่นั่งและรัดเข็มขัดนิรภัยเรียบร้อย (Passenger)' },
-  { targetCategory: 'Wings_logs', level: 'WARN', message: 'กระแสไฟฟ้าปีกซ้ายลดลง 5% จากระดับมาตรฐาน (Wings)' },
-  { targetCategory: 'Head_logs', level: 'INFO', message: 'อัปเดตแพทช์ระบบควบคุมการบินอัตโนมัติสำเร็จ (Head)' },
-];
+const AUTO_LOG_LEVELS = [
+  'DEBUG',
+  'INFO',
+  'INFO',
+  'WARN',
+  'ERROR',
+] as const;
 
-// Component นี้ Mount อยู่ระดับ App จึงไม่ถูกทำลายเมื่อผู้ใช้เปลี่ยนหน้าภายในระบบ
+const AUTO_LOG_MESSAGES = {
+  DEBUG: [
+    'Hierarchy route validation in progress',
+    'Child feature metrics updated from auto sender',
+    'Auto sender inspected node metadata before dispatch',
+  ],
+  INFO: [
+    'Auto log dispatched to hierarchy node',
+    'Hierarchy node accepted the background event',
+    'Auto sender completed the scheduled hierarchy dispatch',
+  ],
+  WARN: [
+    'Hierarchy node reported a warning state',
+    'Auto sender detected a degraded but recoverable node state',
+    'Hierarchy node exceeded the soft threshold and raised a warning',
+  ],
+  ERROR: [
+    'Hierarchy node raised an error event',
+    'Auto sender captured a failed hierarchy operation',
+    'Hierarchy node returned an exception-like failure state',
+  ],
+} satisfies Record<(typeof AUTO_LOG_LEVELS)[number], string[]>;
+
+function pickLogLevel(index: number) {
+  return AUTO_LOG_LEVELS[index % AUTO_LOG_LEVELS.length];
+}
+
+function pickLogMessage(level: keyof typeof AUTO_LOG_MESSAGES, index: number) {
+  const messages = AUTO_LOG_MESSAGES[level];
+  return messages[index % messages.length];
+}
+
+function isFeatureInScope(feature: ProjectFeature, rootCategoryId?: number) {
+  if (!rootCategoryId) {
+    return true;
+  }
+
+  const pathIds = feature.pathIds?.split(',').map((value) => value.trim()) || [];
+  return feature.categoryId === rootCategoryId || pathIds.includes(String(rootCategoryId));
+}
+
+function getHierarchyTargets(features: ProjectFeature[] | undefined, rootCategoryId?: number) {
+  return (features || [])
+    .filter((feature) => feature.isActive)
+    .filter((feature) => isFeatureInScope(feature, rootCategoryId))
+    .sort((left, right) => {
+      if (left.level !== right.level) {
+        return left.level - right.level;
+      }
+      return (left.fullPath || left.categoryName).localeCompare(right.fullPath || right.categoryName);
+    });
+}
+
 export function AutoLogProcessor() {
   const isRunning = useAutoLogStore((state) => state.isRunning);
   const config = useAutoLogStore((state) => state.config);
@@ -24,31 +72,28 @@ export function AutoLogProcessor() {
 
   useEffect(() => {
     if (!isRunning || !config) {
-      // รีเซ็ต index เมื่อหยุดส่ง
       sequenceIndexRef.current = 0;
       return;
     }
 
+    const hierarchyTargets = getHierarchyTargets(config.features, config.categoryId);
+
     const sendLog = async () => {
-      // ป้องกัน Interval รอบใหม่ยิงซ้อน หาก Request รอบก่อนยังไม่เสร็จ
       if (sendingRef.current) return;
       sendingRef.current = true;
 
-      const currentLog = NASA_LOG_SEQUENCE[sequenceIndexRef.current];
-      
-      // หา Feature ปลายทางตามที่กำหนดใน Sequence (ถ้ามีข้อมูล Features ให้ค้นหา)
-      let dynamicCategoryId = config.categoryId;
-      let dynamicFeatureFullPath = config.featureFullPath;
-      let dynamicFeaturePathIds = config.featurePathIds;
+      const currentIndex = sequenceIndexRef.current;
+      const currentLevel = pickLogLevel(currentIndex);
+      const currentMessage = pickLogMessage(currentLevel, currentIndex);
+      const targetFeature =
+        hierarchyTargets.length > 0
+          ? hierarchyTargets[currentIndex % hierarchyTargets.length]
+          : null;
 
-      if (config.features && config.features.length > 0) {
-        const targetFeature = config.features.find((f: any) => f.categoryName === currentLog.targetCategory);
-        if (targetFeature) {
-          dynamicCategoryId = targetFeature.categoryId;
-          dynamicFeatureFullPath = targetFeature.fullPath;
-          dynamicFeaturePathIds = targetFeature.pathIds;
-        }
-      }
+      const dynamicCategoryId = targetFeature?.categoryId ?? config.categoryId;
+      const dynamicFeatureFullPath = targetFeature?.fullPath ?? config.featureFullPath;
+      const dynamicFeaturePathIds = targetFeature?.pathIds ?? config.featurePathIds;
+      const targetLabel = targetFeature?.fullPath || targetFeature?.categoryName || 'product-scope';
 
       try {
         await productAdminService.importLogs({
@@ -56,21 +101,19 @@ export function AutoLogProcessor() {
           categoryId: dynamicCategoryId,
           featureFullPath: dynamicFeatureFullPath,
           featurePathIds: dynamicFeaturePathIds,
-          logLevel: currentLog.level,
-          message: `${currentLog.message} (seq: ${sequenceIndexRef.current + 1}, time: ${new Date().toLocaleTimeString()})`,
+          logLevel: currentLevel,
+          message: `${currentMessage} [level: ${currentLevel}] [target: ${targetLabel}] (seq: ${currentIndex + 1}, time: ${new Date().toLocaleTimeString()})`,
         });
-        
-        // ขยับไป index ถัดไปวนลูป
-        sequenceIndexRef.current = (sequenceIndexRef.current + 1) % NASA_LOG_SEQUENCE.length;
+
+        sequenceIndexRef.current += 1;
       } catch (error) {
-        // Error ถูกเก็บไว้ที่ Console แต่ Process ยังทำงานต่อในรอบถัดไป
         console.error('Auto log sending failed:', error);
       } finally {
         sendingRef.current = false;
       }
     };
 
-    const interval = window.setInterval(sendLog, 2000);
+    const interval = window.setInterval(sendLog, 3000);
     return () => window.clearInterval(interval);
   }, [isRunning, config]);
 

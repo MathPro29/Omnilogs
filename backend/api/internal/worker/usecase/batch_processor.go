@@ -5,218 +5,247 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"strings"
+	"sync"
 	"time"
 
+	"omnilogs-api/internal/queue"
 	"omnilogs-api/models"
 	"omnilogs-api/utils"
+
+	"github.com/nats-io/nats.go"
 )
 
-// ตัวรับ Batch Process Task
-func (u *usecase) processClaimedBatch(ctx context.Context, batch *models.LogQueueBatch) error {
+type batchCache struct {
+	fields    sync.Map // productID -> []models.LogFieldDefinition
+	rules     sync.Map // productID -> []models.LogMaskingRule
+	hierarchy sync.Map // string -> error (caching valid or invalid results)
+}
 
-	slog.Info("claimed batch",
-		slog.String("worker_id", u.workerID),
-		slog.String("batch_id", batch.BatchID),
-		slog.Int("total_logs", batch.TotalLogs),
+type processedLog struct {
+	message         queue.LogMessage
+	natsMsg         *nats.Msg
+	document        map[string]any
+	meta            indexedLogMeta
+	indexName       string
+	responseCode    int
+	secrets         []models.LogSensitiveFieldSecret
+	objectRef       models.LogObjectStorageRef
+	indexRef        models.LogIndexRef
+	originalPayload []byte
+}
+
+func (u *usecase) processFetchedMessages(ctx context.Context, msgs []*nats.Msg) error {
+	prepared, err := u.prepareLogs(ctx, msgs)
+	if err != nil {
+		return err
+	}
+	if len(prepared) == 0 {
+		return nil
+	}
+
+	prepared, err = u.bulkIndexDocuments(ctx, prepared)
+	if err != nil {
+		return err
+	}
+	if len(prepared) == 0 {
+		return nil
+	}
+
+	indexRefs := make([]models.LogIndexRef, 0, len(prepared))
+	objectRefs := make([]models.LogObjectStorageRef, 0, len(prepared))
+	secrets := make([]models.LogSensitiveFieldSecret, 0, len(prepared))
+	batchIDs := make(map[string]struct{})
+
+	for _, item := range prepared {
+		indexRefs = append(indexRefs, item.indexRef)
+		objectRefs = append(objectRefs, item.objectRef)
+		secrets = append(secrets, item.secrets...)
+		batchIDs[item.message.BatchID] = struct{}{}
+	}
+
+	if err := u.repo.BulkPersistSuccesses(ctx, indexRefs, objectRefs, secrets); err != nil {
+		return err
+	}
+
+	for _, item := range prepared {
+		if err := item.natsMsg.Ack(); err != nil {
+			return err
+		}
+
+		if item.message.ProductID != nil {
+			subject := fmt.Sprintf("omnilogs.logs.live.%d", *item.message.ProductID)
+			item.document["log_id"] = item.message.LogID
+			if payload, err := json.Marshal(item.document); err == nil {
+				_ = u.natsQueue.Broadcast(subject, payload)
+			}
+		}
+	}
+
+	for batchID := range batchIDs {
+		if err := u.repo.RefreshBatchStatusFromResults(ctx, batchID); err != nil {
+			slog.Error("failed to refresh batch status", "batch_id", batchID, "error", err)
+		}
+	}
+
+	return nil
+}
+
+func (u *usecase) prepareLogs(ctx context.Context, msgs []*nats.Msg) ([]processedLog, error) {
+	var (
+		wg       sync.WaitGroup
+		mu       sync.Mutex
+		prepared []processedLog
+		firstErr error
 	)
 
-	// โหลดรายการ Log ย่อย (Items) ทั้งหมดที่อยู่ใน Batch นี้เพื่อนำมาประมวลผล
-	items, err := u.repo.LoadPendingItems(ctx, batch.BatchID)
-	if err != nil {
-		return u.failBatch(ctx, batch, err.Error())
-	}
-	if len(items) == 0 {
-		// ถ้าไม่มี Item ให้ประมวลผลเลย ก็จบ Batch ทันที
-		return u.repo.FinishBatch(ctx, batch.BatchID, "COMPLETED", nil)
-	}
+	cache := &batchCache{}
+	uniqueProductIDs := make(map[int]struct{})
 
-	var processedCount int
-	var retryCount int
-	var failedCount int
-
-	// วนลูปประมวลผลทีละ Item
-	for i := range items {
-		if err := u.processItem(ctx, batch, &items[i]); err != nil {
-			// ตรวจสอบว่า Error เป็นการบอกให้รอ Retry หรือเป็นการเฟลถาวร
-			if strings.Contains(err.Error(), "retry scheduled") {
-				retryCount++
-			} else {
-				failedCount++
-			}
-			continue // ไปทำ Item ถัดไป
+	for _, msg := range msgs {
+		envelope, err := decodeMessage(msg)
+		if err == nil && envelope.ProductID != nil {
+			uniqueProductIDs[*envelope.ProductID] = struct{}{}
 		}
-		processedCount++ // นับจำนวนที่ทำสำเร็จ
 	}
 
-	// สรุปสถานะของ Batch หลังจากทำครบทุก Item
-	status := "COMPLETED"
-	switch {
-	case processedCount == 0 && retryCount > 0 && failedCount == 0:
-		status = "RETRY_PENDING" // ต้องรอประมวลผลใหม่ทั้งหมด
-	case processedCount == 0 && failedCount > 0:
-		status = "FAILED" // เฟลถาวรทั้งหมด
-	case retryCount > 0 || failedCount > 0:
-		status = "PARTIAL" // สำเร็จบางส่วน
+	for pid := range uniqueProductIDs {
+		fields, _ := u.repo.GetSensitiveFieldDefinitions(ctx, pid)
+		cache.fields.Store(pid, fields)
+
+		rules, _ := u.repo.GetLogMaskingRules(ctx, pid)
+		cache.rules.Store(pid, rules)
 	}
 
-	// บันทึกสถานะกลับลง Database
-	message := fmt.Sprintf("processed=%d retry_pending=%d failed=%d", processedCount, retryCount, failedCount)
-	return u.repo.FinishBatch(ctx, batch.BatchID, status, &message)
+	for _, msg := range msgs {
+		wg.Add(1)
+		go func(msg *nats.Msg) {
+			defer wg.Done()
+
+			entry, err := u.prepareLog(ctx, msg, cache)
+			if err != nil {
+				mu.Lock()
+				if firstErr == nil {
+					firstErr = err
+				}
+				mu.Unlock()
+				return
+			}
+			if entry == nil {
+				return
+			}
+
+			mu.Lock()
+			prepared = append(prepared, *entry)
+			mu.Unlock()
+		}(msg)
+	}
+
+	wg.Wait()
+	if firstErr != nil {
+		return nil, firstErr
+	}
+	return prepared, nil
 }
 
-// processItem คือหัวใจหลักของ Worker ที่ทำหน้าที่ประมวลผล Log 1 รายการ
-// ขั้นตอน: ล้างข้อมูลเก่า -> ตรวจสอบข้อมูล -> Validate โครงสร้าง -> ทำ Data Masking -> บันทึกเข้า Elasticsearch -> สร้าง Index Reference ลง DB
-func (u *usecase) processItem(ctx context.Context, batch *models.LogQueueBatch, item *models.LogQueueItem) error {
-	// ส่วนที่ 1: ทำเครื่องหมายว่า item นี้กำลังถูก worker ตัวนี้ประมวลผล
-	now := time.Now()
-	if err := u.repo.MarkItemProcessing(ctx, item.QueueItemID, u.workerID, now); err != nil {
-		return err
-	}
-	item.WorkerID = stringPtr(u.workerID)
-	item.ProcessingAttempts++
-	item.ProcessingStartedAt = &now
-
-	if batch.ProductID == nil || batch.EnvironmentID == nil {
-		// Worker ส่ง Log เข้า Elasticsearch ไม่ได้จนกว่าจะรู้ Product และ Environment
-		return u.handleItemFailure(ctx, batch, item, "VALIDATION", "BATCH_METADATA_MISSING", "product_id and environment_id are required before indexing")
+func (u *usecase) prepareLog(ctx context.Context, msg *nats.Msg, cache *batchCache) (*processedLog, error) {
+	envelope, err := decodeMessage(msg)
+	if err != nil {
+		return nil, msg.Ack()
 	}
 
-	// ส่วนที่ 2: โหลดกฎ Sensitive Field และ Masking ของ Product นี้
-	fields, _ := u.repo.GetSensitiveFieldDefinitions(ctx, *batch.ProductID)
-	rules, _ := u.repo.GetLogMaskingRules(ctx, *batch.ProductID)
+	if envelope.ProductID == nil || envelope.EnvironmentID == nil {
+		return nil, u.failMessage(ctx, msg, envelope, "VALIDATION", "BATCH_METADATA_MISSING", "product_id and environment_id are required before indexing", false)
+	}
 
-	// ส่วนที่ 3: แปลง Raw JSON เป็น Map เพื่ออ่าน Hierarchy และทำ Masking
+	var fields []models.LogFieldDefinition
+	if val, ok := cache.fields.Load(*envelope.ProductID); ok {
+		fields = val.([]models.LogFieldDefinition)
+	}
+
+	var rules []models.LogMaskingRule
+	if val, ok := cache.rules.Load(*envelope.ProductID); ok {
+		rules = val.([]models.LogMaskingRule)
+	}
+
 	var payload map[string]any
-	if err := json.Unmarshal(item.InputPayload, &payload); err != nil {
-		return u.handleItemFailure(ctx, batch, item, "TRANSFORM", "INVALID_PAYLOAD", err.Error())
+	if err := json.Unmarshal(envelope.InputPayload, &payload); err != nil {
+		return nil, u.failMessage(ctx, msg, envelope, "TRANSFORM", "INVALID_PAYLOAD", err.Error(), false)
 	}
 
-	// === จำลองการทำงาน==
-	if msg, ok := payload["message"].(string); ok {
-		switch msg {
-		case "FORCE_RETRY":
-			// จำลองการ Fail เพื่อรอ Retry เสมอ
-			return u.handleItemFailure(ctx, batch, item, "TEST", "SIMULATED_RETRY_ERROR", "simulated temporary failure for retry")
-
-		case "FORCE_RETRY_THEN_SUCCESS":
-			// ถ้าเป็นครั้งแรก (RetryCount = 0) ให้เฟลเพื่อส่งไป Retry
-			// แต่ถ้ามีการดึงขึ้นมาประมวลผลใหม่รอบสอง (RetryCount > 0) ให้ปล่อยผ่านเพื่อสำเร็จ (Success)
-			if item.RetryCount == 0 {
-				return u.handleItemFailure(ctx, batch, item, "TEST", "TEMPORARY_FAILURE", "simulated temporary failure (will succeed on retry)")
-			}
-
-		case "FORCE_FAIL":
-			// จำลองการเฟลถาวร (ถ้าระบบดึงไป retry ครบกำหนดแล้ว ก็จะย้ายลงตาราง Failed log และถูกลบตามที่เราเขียนในส่วนแรก)
-			return u.handleItemFailure(ctx, batch, item, "TEST", "SIMULATED_PERMANENT_ERROR", "simulated permanent failure")
-		}
-	}
-	// ===============================================
-
-	docID := newUUID()
-	originalPayloadBytes := append([]byte(nil), item.InputPayload...)
-
-	// ส่วนที่ 4: ตรวจ Hierarchy ก่อนเกิด Side Effect ใด ๆ
-	// ถ้าความสัมพันธ์ผิด จะบันทึก Log Failure และหยุดก่อนเก็บ Secret หรือส่ง Elasticsearch
-	_, meta, err := buildElasticDocument(batch, item)
+	originalPayload := append([]byte(nil), envelope.InputPayload...)
+	document, meta, err := buildElasticDocument(&envelope, payload)
 	if err != nil {
-		return u.handleItemFailure(ctx, batch, item, "VALIDATION", "INVALID_PAYLOAD", err.Error())
+		return nil, u.failMessage(ctx, msg, envelope, "TRANSFORM", "INVALID_PAYLOAD", err.Error(), false)
 	}
-	if err := u.validateLogHierarchy(ctx, *batch.ProductID, *batch.EnvironmentID, meta); err != nil {
-		return u.handleItemFailure(ctx, batch, item, "VALIDATION", "INVALID_LOG_HIERARCHY", err.Error())
+	if err := u.validateLogHierarchy(ctx, *envelope.ProductID, *envelope.EnvironmentID, meta, cache); err != nil {
+		return nil, u.failMessage(ctx, msg, envelope, "VALIDATION", "INVALID_LOG_HIERARCHY", err.Error(), false)
 	}
 
-	// ส่วนที่ 5: Mask ข้อมูลสำคัญแบบ Recursive และรวบรวมค่าจริงเป็น Secret
-	secrets, err := u.maskPayloadAndExtractSecrets(payload, "", *batch.ProductID, docID, fields, rules)
+	secrets, err := u.maskPayloadAndExtractSecrets(payload, "", *envelope.ProductID, envelope.LogID, fields, rules)
 	if err != nil {
-		return u.handleItemFailure(ctx, batch, item, "TRANSFORM", "MASKING_FAILED", err.Error())
+		return nil, u.failMessage(ctx, msg, envelope, "TRANSFORM", "MASKING_FAILED", err.Error(), true)
 	}
 
-	// ส่วนที่ 6: บันทึก Secret ลง PostgreSQL เพื่อให้ Reveal ได้เฉพาะผู้มีสิทธิ์
-	for _, secret := range secrets {
-		if err := u.repo.CreateSensitiveFieldSecret(ctx, &secret); err != nil {
-			return u.handleItemFailure(ctx, batch, item, "DATABASE", "SENSITIVE_SECRET_CREATE_FAILED", err.Error())
-		}
-	}
-
-	// ส่วนที่ 7: สร้าง Document จาก Payload ที่ Mask แล้ว
-	// Elasticsearch จึงไม่ได้รับข้อมูลลับต้นฉบับ
-	maskedPayloadBytes, err := json.Marshal(payload)
+	document, meta, err = buildElasticDocument(&envelope, payload)
 	if err != nil {
-		return u.handleItemFailure(ctx, batch, item, "TRANSFORM", "PAYLOAD_MARSHAL_FAILED", err.Error())
+		return nil, u.failMessage(ctx, msg, envelope, "TRANSFORM", "PAYLOAD_MARSHAL_FAILED", err.Error(), false)
 	}
-	item.InputPayload = maskedPayloadBytes
 
-	document, meta, err := buildElasticDocument(batch, item)
+	indexedAt := time.Now().UTC()
+	indexName := u.resolveIndexName(ctx, *envelope.ProductID, envelope.EnvironmentID, meta.Timestamp)
+	objectRef, err := u.buildObjectStorageRef(envelope, originalPayload)
 	if err != nil {
-		return u.handleItemFailure(ctx, batch, item, "TRANSFORM", "INVALID_PAYLOAD", err.Error())
+		return nil, u.failMessage(ctx, msg, envelope, "DATABASE", "PAYLOAD_ARCHIVE_CREATE_FAILED", err.Error(), true)
 	}
 
-	// ส่วนที่ 8: เลือก Index ตาม Product, Environment และเวลา แล้วส่งเข้า Elasticsearch
-	indexName := u.resolveIndexName(ctx, *batch.ProductID, batch.EnvironmentID, meta.Timestamp)
-	indexedAt := time.Now()
-
-	statusCode, syncErr := u.indexDocument(ctx, indexName, docID, document)
-	if syncErr != nil {
-		return u.handleItemFailure(ctx, batch, item, "ELASTICSEARCH", "INDEX_REQUEST_FAILED", syncErr.Error())
-	}
-
-	// ส่วนที่ 9: สร้าง Reference เชื่อม Record ใน PostgreSQL กับ Document ใน Elasticsearch
 	indexRef := models.LogIndexRef{
-		LogID:              docID,
-		ProductID:          *batch.ProductID,
-		ProjectID:          meta.ProjectID,
-		CategoryID:         meta.CategoryID,
-		EnvironmentID:      *batch.EnvironmentID,
-		SourceID:           batch.SourceID,
-		BatchID:            &batch.BatchID,
-		QueueItemID:        &item.QueueItemID,
-		ResponseStatusCode: &statusCode,
-		DurationMs:         meta.DurationMs,
-		LogLevel:           meta.LogLevel,
-		EventType:          meta.EventType,
-		SourceRequestID:    meta.SourceRequestID,
-		CorrelationID:      meta.CorrelationID,
-		TraceID:            meta.TraceID,
-		SpanID:             meta.SpanID,
-		ParentSpanID:       meta.ParentSpanID,
-		RequestMethod:      meta.RequestMethod,
-		RequestPath:        meta.RequestPath,
-		RoutePattern:       meta.RoutePattern,
-		FeatureFullPath:    meta.FeatureFullPath,
-		FeaturePathIDs:     meta.FeaturePathIDs,
-		Timestamp:          meta.Timestamp,
-		IngestedAt:         &indexedAt,
-		ElasticIndex:       indexName,
-		ElasticDocumentID:  docID,
-		IndexStatus:        "INDEXED",
-		IndexedAt:          &indexedAt,
-		LastSyncAt:         &indexedAt,
-	}
-	if err := u.repo.UpsertIndexRef(ctx, &indexRef); err != nil {
-		return u.handleItemFailure(ctx, batch, item, "DATABASE", "INDEX_REF_CREATE_FAILED", err.Error())
-	}
-	if err := u.storeOriginalPayload(ctx, docID, *batch.ProductID, batch.EnvironmentID, originalPayloadBytes, indexedAt); err != nil {
-		return u.handleItemFailure(ctx, batch, item, "DATABASE", "PAYLOAD_ARCHIVE_CREATE_FAILED", err.Error())
+		LogID:             envelope.LogID,
+		ProductID:         *envelope.ProductID,
+		ProjectID:         meta.ProjectID,
+		CategoryID:        meta.CategoryID,
+		EnvironmentID:     *envelope.EnvironmentID,
+		SourceID:          envelope.SourceID,
+		BatchID:           &envelope.BatchID,
+		QueueItemID:       &envelope.QueueItemID,
+		DurationMs:        meta.DurationMs,
+		LogLevel:          meta.LogLevel,
+		EventType:         meta.EventType,
+		SourceRequestID:   meta.SourceRequestID,
+		CorrelationID:     meta.CorrelationID,
+		TraceID:           meta.TraceID,
+		SpanID:            meta.SpanID,
+		ParentSpanID:      meta.ParentSpanID,
+		RequestMethod:     meta.RequestMethod,
+		RequestPath:       meta.RequestPath,
+		RoutePattern:      meta.RoutePattern,
+		FeatureFullPath:   meta.FeatureFullPath,
+		FeaturePathIDs:    meta.FeaturePathIDs,
+		Timestamp:         meta.Timestamp,
+		IngestedAt:        &indexedAt,
+		ElasticIndex:      indexName,
+		ElasticDocumentID: envelope.LogID,
+		IndexStatus:       "INDEXED",
+		IndexedAt:         &indexedAt,
+		LastSyncAt:        &indexedAt,
 	}
 
-	// เมื่อบันทึก Reference สำเร็จ จึงลบ Queue Item ออกจากตารางคิว
-return u.repo.DeleteQueueItem(ctx, item.QueueItemID)
+	return &processedLog{
+		message:         envelope,
+		natsMsg:         msg,
+		document:        document,
+		meta:            meta,
+		indexName:       indexName,
+		secrets:         secrets,
+		objectRef:       objectRef,
+		indexRef:        indexRef,
+		originalPayload: originalPayload,
+	}, nil
 }
 
-func (u *usecase) storeOriginalPayload(ctx context.Context, logID string, productID int, environmentID *int, payload []byte, indexedAt time.Time) error {
+func (u *usecase) buildObjectStorageRef(envelope queue.LogMessage, payload []byte) (models.LogObjectStorageRef, error) {
 	encryptedPayload, err := utils.EncryptAESGCM(string(payload), []byte(u.encryptionKey))
 	if err != nil {
-		return err
-	}
-
-	// Retention settings
-	var retentionUntil time.Time 
-	policy, err:= u.repo.FindIndexPolicy(ctx, productID, environmentID)
-	if err == nil && policy != nil && policy.RetentionDays != nil {
-		retentionUntil = time.Now().AddDate(0, 0, *policy.RetentionDays)
-	} else {
-		retentionUntil = time.Now().AddDate(1, 0, 0)
+		return models.LogObjectStorageRef{}, err
 	}
 
 	sizeBytes := int64(len(payload))
@@ -224,13 +253,13 @@ func (u *usecase) storeOriginalPayload(ctx context.Context, logID string, produc
 	fileFormat := "JSON"
 	keyRef := "DATA_ENCRYPTION_KEY"
 	algorithm := "AES-256-GCM"
-	objectPath := fmt.Sprintf("postgres://log-payloads/%s", logID)
+	objectPath := fmt.Sprintf("postgres://log-payloads/%s", envelope.LogID)
 
-	ref := &models.LogObjectStorageRef{
+	return models.LogObjectStorageRef{
 		ObjectRefID:         newUUID(),
-		LogID:               logID,
-		ProductID:           productID,
-		EnvironmentID:       environmentID,
+		LogID:               envelope.LogID,
+		ProductID:           *envelope.ProductID,
+		EnvironmentID:       envelope.EnvironmentID,
 		StorageProvider:     "POSTGRES",
 		ObjectPath:          objectPath,
 		ObjectType:          "INPUT_PAYLOAD",
@@ -241,8 +270,60 @@ func (u *usecase) storeOriginalPayload(ctx context.Context, logID string, produc
 		EncryptionKeyRef:    &keyRef,
 		EncryptionAlgorithm: &algorithm,
 		IsEncrypted:         true,
-		RetentionUntil:      &retentionUntil,
+		RetentionUntil:      envelope.RetentionUntil,
+	}, nil
+}
+
+func (u *usecase) failMessage(ctx context.Context, msg *nats.Msg, envelope queue.LogMessage, stage string, failureType string, reason string, retryable bool) error {
+	now := time.Now().UTC()
+	nextRetryCount := envelope.RetryCount + 1
+	status := "FAILED"
+	var nextRetryAt *time.Time
+
+	if retryable && nextRetryCount <= envelope.MaxRetryCount {
+		status = "RETRY_PENDING"
+		retryAt := now.Add(time.Duration(nextRetryCount) * time.Minute)
+		nextRetryAt = &retryAt
 	}
 
-	return u.repo.UpsertObjectStorageRef(ctx, ref)
+	reasonCopy := reason
+	failure := models.LogFailure{
+		FailureID:     newUUID(),
+		AttemptNo:     nextRetryCount,
+		QueueItemID:   envelope.QueueItemID,
+		BatchID:       envelope.BatchID,
+		ProductID:     envelope.ProductID,
+		SourceID:      envelope.SourceID,
+		EnvironmentID: envelope.EnvironmentID,
+		FailureStage:  stage,
+		FailureType:   failureType,
+		Reason:        &reasonCopy,
+		RetryCount:    nextRetryCount,
+		MaxRetryCount: envelope.MaxRetryCount,
+		NextRetryAt:   nextRetryAt,
+		LastRetryAt:   &now,
+		Status:        status,
+	}
+	if err := u.repo.CreateFailure(ctx, &failure); err != nil {
+		return err
+	}
+
+	if status == "RETRY_PENDING" {
+		envelope.RetryCount = nextRetryCount
+		payload, err := queue.MarshalMessage(envelope)
+		if err != nil {
+			return err
+		}
+		if err := u.natsQueue.Publish(ctx, payload); err != nil {
+			return err
+		}
+	}
+
+	if err := msg.Ack(); err != nil {
+		return err
+	}
+	if err := u.repo.RefreshBatchStatusFromResults(ctx, envelope.BatchID); err != nil {
+		return err
+	}
+	return nil
 }

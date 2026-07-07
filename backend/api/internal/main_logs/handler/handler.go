@@ -1,25 +1,31 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
+	"omnilogs-api/configs"
 	"omnilogs-api/internal/main_logs/usecase"
 	"omnilogs-api/middleware"
 	"omnilogs-api/responses"
 	"omnilogs-api/utils"
 
 	"github.com/gin-gonic/gin"
+	"github.com/nats-io/nats.go"
 )
 
 type Handler struct {
-	usecase usecase.Usecase
+	usecase   usecase.Usecase
+	natsQueue *configs.NATSQueue
 }
 
-func NewHandler(usecase usecase.Usecase) *Handler {
-	return &Handler{usecase: usecase}
+func NewHandler(usecase usecase.Usecase, natsQueue *configs.NATSQueue) *Handler {
+	return &Handler{usecase: usecase, natsQueue: natsQueue}
 }
 
 func (h *Handler) Search(c *gin.Context) {
@@ -131,6 +137,139 @@ func (h *Handler) GetByAudit(c *gin.Context) {
 	}
 
 	responses.Success(c, http.StatusOK, "AUDIT_MAIN_LOG_RETRIEVED", data)
+}
+
+func (h *Handler) LiveTail(c *gin.Context) {
+	_, ok := middleware.CurrentUserID(c)
+	if !ok {
+		c.AbortWithStatus(http.StatusUnauthorized)
+		return
+	}
+
+	productID, err := strconv.ParseInt(c.Query("product_id"), 10, 64)
+	if err != nil || productID <= 0 {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "product_id is required"})
+		return
+	}
+
+	environmentID := c.Query("environment_id")
+
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.Header().Set("Transfer-Encoding", "chunked")
+
+	subject := fmt.Sprintf("omnilogs.logs.live.%d", productID)
+	msgChan := make(chan *nats.Msg, 2000)
+	sub, err := h.natsQueue.Conn.ChanSubscribe(subject, msgChan)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to subscribe"})
+		return
+	}
+	defer sub.Unsubscribe()
+
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	buffer := make([]map[string]any, 0, 100)
+
+	for {
+		select {
+		case <-c.Request.Context().Done():
+			return
+		case msg := <-msgChan:
+			var logData map[string]any
+			if err := json.Unmarshal(msg.Data, &logData); err == nil {
+				if environmentID != "" {
+					if envFloat, ok := logData["environment_id"].(float64); ok {
+						if strconv.FormatFloat(envFloat, 'f', -1, 64) != environmentID {
+							continue
+						}
+					}
+				}
+				mapped := mapESDocToMainLogDocument(logData)
+				buffer = append(buffer, mapped)
+				if len(buffer) >= 100 {
+					flushBuffer(c, &buffer)
+				}
+			}
+		case <-ticker.C:
+			if len(buffer) > 0 {
+				flushBuffer(c, &buffer)
+			}
+		}
+	}
+}
+
+func flushBuffer(c *gin.Context, buffer *[]map[string]any) {
+	if len(*buffer) == 0 {
+		return
+	}
+	dataBytes, err := json.Marshal(*buffer)
+	if err == nil {
+		fmt.Fprintf(c.Writer, "data: %s\n\n", string(dataBytes))
+		c.Writer.Flush()
+	}
+	*buffer = make([]map[string]any, 0, 100)
+}
+
+func mapESDocToMainLogDocument(source map[string]any) map[string]any {
+	result := map[string]any{
+		"log_id": source["log_id"],
+		"raw":    source,
+	}
+
+	result["product_id"] = getInt64(source["product_id"])
+	if env, ok := source["environment_id"]; ok {
+		result["environment_id"] = getInt64(env)
+	}
+	if src, ok := source["source_id"]; ok {
+		result["source_id"] = getInt64(src)
+	}
+	if ts, ok := source["@timestamp"]; ok {
+		result["timestamp"] = ts
+	}
+
+	payload, _ := source["payload"].(map[string]any)
+	if payload != nil {
+		result["level"] = payload["log_level"]
+		result["log_type"] = payload["event_type"]
+		result["message"] = payload["message"]
+		result["request_id"] = payload["source_request_id"]
+		result["trace_id"] = payload["trace_id"]
+		result["method"] = payload["request_method"]
+		result["path"] = payload["request_path"]
+		result["url"] = payload["url"]
+		if sc, ok := payload["status_code"]; ok {
+			result["status_code"] = getInt64(sc)
+		}
+		if lat, ok := payload["duration_ms"]; ok {
+			result["latency_ms"] = getInt64(lat)
+		}
+		result["error_code"] = payload["error_code"]
+		result["error_message"] = payload["error_message"]
+		result["stack_trace"] = payload["stack_trace"]
+		result["request_headers"] = payload["request_headers"]
+		result["response_headers"] = payload["response_headers"]
+		result["request_payload"] = payload["request_payload"]
+		result["response_payload"] = payload["response_payload"]
+		result["custom_fields"] = payload["custom_fields"]
+	}
+
+	return result
+}
+
+func getInt64(val any) int64 {
+	switch v := val.(type) {
+	case float64:
+		return int64(v)
+	case int64:
+		return v
+	case int:
+		return int64(v)
+	default:
+		return 0
+	}
 }
 
 func parseIntWithDefault(raw string, fallback int) int {

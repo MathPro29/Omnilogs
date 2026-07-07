@@ -11,7 +11,7 @@ type User struct {
 	Username     *string    `json:"username,omitempty"`
 	FirstName    *string    `json:"first_name,omitempty"`
 	LastName     *string    `json:"last_name,omitempty"`
-	Email        string     `gorm:"not null;uniqueIndex" json:"email"`
+	Email        string     `gorm:"not null;unique" json:"email"`
 	PhoneNumber  *string    `json:"phone_number,omitempty"`
 	PasswordHash string     `gorm:"not null" json:"-"`
 	IsActive     bool       `gorm:"not null;default:true" json:"is_active"`

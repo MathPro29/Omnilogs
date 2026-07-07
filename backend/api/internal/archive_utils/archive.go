@@ -34,7 +34,7 @@ func parseDateFromIndexName(indexName string) (time.Time, error) {
 
 // ArchiveIndex pulls logs from Elasticsearch and system audit logs from PostgreSQL,
 // compresses them in GZIP, saves the archive locally, and deletes the postgres audit logs.
-func ArchiveIndex(ctx context.Context, db *gorm.DB, esClient *elasticsearch.Client, indexName string, productID int) (int, int64, string, error) {
+func ArchiveIndex(ctx context.Context, db *gorm.DB, esClient *elasticsearch.Client, indexName string, productID int, archiveFormat string, storagePath string) (int, int64, string, error) {
 	// 1. Fetch logs from Elasticsearch index
 	var buf bytes.Buffer
 	query := map[string]any{
@@ -109,11 +109,23 @@ func ArchiveIndex(ctx context.Context, db *gorm.DB, esClient *elasticsearch.Clie
 		AuditLogs: auditLogs,
 	}
 
-	dir := fmt.Sprintf("data/archives/product-%d", productID)
+	dir := strings.TrimSpace(storagePath)
+	if dir == "" {
+		dir = fmt.Sprintf("data/archives/product-%d", productID)
+	}
+	dir = strings.TrimPrefix(dir, "local://")
+
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return 0, 0, "", err
 	}
-	filePath := fmt.Sprintf("%s/%s.json.gz", dir, indexName)
+
+	ext := ".json.gz"
+	formatUpper := strings.ToUpper(strings.TrimSpace(archiveFormat))
+	if formatUpper == "CSV" {
+		ext = ".csv.gz"
+	}
+
+	filePath := fmt.Sprintf("%s/%s%s", dir, indexName, ext)
 	file, err := os.Create(filePath)
 	if err != nil {
 		return 0, 0, "", err
@@ -121,9 +133,30 @@ func ArchiveIndex(ctx context.Context, db *gorm.DB, esClient *elasticsearch.Clie
 	defer file.Close()
 
 	gzipWriter := gzip.NewWriter(file)
-	if err := json.NewEncoder(gzipWriter).Encode(archiveData); err != nil {
+	var errEncode error
+	if formatUpper == "CSV" {
+		var csvBuf bytes.Buffer
+		csvBuf.WriteString("log_id,timestamp,message,raw_payload\n")
+		for _, logDoc := range logs {
+			logID, _ := logDoc["_id"].(string)
+			source, _ := logDoc["_source"].(map[string]any)
+			timestamp, _ := source["@timestamp"].(string)
+			payload, _ := source["payload"].(map[string]any)
+			message := ""
+			if payload != nil {
+				message, _ = payload["message"].(string)
+			}
+			rawPayload, _ := json.Marshal(source)
+			csvBuf.WriteString(fmt.Sprintf("%q,%q,%q,%q\n", logID, timestamp, message, string(rawPayload)))
+		}
+		_, errEncode = gzipWriter.Write(csvBuf.Bytes())
+	} else {
+		errEncode = json.NewEncoder(gzipWriter).Encode(archiveData)
+	}
+
+	if errEncode != nil {
 		gzipWriter.Close()
-		return 0, 0, "", err
+		return 0, 0, "", errEncode
 	}
 	if err := gzipWriter.Close(); err != nil {
 		return 0, 0, "", err

@@ -88,6 +88,7 @@ func NewRouter(env *configs.Env, db *gorm.DB, esClient *elasticsearch.Client) *g
 	routes.DashboardRoutes(router, db, esClient, env)
 	routes.MainLogRoutes(router, db, esClient, env)
 	routes.AuditRoutes(router, db, esClient, env)
+	routes.LogQueueRoutes(router, db, env)
 
 	return router
 }
@@ -129,7 +130,6 @@ func pingElasticsearch(ctx context.Context, esClient *elasticsearch.Client) erro
 	if res.IsError() {
 		return fmt.Errorf("elasticsearch returned status %d", res.StatusCode)
 	}
-	
 
 	return nil
 }

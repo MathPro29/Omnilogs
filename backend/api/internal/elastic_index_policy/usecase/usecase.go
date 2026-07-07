@@ -2,9 +2,11 @@ package usecase
 
 import (
 	"errors"
+	"fmt"
 	"omnilogs-api/dto"
 	"omnilogs-api/internal/elastic_index_policy/repository"
 	"omnilogs-api/models"
+	"strings"
 )
 
 type Usecase interface {
@@ -26,6 +28,16 @@ func NewUsecase(repo repository.Repository) Usecase {
 }
 
 func (u *usecase) Create(req dto.CreateElasticIndexPolicyRequest) (*dto.ElasticIndexPolicyResponse, error) {
+	// ตรวจรูปแบบก่อนบันทึก เพื่อให้ชื่อ index และ policy ถูกใช้ต่อได้จริงใน worker
+	normalizedPrefix, err := normalizeElasticIndexPrefix(req.IndexPrefix)
+	if err != nil {
+		return nil, err
+	}
+	rolloverType, err := normalizeRolloverType(req.RolloverType)
+	if err != nil {
+		return nil, err
+	}
+
 	shards := 1
 	if req.NumberOfShards != nil {
 		shards = *req.NumberOfShards
@@ -36,7 +48,13 @@ func (u *usecase) Create(req dto.CreateElasticIndexPolicyRequest) (*dto.ElasticI
 	}
 	schemaVer := "v1"
 	if req.SchemaVersion != nil {
-		schemaVer = *req.SchemaVersion
+		schemaVer = strings.TrimSpace(*req.SchemaVersion)
+	}
+	if err := validateElasticIndexNumbers(shards, replicas); err != nil {
+		return nil, err
+	}
+	if schemaVer == "" {
+		return nil, errors.New("schema version is required")
 	}
 	retentionEnabled := req.RetentionDays != nil
 
@@ -45,10 +63,10 @@ func (u *usecase) Create(req dto.CreateElasticIndexPolicyRequest) (*dto.ElasticI
 		EnvironmentID:    req.EnvironmentID,
 		ProjectID:        req.ProjectID,
 		CategoryID:       req.CategoryID,
-		IndexPrefix:      req.IndexPrefix,
+		IndexPrefix:      normalizedPrefix,
 		IndexPattern:     req.IndexPattern,
 		WriteAlias:       req.WriteAlias,
-		RolloverType:     req.RolloverType,
+		RolloverType:     rolloverType,
 		NumberOfShards:   shards,
 		NumberOfReplicas: replicas,
 		RetentionEnabled: retentionEnabled,
@@ -83,7 +101,11 @@ func (u *usecase) Update(req dto.UpdateElasticIndexPolicyRequest) (*dto.ElasticI
 		policy.WriteAlias = req.WriteAlias
 	}
 	if req.RolloverType != nil {
-		policy.RolloverType = *req.RolloverType
+		rolloverType, normalizeErr := normalizeRolloverType(*req.RolloverType)
+		if normalizeErr != nil {
+			return nil, normalizeErr
+		}
+		policy.RolloverType = rolloverType
 	}
 	if req.NumberOfShards != nil {
 		policy.NumberOfShards = *req.NumberOfShards
@@ -96,10 +118,16 @@ func (u *usecase) Update(req dto.UpdateElasticIndexPolicyRequest) (*dto.ElasticI
 		policy.RetentionEnabled = true
 	}
 	if req.SchemaVersion != nil {
-		policy.SchemaVersion = *req.SchemaVersion
+		policy.SchemaVersion = strings.TrimSpace(*req.SchemaVersion)
 	}
 	if req.IsActive != nil {
 		policy.IsActive = *req.IsActive
+	}
+	if err := validateElasticIndexNumbers(policy.NumberOfShards, policy.NumberOfReplicas); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(policy.SchemaVersion) == "" {
+		return nil, errors.New("schema version is required")
 	}
 
 	if err := u.repo.Update(policy); err != nil {
@@ -139,6 +167,14 @@ func (u *usecase) GetByID(req dto.GetElasticIndexPolicyRequest) (*dto.ElasticInd
 	policy, err := u.repo.GetByID(req.ElasticPolicyID)
 	if err != nil {
 		return nil, err
+	}
+	if policy.ProductID != req.ProductID {
+		return nil, errors.New("policy does not belong to product")
+	}
+	if req.EnvironmentID != nil {
+		if policy.EnvironmentID == nil || *policy.EnvironmentID != *req.EnvironmentID {
+			return nil, errors.New("policy does not belong to environment")
+		}
 	}
 
 	return mapToResponse(policy), nil
@@ -181,4 +217,41 @@ func mapToResponse(p *models.ElasticIndexPolicy) *dto.ElasticIndexPolicyResponse
 			UpdatedAt: p.UpdatedAt,
 		},
 	}
+}
+
+func normalizeElasticIndexPrefix(value string) (string, error) {
+	prefix := strings.ToLower(strings.TrimSpace(value))
+	if prefix == "" {
+		return "", errors.New("index prefix is required")
+	}
+
+	// จำกัดรูปแบบให้ปลอดภัยสำหรับชื่อ index ของ Elasticsearch
+	for _, r := range prefix {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.' {
+			continue
+		}
+		return "", fmt.Errorf("index prefix contains invalid character: %q", r)
+	}
+
+	return prefix, nil
+}
+
+func normalizeRolloverType(value string) (string, error) {
+	rolloverType := strings.ToLower(strings.TrimSpace(value))
+	switch rolloverType {
+	case "size", "age":
+		return rolloverType, nil
+	default:
+		return "", errors.New("invalid rollover type: allowed values are size or age")
+	}
+}
+
+func validateElasticIndexNumbers(shards int, replicas int) error {
+	if shards <= 0 {
+		return errors.New("number of shards must be greater than 0")
+	}
+	if replicas < 0 {
+		return errors.New("number of replicas must be greater than or equal to 0")
+	}
+	return nil
 }

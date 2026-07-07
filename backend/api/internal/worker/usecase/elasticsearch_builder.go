@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"omnilogs-api/models"
+	"omnilogs-api/internal/queue"
 )
 
 type indexedLogMeta struct {
@@ -38,77 +38,117 @@ func (u *usecase) resolveIndexName(ctx context.Context, productID int, environme
 	return fmt.Sprintf("omnilogs-product-%d-%s", productID, timestamp.UTC().Format("2006.01.02"))
 }
 
-func (u *usecase) indexDocument(ctx context.Context, indexName, docID string, document map[string]any) (int, error) {
-	body, err := json.Marshal(document)
-	if err != nil {
-		return 0, err
+func (u *usecase) bulkIndexDocuments(ctx context.Context, entries []processedLog) ([]processedLog, error) {
+	var body bytes.Buffer
+	for i := range entries {
+		meta := map[string]any{
+			"index": map[string]any{
+				"_index": entries[i].indexName,
+				"_id":    entries[i].message.LogID,
+			},
+		}
+		metaBytes, err := json.Marshal(meta)
+		if err != nil {
+			return nil, err
+		}
+		docBytes, err := json.Marshal(entries[i].document)
+		if err != nil {
+			return nil, err
+		}
+		body.Write(metaBytes)
+		body.WriteByte('\n')
+		body.Write(docBytes)
+		body.WriteByte('\n')
 	}
 
-	res, err := u.esClient.Index(
-		indexName,
-		bytes.NewReader(body),
-		u.esClient.Index.WithDocumentID(docID),
-		u.esClient.Index.WithContext(ctx),
-	)
+	res, err := u.esClient.Bulk(bytes.NewReader(body.Bytes()), u.esClient.Bulk.WithContext(ctx))
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	defer res.Body.Close()
 
 	if res.IsError() {
-		return res.StatusCode, fmt.Errorf("elasticsearch returned status %d: %s", res.StatusCode, res.String())
+		return nil, fmt.Errorf("elasticsearch bulk request failed with status %d", res.StatusCode)
 	}
-	return res.StatusCode, nil
+
+	var response struct {
+		Errors bool `json:"errors"`
+		Items  []map[string]struct {
+			Status int            `json:"status"`
+			Error  map[string]any `json:"error"`
+		} `json:"items"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&response); err != nil {
+		return nil, err
+	}
+
+	successful := make([]processedLog, 0, len(entries))
+	for i := range entries {
+		if i >= len(response.Items) {
+			return nil, fmt.Errorf("unexpected elasticsearch bulk response length")
+		}
+
+		item := response.Items[i]["index"]
+		if item.Status >= 300 {
+			reason := "bulk index item failed"
+			if msg, ok := item.Error["reason"].(string); ok && msg != "" {
+				reason = msg
+			}
+			if err := u.failMessage(ctx, entries[i].natsMsg, entries[i].message, "ELASTICSEARCH", "INDEX_REQUEST_FAILED", reason, true); err != nil {
+				return nil, err
+			}
+			continue
+		}
+
+		indexedAt := time.Now().UTC()
+		entries[i].responseCode = item.Status
+		entries[i].indexRef.ResponseStatusCode = &item.Status
+		entries[i].indexRef.IndexedAt = &indexedAt
+		entries[i].indexRef.LastSyncAt = &indexedAt
+		successful = append(successful, entries[i])
+	}
+
+	return successful, nil
 }
 
-// รับ Raw JSON ให้อยู่ในรูป map[string]any
-func buildElasticDocument(batch *models.LogQueueBatch, item *models.LogQueueItem) (map[string]any, indexedLogMeta, error) {
-	var payload any
-	if err := json.Unmarshal(item.InputPayload, &payload); err != nil {
-		return nil, indexedLogMeta{}, err
-	}
-
-	// [KEY: Elastic Documents]
+func buildElasticDocument(message *queue.LogMessage, payload map[string]any) (map[string]any, indexedLogMeta, error) {
 	document := map[string]any{
-		"batch_id":        batch.BatchID,
-		"queue_item_id":   item.QueueItemID,
-		"sequence_no":     item.SequenceNo,
-		"source_type":     item.SourceType,
-		"source_platform": item.SourcePlatform,
-		"received_at":     time.Now().UTC().Format(time.RFC3339Nano),
+		"batch_id":        message.BatchID,
+		"queue_item_id":   message.QueueItemID,
+		"sequence_no":     message.SequenceNo,
+		"source_type":     message.SourceType,
+		"source_platform": message.SourcePlatform,
+		"received_at":     message.PublishedAt.UTC().Format(time.RFC3339Nano),
 		"payload":         payload,
 	}
-	if batch.ProductID != nil {
-		document["product_id"] = *batch.ProductID
+	if message.ProductID != nil {
+		document["product_id"] = *message.ProductID
 	}
-	if batch.EnvironmentID != nil {
-		document["environment_id"] = *batch.EnvironmentID
+	if message.EnvironmentID != nil {
+		document["environment_id"] = *message.EnvironmentID
 	}
-	if batch.SourceID != nil {
-		document["source_id"] = *batch.SourceID
+	if message.SourceID != nil {
+		document["source_id"] = *message.SourceID
 	}
 
-	// ใช้สำหรับ Data Validate และ ไปบันทึกใน log_index_ref
 	meta := indexedLogMeta{Timestamp: time.Now().UTC()}
-	if asMap, ok := payload.(map[string]any); ok {
-		meta.ProjectID = intPtrFromAny(asMap["project_id"])
-		meta.CategoryID = intPtrFromAny(asMap["category_id"])
-		meta.DurationMs = intPtrFromAny(asMap["duration_ms"])
-		meta.LogLevel = stringPtrFromAny(asMap["log_level"])
-		meta.EventType = stringPtrFromAny(asMap["event_type"])
-		meta.SourceRequestID = stringPtrFromAny(asMap["source_request_id"])
-		meta.CorrelationID = stringPtrFromAny(asMap["correlation_id"])
-		meta.TraceID = stringPtrFromAny(asMap["trace_id"])
-		meta.SpanID = stringPtrFromAny(asMap["span_id"])
-		meta.ParentSpanID = stringPtrFromAny(asMap["parent_span_id"])
-		meta.RequestMethod = stringPtrFromAny(asMap["request_method"])
-		meta.RequestPath = stringPtrFromAny(asMap["request_path"])
-		meta.RoutePattern = stringPtrFromAny(asMap["route_pattern"])
-		meta.FeatureFullPath = stringPtrFromAny(asMap["feature_full_path"])
-		meta.FeaturePathIDs = stringPtrFromAny(asMap["feature_path_ids"])
-		if timestamp, ok := timePtrFromAny(asMap["timestamp"]); ok {
-			meta.Timestamp = timestamp
-		}
+	meta.ProjectID = intPtrFromAny(payload["project_id"])
+	meta.CategoryID = intPtrFromAny(payload["category_id"])
+	meta.DurationMs = intPtrFromAny(payload["duration_ms"])
+	meta.LogLevel = stringPtrFromAny(payload["log_level"])
+	meta.EventType = stringPtrFromAny(payload["event_type"])
+	meta.SourceRequestID = stringPtrFromAny(payload["source_request_id"])
+	meta.CorrelationID = stringPtrFromAny(payload["correlation_id"])
+	meta.TraceID = stringPtrFromAny(payload["trace_id"])
+	meta.SpanID = stringPtrFromAny(payload["span_id"])
+	meta.ParentSpanID = stringPtrFromAny(payload["parent_span_id"])
+	meta.RequestMethod = stringPtrFromAny(payload["request_method"])
+	meta.RequestPath = stringPtrFromAny(payload["request_path"])
+	meta.RoutePattern = stringPtrFromAny(payload["route_pattern"])
+	meta.FeatureFullPath = stringPtrFromAny(payload["feature_full_path"])
+	meta.FeaturePathIDs = stringPtrFromAny(payload["feature_path_ids"])
+	if timestamp, ok := timePtrFromAny(payload["timestamp"]); ok {
+		meta.Timestamp = timestamp
 	}
 	document["@timestamp"] = meta.Timestamp.UTC().Format(time.RFC3339Nano)
 

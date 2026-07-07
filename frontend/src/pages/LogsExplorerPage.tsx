@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { Card, Space, Typography, Modal, Button, Select, Input, Table, Tag, Form, Row, Col, Badge, message, Spin, Switch, Statistic, Tooltip as AntTooltip } from 'antd';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   SearchOutlined,
   EyeOutlined,
@@ -21,8 +21,8 @@ import {
   Area,
   AreaChart,
 } from 'recharts';
-import { productAdminService } from '@/services';
-import { useAppStore } from '@/store';
+import { productAdminService, normalizeMainLog } from '@/services';
+import { useAppStore, useAuthStore } from '@/store';
 import { ROUTES } from '@/constants';
 import type { MainLog, Project, ProjectFeature } from '@/types';
 
@@ -41,6 +41,7 @@ const LEVEL_OPTIONS = ['DEBUG', 'INFO', 'WARN', 'ERROR'];
 
 export function LogsExplorerPage() {
   const setBreadcrumbs = useAppStore((state) => state.setBreadcrumbs);
+  const accessToken = useAuthStore((state) => state.accessToken);
 
   // Filter States
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
@@ -121,8 +122,68 @@ export function LogsExplorerPage() {
         perPage: pageSize,
       }),
     enabled: !!selectedProductId,
-    refetchInterval: autoRefresh ? 10000 : false,
+    refetchInterval: false, // Replaced by SSE Live Tail
   });
+
+  const queryClient = useQueryClient();
+
+  // Handle Live Tail SSE connection
+  useEffect(() => {
+    if (!autoRefresh || !selectedProductId || !accessToken) return;
+
+    const apiBase = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+    let url = `${apiBase}/logs/live?product_id=${selectedProductId}&token=${encodeURIComponent(accessToken)}`;
+    if (selectedEnvironmentId) {
+      url += `&environment_id=${selectedEnvironmentId}`;
+    }
+
+    const eventSource = new EventSource(url);
+
+    eventSource.onmessage = (event) => {
+      try {
+        const parsedData = JSON.parse(event.data);
+        if (Array.isArray(parsedData) && parsedData.length > 0) {
+          const newLogs = parsedData.map(normalizeMainLog);
+          
+          queryClient.setQueriesData(
+            { queryKey: ['explorer-logs', selectedProductId] },
+            (oldData: any) => {
+              if (!oldData || !oldData.data) return oldData;
+              const combined = [...newLogs, ...oldData.data];
+              const sliced = combined.slice(0, 1000);
+              return {
+                ...oldData,
+                data: sliced,
+                total: oldData.total + newLogs.length
+              };
+            }
+          );
+        }
+      } catch (error) {
+        console.error('Failed to parse SSE data', error);
+      }
+    };
+
+    eventSource.onerror = (error) => {
+      console.error('EventSource error:', error);
+    };
+
+    return () => {
+      eventSource.close();
+    };
+  }, [
+    autoRefresh,
+    selectedProductId,
+    selectedEnvironmentId,
+    queryClient,
+    selectedProjectIds,
+    selectedCategoryIds,
+    selectedLevels,
+    logKeyword,
+    currentPage,
+    pageSize,
+    accessToken,
+  ]);
 
   // Stats for charts
   const { data: statsData, isLoading: isLoadingStats } = useQuery({
@@ -267,12 +328,12 @@ export function LogsExplorerPage() {
             </Text>
           </div>
           <Space>
-            <AntTooltip title={autoRefresh ? 'ปิด Auto Refresh' : 'เปิด Auto Refresh ทุก 10 วินาที'}>
+            <AntTooltip title={autoRefresh ? 'ปิด Live Tail' : 'เปิด Live Tail (สตรีม Real-time)'}>
               <Switch
                 checked={autoRefresh}
                 onChange={setAutoRefresh}
                 checkedChildren={<ThunderboltOutlined />}
-                unCheckedChildren="Auto"
+                unCheckedChildren="Live"
               />
             </AntTooltip>
             {selectedProductId && (
@@ -576,7 +637,12 @@ export function LogsExplorerPage() {
                   รายการ Logs ({totalLogs.toLocaleString()} รายการ)
                 </span>
                 {autoRefresh && (
-                  <Badge status="processing" text="Auto-refreshing" />
+                  <Space size={6} style={{ marginLeft: 8 }}>
+                    <span className="live-dot" />
+                    <span style={{ fontSize: '11px', color: 'var(--color-success)', fontWeight: 'bold', letterSpacing: '0.05em' }}>
+                      LIVE TAIL
+                    </span>
+                  </Space>
                 )}
               </Space>
             }

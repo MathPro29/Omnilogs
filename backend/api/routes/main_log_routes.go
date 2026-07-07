@@ -11,11 +11,17 @@ import (
 )
 
 func MainLogRoutes(router *gin.Engine, db *gorm.DB, esClient *elasticsearch.Client, env *configs.Env) {
-	handler := mainlogmodule.NewHandler(db, esClient, env.DataEncryptionKey)
+	natsQueue, err := configs.ConnectNATS(env)
+	if err != nil {
+		panic(err)
+	}
+
+	handler := mainlogmodule.NewHandler(db, esClient, env.DataEncryptionKey, natsQueue)
 
 	group := router.Group("/api/v1/logs")
 	group.Use(middleware.UserAuthMiddleware(env.JWTSecret))
 
 	group.GET("", handler.Search)
+	group.GET("/live", handler.LiveTail)
 	group.GET("/:logId", handler.GetByID)
 }

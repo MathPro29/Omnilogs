@@ -93,6 +93,14 @@ export function ApiTestPage() {
   });
 
 
+  const [ingestTab, setIngestTab] = useState<'single' | 'bulk'>('single');
+  const [bulkLogCount, setBulkLogCount] = useState(1000);
+  const [bulkBatchSize, setBulkBatchSize] = useState(100);
+  const [bulkDelay, setBulkDelay] = useState(10);
+  const [isBulkSending, setIsBulkSending] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState({ sent: 0, success: 0, failed: 0 });
+  const cancelBulkRef = React.useRef(false);
+
   const [loading, setLoading] = useState<Record<string, boolean>>({});
 
   // Sensitive logs testing form states
@@ -312,6 +320,119 @@ export function ApiTestPage() {
       setLoading((prev) => ({ ...prev, ingest: false }));
     }
   };
+
+  // Bulk Log Ingestion Handler for NATS Performance Testing
+  const handleBulkIngest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isBulkSending) {
+      cancelBulkRef.current = true;
+      setIsBulkSending(false);
+      return;
+    }
+
+    setIsBulkSending(true);
+    cancelBulkRef.current = false;
+    setBulkProgress({ sent: 0, success: 0, failed: 0 });
+
+    const productId = parseInt(ingestForm.productId, 10);
+    const envId = parseInt(ingestForm.environmentId, 10);
+    const projId = ingestForm.projectId ? parseInt(ingestForm.projectId, 10) : null;
+    const catId = ingestForm.categoryId ? parseInt(ingestForm.categoryId, 10) : null;
+    const path = '/api/v1/queues';
+
+    let totalSent = 0;
+    let totalSuccess = 0;
+    let totalFailed = 0;
+
+    const totalLogs = bulkLogCount;
+    const batchSize = bulkBatchSize;
+
+    const logTemplates = [
+      "User login successful",
+      "Database connection pool warning",
+      "Payment processed successfully for order #",
+      "API request received on /v1/users",
+      "Failed to fetch cache key: user_profile_",
+      "Failed to upload profile picture for user ",
+      "CRITICAL: Disk usage above 90%",
+      "INFO: Garbage collection completed",
+    ];
+
+    while (totalSent < totalLogs && !cancelBulkRef.current) {
+      const logsToSendThisBatch = Math.min(batchSize, totalLogs - totalSent);
+      const logsArray = [];
+
+      for (let i = 0; i < logsToSendThisBatch; i++) {
+        const seq = totalSent + i + 1;
+        const randomTemplate = logTemplates[Math.floor(Math.random() * logTemplates.length)];
+        const suffix = randomTemplate.includes("#") || randomTemplate.endsWith("_") || randomTemplate.endsWith(" ") ? Math.floor(Math.random() * 100000) : "";
+        
+        let msg = `${randomTemplate}${suffix}`;
+        if (ingestForm.testMode === 'RETRY_THEN_SUCCESS') {
+          msg = 'FORCE_RETRY_THEN_SUCCESS';
+        } else if (ingestForm.testMode === 'ALWAYS_RETRY') {
+          msg = 'FORCE_RETRY';
+        } else if (ingestForm.testMode === 'PERMANENT_FAIL') {
+          msg = 'FORCE_FAIL';
+        }
+
+        logsArray.push({
+          sequence_no: seq,
+          source_type: 'application',
+          source_platform: 'backend',
+          input_payload: {
+            log_level: ingestForm.logLevel === 'RANDOM' 
+              ? ['INFO', 'WARN', 'ERROR', 'DEBUG'][Math.floor(Math.random() * 4)]
+              : ingestForm.logLevel,
+            event_type: 'BULK_TEST',
+            message: msg,
+            timestamp: new Date().toISOString(),
+            ...(projId ? { project_id: projId } : {}),
+            ...(catId ? { category_id: catId } : {}),
+          },
+        });
+      }
+
+      const payload = {
+        product_id: productId,
+        environment_id: envId,
+        queue_key: 'default',
+        source_type: 'application',
+        source_platform: 'backend',
+        priority: 1,
+        logs: logsArray,
+      };
+
+      try {
+        const res = await getClient(true).post(path, payload);
+        if (res.status >= 200 && res.status < 300) {
+          totalSuccess += logsToSendThisBatch;
+        } else {
+          totalFailed += logsToSendThisBatch;
+        }
+      } catch (err) {
+        totalFailed += logsToSendThisBatch;
+      }
+
+      totalSent += logsToSendThisBatch;
+      setBulkProgress({ sent: totalSent, success: totalSuccess, failed: totalFailed });
+
+      if (bulkDelay > 0 && totalSent < totalLogs && !cancelBulkRef.current) {
+        await new Promise((resolve) => setTimeout(resolve, bulkDelay));
+      }
+    }
+
+    setIsBulkSending(false);
+    addLog(
+      'QUEUE.BULK_INGEST.COMPLETE',
+      'POST',
+      path,
+      { total: totalLogs, success: totalSuccess, failed: totalFailed },
+      200,
+      { message: `Bulk ingestion complete: ${totalSuccess} succeeded, ${totalFailed} failed.` }
+    );
+  };
+
   // 5. Create Sensitive Access Request Handler
   const handleCreateSensitiveRequest = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -879,11 +1000,31 @@ export function ApiTestPage() {
                 </form>
               </div>
 
-              {/* Action 5: Manual Log Ingestion */}
+              {/* Action 5: Manual & Bulk Log Ingestion */}
               <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-200">
-                <h2 className="text-lg font-bold text-gray-900 border-b border-gray-100 pb-2 mb-3">5. Ingest & Process Log (Manual Ingestion)</h2>
-                <form onSubmit={handleIngestLog} className="space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
+                <h2 className="text-lg font-bold text-gray-900 border-b border-gray-100 pb-2 mb-3">5. Log Ingestion Console (NATS & Ingest Test)</h2>
+                
+                {/* Tabs */}
+                <div className="flex border-b border-gray-200 mb-4">
+                  <button
+                    type="button"
+                    onClick={() => setIngestTab('single')}
+                    className={`flex-1 py-2 text-center text-sm font-semibold border-b-2 ${ingestTab === 'single' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                  >
+                    ส่ง Log เดี่ยว
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIngestTab('bulk')}
+                    className={`flex-1 py-2 text-center text-sm font-semibold border-b-2 ${ingestTab === 'bulk' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                  >
+                    ทดสอบ NATS (Bulk)
+                  </button>
+                </div>
+
+                <div className="space-y-4">
+                  {/* Common Configuration */}
+                  <div className="grid grid-cols-2 gap-3 bg-gray-50 p-3 rounded border border-gray-100">
                     <div>
                       <label className="block text-xs font-semibold text-gray-600">Product ID</label>
                       <input
@@ -892,6 +1033,7 @@ export function ApiTestPage() {
                         value={ingestForm.productId}
                         onChange={(e) => setIngestForm({ ...ingestForm, productId: e.target.value })}
                         className="w-full p-1.5 border border-gray-300 rounded text-sm"
+                        disabled={isBulkSending}
                       />
                     </div>
                     <div>
@@ -902,10 +1044,9 @@ export function ApiTestPage() {
                         value={ingestForm.environmentId}
                         onChange={(e) => setIngestForm({ ...ingestForm, environmentId: e.target.value })}
                         className="w-full p-1.5 border border-gray-300 rounded text-sm"
+                        disabled={isBulkSending}
                       />
                     </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-semibold text-gray-600">Project ID (Optional)</label>
                       <input
@@ -914,52 +1055,178 @@ export function ApiTestPage() {
                         value={ingestForm.projectId}
                         onChange={(e) => setIngestForm({ ...ingestForm, projectId: e.target.value })}
                         className="w-full p-1.5 border border-gray-300 rounded text-sm"
+                        disabled={isBulkSending}
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-gray-600">Category / Feature ID (Optional)</label>
+                      <label className="block text-xs font-semibold text-gray-600">Category ID (Optional)</label>
                       <input
                         type="number"
                         placeholder="ไม่บังคับ"
                         value={ingestForm.categoryId}
                         onChange={(e) => setIngestForm({ ...ingestForm, categoryId: e.target.value })}
                         className="w-full p-1.5 border border-gray-300 rounded text-sm"
+                        disabled={isBulkSending}
                       />
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-600">Log Level</label>
-                      <select
-                        value={ingestForm.logLevel}
-                        onChange={(e) => setIngestForm({ ...ingestForm, logLevel: e.target.value })}
-                        className="w-full p-1.5 border border-gray-300 rounded text-sm"
+
+                  {ingestTab === 'single' ? (
+                    <form onSubmit={handleIngestLog} className="space-y-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-600">Log Level</label>
+                          <select
+                            value={ingestForm.logLevel}
+                            onChange={(e) => setIngestForm({ ...ingestForm, logLevel: e.target.value })}
+                            className="w-full p-1.5 border border-gray-300 rounded text-sm"
+                          >
+                            <option value="INFO">INFO</option>
+                            <option value="WARN">WARN</option>
+                            <option value="ERROR">ERROR</option>
+                            <option value="DEBUG">DEBUG</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-600">Test Mode (Queue Logic)</label>
+                          <select
+                            value={ingestForm.testMode}
+                            onChange={(e) => setIngestForm({ ...ingestForm, testMode: e.target.value })}
+                            className="w-full p-1.5 border border-gray-300 rounded text-sm"
+                          >
+                            <option value="NORMAL">Normal Processing</option>
+                            <option value="RETRY_THEN_SUCCESS">Retry then success</option>
+                            <option value="ALWAYS_RETRY">Always retry</option>
+                            <option value="PERMANENT_FAIL">Permanent fail</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-600">Message</label>
+                        <input
+                          type="text"
+                          required
+                          value={ingestForm.message}
+                          onChange={(e) => setIngestForm({ ...ingestForm, message: e.target.value })}
+                          className="w-full p-1.5 border border-gray-300 rounded text-sm"
+                        />
+                      </div>
+                      <button
+                        type="submit"
+                        disabled={loading.ingest}
+                        className="w-full bg-blue-600 text-white p-2 rounded text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition"
                       >
-                        <option value="INFO">INFO</option>
-                        <option value="WARN">WARN</option>
-                        <option value="ERROR">ERROR</option>
-                        <option value="DEBUG">DEBUG</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-600">Message</label>
-                      <input
-                        type="text"
-                        required
-                        value={ingestForm.message}
-                        onChange={(e) => setIngestForm({ ...ingestForm, message: e.target.value })}
-                        className="w-full p-1.5 border border-gray-300 rounded text-sm"
-                      />
-                    </div>
-                  </div>
-                  <button
-                    type="submit"
-                    disabled={loading.ingest}
-                    className="w-full bg-blue-600 text-white p-2 rounded text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition"
-                  >
-                    {loading.ingest ? 'กำลังส่งและประมวลผล...' : 'ส่ง Log + trigger consume (Manual Process)'}
-                  </button>
-                </form>
+                        {loading.ingest ? 'กำลังส่งและประมวลผล...' : 'ส่ง Log + trigger consume (Manual Process)'}
+                      </button>
+                    </form>
+                  ) : (
+                    <form onSubmit={handleBulkIngest} className="space-y-3">
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-600">จำนวน Log ทั้งหมด</label>
+                          <input
+                            type="number"
+                            required
+                            min="1"
+                            max="100000"
+                            value={bulkLogCount}
+                            onChange={(e) => setBulkLogCount(parseInt(e.target.value, 10) || 0)}
+                            className="w-full p-1.5 border border-gray-300 rounded text-sm"
+                            disabled={isBulkSending}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-600">Batch Size (ต่อรอบ)</label>
+                          <input
+                            type="number"
+                            required
+                            min="1"
+                            max="5000"
+                            value={bulkBatchSize}
+                            onChange={(e) => setBulkBatchSize(parseInt(e.target.value, 10) || 0)}
+                            className="w-full p-1.5 border border-gray-300 rounded text-sm"
+                            disabled={isBulkSending}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-600">Delay (ms) ระหว่างรอบ</label>
+                          <input
+                            type="number"
+                            required
+                            min="0"
+                            max="5000"
+                            value={bulkDelay}
+                            onChange={(e) => setBulkDelay(parseInt(e.target.value, 10) || 0)}
+                            className="w-full p-1.5 border border-gray-300 rounded text-sm"
+                            disabled={isBulkSending}
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-600">Log Level</label>
+                          <select
+                            value={ingestForm.logLevel}
+                            onChange={(e) => setIngestForm({ ...ingestForm, logLevel: e.target.value })}
+                            className="w-full p-1.5 border border-gray-300 rounded text-sm"
+                            disabled={isBulkSending}
+                          >
+                            <option value="RANDOM">RANDOM (สุ่มระดับเลเวล)</option>
+                            <option value="INFO">INFO</option>
+                            <option value="WARN">WARN</option>
+                            <option value="ERROR">ERROR</option>
+                            <option value="DEBUG">DEBUG</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-600">Test Mode (Queue Logic)</label>
+                          <select
+                            value={ingestForm.testMode}
+                            onChange={(e) => setIngestForm({ ...ingestForm, testMode: e.target.value })}
+                            className="w-full p-1.5 border border-gray-300 rounded text-sm"
+                            disabled={isBulkSending}
+                          >
+                            <option value="NORMAL">Normal Processing</option>
+                            <option value="RETRY_THEN_SUCCESS">Retry then success</option>
+                            <option value="ALWAYS_RETRY">Always retry</option>
+                            <option value="PERMANENT_FAIL">Permanent fail</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Bulk sending status bar */}
+                      {(isBulkSending || bulkProgress.sent > 0) && (
+                        <div className="bg-gray-50 p-3 rounded border border-gray-100 space-y-2">
+                          <div className="flex justify-between text-xs font-semibold text-gray-700">
+                            <span>ความคืบหน้าการส่ง Log</span>
+                            <span>{bulkProgress.sent} / {bulkLogCount} Logs ({Math.round((bulkProgress.sent / bulkLogCount) * 100)}%)</span>
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-2">
+                            <div 
+                              className={`h-2 rounded-full transition-all duration-300 ${isBulkSending ? 'bg-blue-600' : 'bg-green-600'}`}
+                              style={{ width: `${(bulkProgress.sent / bulkLogCount) * 100}%` }}
+                            />
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 text-xs text-center">
+                            <div className="bg-green-50 text-green-700 p-1.5 rounded font-medium border border-green-100">
+                              สำเร็จ: {bulkProgress.success} logs
+                            </div>
+                            <div className="bg-red-50 text-red-700 p-1.5 rounded font-medium border border-red-100">
+                              ล้มเหลว: {bulkProgress.failed} logs
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      <button
+                        type="submit"
+                        className={`w-full text-white p-2 rounded text-sm font-semibold transition ${isBulkSending ? 'bg-red-500 hover:bg-red-600' : 'bg-indigo-600 hover:bg-indigo-700'}`}
+                      >
+                        {isBulkSending ? 'หยุดส่ง Log (Stop Bulk Ingestion)' : 'เริ่มส่ง Log ปริมาณมาก (Start Bulk Ingestion)'}
+                      </button>
+                    </form>
+                  )}
+                </div>
               </div>
             </>
           ) : (

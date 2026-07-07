@@ -13,6 +13,29 @@ import { useAppStore } from '@/store';
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
 
+const ELASTIC_STORAGE_PRESETS = {
+  single_node: {
+    label: 'ทดลองใช้งาน / เครื่องเดียว',
+    description: 'เหมาะกับเครื่องเดียวหรือ dev test ใช้พื้นที่น้อยและตั้งค่าง่าย',
+    shards: 1,
+    replicas: 0,
+  },
+  standard: {
+    label: 'ใช้งานทั่วไป',
+    description: 'เหมาะกับระบบใช้งานทั่วไป แบ่งเก็บ 1 ส่วนและมีสำเนาสำรอง 1 ชุด',
+    shards: 1,
+    replicas: 1,
+  },
+  balanced: {
+    label: 'ข้อมูลมากขึ้น',
+    description: 'เหมาะกับระบบที่เริ่มมีปริมาณ log มากขึ้นและยังต้องการสำเนาสำรอง',
+    shards: 2,
+    replicas: 1,
+  },
+} as const;
+
+type ElasticStoragePresetKey = keyof typeof ELASTIC_STORAGE_PRESETS;
+
 export function RetentionTestPage() {
   const setBreadcrumbs = useAppStore((state) => state.setBreadcrumbs);
   const [productId, setProductId] = useState<number>();
@@ -74,18 +97,20 @@ export function RetentionTestPage() {
     enabled: !!productId && !!selectedProjectId,
   });
   const features = featuresQuery.data || [];
+  const selectedStoragePreset = Form.useWatch('storage_preset', form) as ElasticStoragePresetKey | undefined;
 
   // Handle Policy Create / Edit
   const handleSavePolicy = async (values: any) => {
     if (!productId) return;
     try {
+      const selectedPreset = ELASTIC_STORAGE_PRESETS[(values.storage_preset || 'standard') as ElasticStoragePresetKey] || ELASTIC_STORAGE_PRESETS.standard;
       if (editingPolicy) {
         await retentionService.updatePolicy(productId, editingPolicy.elastic_policy_id, {
           index_prefix: values.index_prefix,
           retention_days: values.retention_days,
           rollover_type: values.rollover_type,
-          number_of_shards: values.number_of_shards,
-          number_of_replicas: values.number_of_replicas,
+          number_of_shards: selectedPreset.shards,
+          number_of_replicas: selectedPreset.replicas,
           project_id: values.project_id || undefined,
           category_id: values.category_id || undefined,
           is_active: values.is_active ?? true,
@@ -100,8 +125,8 @@ export function RetentionTestPage() {
           index_prefix: values.index_prefix,
           rollover_type: values.rollover_type || 'age',
           retention_days: values.retention_days,
-          number_of_shards: values.number_of_shards || 1,
-          number_of_replicas: values.number_of_replicas || 1,
+          number_of_shards: selectedPreset.shards,
+          number_of_replicas: selectedPreset.replicas,
         });
         message.success('สร้าง Retention Policy สำเร็จ');
       }
@@ -198,6 +223,13 @@ export function RetentionTestPage() {
   };
 
   const openEditPolicy = (policy: any) => {
+    let storagePreset: ElasticStoragePresetKey = 'standard';
+    if ((policy.number_of_shards || 1) === 1 && (policy.number_of_replicas ?? 1) === 0) {
+      storagePreset = 'single_node';
+    } else if ((policy.number_of_shards || 1) === 2 && (policy.number_of_replicas ?? 1) === 1) {
+      storagePreset = 'balanced';
+    }
+
     setEditingPolicy(policy);
     form.setFieldsValue({
       environment_id: policy.environment_id || undefined,
@@ -206,8 +238,7 @@ export function RetentionTestPage() {
       index_prefix: policy.index_prefix,
       rollover_type: policy.rollover_type || 'age',
       retention_days: policy.retention_days,
-      number_of_shards: policy.number_of_shards || 1,
-      number_of_replicas: policy.number_of_replicas || 1,
+      storage_preset: storagePreset,
       is_active: policy.is_active,
     });
     setIsPolicyModalOpen(true);
@@ -272,7 +303,14 @@ export function RetentionTestPage() {
     } },
     { title: 'Rollover By', dataIndex: 'rollover_type', render: (value: any) => <Tag color="orange">{value || 'age'}</Tag> },
     { title: 'ระยะเวลาเก็บรักษา', dataIndex: 'retention_days', render: (value: any) => `${value} วัน` },
-    { title: 'Shards / Replicas', render: (_: any, row: any) => `${row.number_of_shards || 1} / ${row.number_of_replicas || 1}` },
+    { title: 'รูปแบบจัดเก็บ', render: (_: any, row: any) => {
+      const shards = row.number_of_shards || 1;
+      const replicas = row.number_of_replicas ?? 1;
+      if (shards === 1 && replicas === 0) return 'ทดลองใช้งาน / เครื่องเดียว';
+      if (shards === 1 && replicas === 1) return 'ใช้งานทั่วไป';
+      if (shards === 2 && replicas === 1) return 'ข้อมูลมากขึ้น';
+      return `${shards} ส่วน / สำรอง ${replicas}`;
+    } },
     { title: 'สถานะ', dataIndex: 'is_active', render: (val: boolean) => val ? <Tag color="success">เปิดใช้งาน</Tag> : <Tag color="default">ปิดใช้งาน</Tag> },
     {
       title: 'จัดการ',
@@ -333,7 +371,7 @@ export function RetentionTestPage() {
         form={form}
         layout="vertical"
         onFinish={handleSavePolicy}
-        initialValues={{ rollover_type: 'age', retention_days: 30, number_of_shards: 1, number_of_replicas: 1, is_active: true }}
+        initialValues={{ rollover_type: 'age', retention_days: 30, storage_preset: 'standard', is_active: true }}
         onValuesChange={(changedValues) => {
           if ('environment_id' in changedValues && !editingPolicy) {
             form.setFieldsValue({
@@ -372,18 +410,28 @@ export function RetentionTestPage() {
             </Form.Item>
           </Col>
         </Row>
-        <Row gutter={16}>
-          <Col span={12}>
-            <Form.Item name="number_of_shards" label="จำนวน Shards" rules={[{ required: true }]}>
-              <InputNumber min={1} style={{ width: '100%' }} />
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item name="number_of_replicas" label="จำนวน Replicas" rules={[{ required: true }]}>
-              <InputNumber min={0} style={{ width: '100%' }} />
-            </Form.Item>
-          </Col>
-        </Row>
+        <Form.Item
+          name="storage_preset"
+          label="รูปแบบการจัดเก็บข้อมูล"
+          tooltip="เลือกแบบที่ตรงกับการใช้งาน ระบบจะกำหนดค่าทางเทคนิคให้เอง"
+          rules={[{ required: true, message: 'กรุณาเลือกรูปแบบการจัดเก็บข้อมูล' }]}
+        >
+          <Select
+            options={Object.entries(ELASTIC_STORAGE_PRESETS).map(([value, preset]) => ({
+              value,
+              label: preset.label,
+            }))}
+          />
+        </Form.Item>
+        {selectedStoragePreset && (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message={ELASTIC_STORAGE_PRESETS[selectedStoragePreset].label}
+            description={`ระบบจะตั้งค่าให้อัตโนมัติ: แบ่งเก็บ ${ELASTIC_STORAGE_PRESETS[selectedStoragePreset].shards} ส่วน และทำสำเนาสำรอง ${ELASTIC_STORAGE_PRESETS[selectedStoragePreset].replicas} ชุด - ${ELASTIC_STORAGE_PRESETS[selectedStoragePreset].description}`}
+          />
+        )}
         {editingPolicy && (
           <Form.Item name="is_active" label="เปิดใช้งาน" valuePropName="checked">
             <Input type="checkbox" style={{ width: 'auto' }} />

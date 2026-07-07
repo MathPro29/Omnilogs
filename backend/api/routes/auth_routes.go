@@ -32,6 +32,5 @@ func RegisterAuthRoutes(router *gin.Engine, db *gorm.DB, env *configs.Env) {
 	ProductRoutes(router, db, env)
 	EnvironmentRoutes(router, db, env)
 	ScopeRoutes(router, db, env)
-	LogQueueRoutes(router, db, env)
 }
 

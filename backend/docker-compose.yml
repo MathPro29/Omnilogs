@@ -1,28 +1,61 @@
+x-common-env: &common-env
+  APP_ENV: development
+  DB_HOST: postgres
+  DB_PORT: 5432
+  DB_NAME: omnilogs
+  DB_USERNAME: postgres
+  DB_PASSWORD: admin
+  JWT_SECRET: development-secret
+  DATA_ENCRYPTION_KEY: abcdefghijklmnopqrstuvwxyz123456
+  ACCESS_TOKEN_EXPIRE_SECONDS: 900
+  REFRESH_TOKEN_EXPIRE_SECONDS: 604800
+  ELASTICSEARCH_URL: http://elasticsearch:9200
+  NATS_URL: nats://nats:4222
+  NATS_STREAM: OMNILOGS_LOGS
+  NATS_SUBJECT: omnilogs.logs.ingest
+  NATS_CONSUMER: omnilogs-worker
+  NATS_FETCH_BATCH_SIZE: 500
+  NATS_FETCH_MAX_WAIT_MS: 2000
+
 services:
-#   api:
-#     build:
-#       context: ./api
-#       dockerfile: Dockerfile
-#       target: api
-#     environment:
-#       APP_ENV: development
-#       APP_PORT: 2910
-#       DB_HOST: postgres
-#       DB_PORT: 5432
-#       DB_NAME: omnilogs
-#       DB_USERNAME: postgres
-#       DB_PASSWORD: admin
-#       JWT_SECRET: development-secret
-#       DATA_ENCRYPTION_KEY: abcdefghijklmnopqrstuvwxyz123456
-#       ACCESS_TOKEN_EXPIRE_SECONDS: 900
-#       REFRESH_TOKEN_EXPIRE_SECONDS: 604800
-#       SWAGGER_ENABLED: "true"
-#       ELASTICSEARCH_URL: http://elasticsearch:9200
-#     depends_on:
-#       - postgres
-#       - elasticsearch
-#     ports:
-#       - "2910:2910"
+  migrate:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+      target: migrate
+    environment:
+      <<: *common-env
+      APP_PORT: 2910
+      SWAGGER_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      nats:
+        condition: service_started
+    restart: "no"
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+      target: api
+    environment:
+      <<: *common-env
+      APP_PORT: 2910
+      SWAGGER_ENABLED: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      nats:
+        condition: service_started
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "2910:2910"
 
   worker:
     build:
@@ -30,22 +63,18 @@ services:
       dockerfile: Dockerfile
       target: worker
     environment:
-      APP_ENV: development
+      <<: *common-env
       APP_PORT: 2911
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: omnilogs
-      DB_USERNAME: postgres
-      DB_PASSWORD: admin
-      JWT_SECRET: development-secret
-      DATA_ENCRYPTION_KEY: abcdefghijklmnopqrstuvwxyz123456
-      ACCESS_TOKEN_EXPIRE_SECONDS: 900
-      REFRESH_TOKEN_EXPIRE_SECONDS: 604800
       SWAGGER_ENABLED: "false"
-      ELASTICSEARCH_URL: http://elasticsearch:9200
     depends_on:
-      - postgres
-      - elasticsearch
+      postgres:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      nats:
+        condition: service_started
+      migrate:
+        condition: service_completed_successfully
 
   postgres:
     image: postgres:16
@@ -57,8 +86,12 @@ services:
     ports:
       - "5499:5432"
     volumes:
-      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d omnilogs"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.14.0
@@ -74,11 +107,23 @@ services:
       - "9200:9200"
     volumes:
       - elastic_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200 >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+
+  nats:
+    image: nats:2.10-alpine
+    container_name: omnilogs-nats
+    command: ["-js"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    volumes:
+      - nats_data:/data
 
 volumes:
   postgres_data:
-    name: omnilogs-demo_postgres_data
-    external: true
   elastic_data:
-    name: omnilogs-demo_elastic_data
-    external: true
+  nats_data:

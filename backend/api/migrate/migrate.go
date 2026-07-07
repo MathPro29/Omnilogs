@@ -55,6 +55,9 @@ func Migrate(db *gorm.DB, env *configs.Env) {
 		&models.LogQueueItem{},
 		&models.LogSensitiveFieldSecret{},
 		&models.LogSource{},
+		&models.AuditSecret{},
+		&models.AuditSecretAccessRequest{},
+		&models.AuditSecretAccessHistory{},
 		&models.SensitiveLogAccessHistory{},
 		&models.SensitiveLogAccessRequest{},
 		&models.SystemAuditLog{},
@@ -302,10 +305,15 @@ func seedPlatformRoles(db *gorm.DB) {
 	}
 
 	for _, r := range roles {
-		var existing models.PlatformRole
-		if err := db.Where("platform_role_id = ?", r.PlatformRoleID).First(&existing).Error; err != nil {
-			// If not found, insert
-			db.Create(&r)
+		var count int64
+		if err := db.Model(&models.PlatformRole{}).Where("platform_role_id = ?", r.PlatformRoleID).Count(&count).Error; err != nil {
+			log.Printf("failed to check platform role: %v", err)
+			continue
+		}
+		if count == 0 {
+			if err := db.Create(&r).Error; err != nil {
+				log.Printf("failed to seed platform role: %v", err)
+			}
 		}
 	}
 

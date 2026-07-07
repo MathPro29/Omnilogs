@@ -316,7 +316,8 @@ function normalizeApiKey(value: any): ProductApiKey {
   };
 }
 
-function normalizeMainLog(value: any): MainLog {
+// Helper function to normalize API response into MainLog interface
+export function normalizeMainLog(value: any): MainLog {
   return {
     logId: value.log_id ?? value.logId,
     productId: value.product_id ?? value.productId,

@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"time"
 
+	"omnilogs-api/configs"
 	"omnilogs-api/dto"
 	"omnilogs-api/internal/log_queues/repository"
+	"omnilogs-api/internal/queue"
 	"omnilogs-api/models"
 
 	"gorm.io/gorm"
@@ -18,6 +20,7 @@ import (
 var (
 	ErrNotFound      = errors.New("no pending queue batch found")
 	ErrAlreadyExists = errors.New("batch with idempotency key already exists")
+	ErrQueueDisabled = errors.New("nats queue is not configured")
 )
 
 type Usecase interface {
@@ -28,17 +31,19 @@ type Usecase interface {
 }
 
 type usecase struct {
-	repo repository.Repository
+	repo      repository.Repository
+	natsQueue *configs.NATSQueue
 }
 
-func NewUsecase(repo repository.Repository) Usecase {
-	return &usecase{repo: repo}
+func NewUsecase(repo repository.Repository, natsQueue *configs.NATSQueue) Usecase {
+	return &usecase{repo: repo, natsQueue: natsQueue}
 }
 
-// [KEY : Enqueue ตรวจสอบก่อนว่ามี ENV ใน Product และ ตรงกับในตารางไหม]
 func (u *usecase) Enqueue(ctx context.Context, req dto.IngestLogBatchRequest) (*models.LogQueueBatch, error) {
-	// ส่วนที่ 1: ป้องกัน Cross-product ระหว่าง Product และ Environment
-	// ถ้าส่ง environment_id มา ต้องส่ง product_id มาด้วย และ Environment ต้องอยู่ใน Product นั้นจริง
+	if u.natsQueue == nil {
+		return nil, ErrQueueDisabled
+	}
+
 	if req.EnvironmentID != nil {
 		if req.ProductID == nil {
 			return nil, errors.New("product_id is required when environment_id is provided")
@@ -55,21 +60,21 @@ func (u *usecase) Enqueue(ctx context.Context, req dto.IngestLogBatchRequest) (*
 			return nil, errors.New("environment does not belong to product")
 		}
 	}
-	// 1. ตรวจสอบ Idempotency Key ป้องกันการส่งซ้ำ
+
 	if req.IdempotencyKey != nil && *req.IdempotencyKey != "" {
-		// ส่วนที่ 2: ถ้าพบ Idempotency Key เดิม ให้คืน Batch เดิมเพื่อไม่สร้างข้อมูลซ้ำ
 		existing, err := u.repo.GetBatchByIdempotencyKey(ctx, *req.IdempotencyKey)
 		if err == nil && existing != nil {
-			return existing, nil // ส่ง Batch ตัวเดิมกลับไป
+			return existing, nil
 		}
 	}
 
-	// 2. สร้าง Batch ID เป็น UUID
-	batchID := newUUID()
-	// ส่วนที่ 3: สร้าง Batch ใหม่ และกำหนดสถานะการค้นหา Product
-	// หากยังไม่มี product_id สถานะจะเป็น PENDING เพื่อรอการ Resolve
-	now := time.Now()
+	now := time.Now().UTC()
+	retentionUntil, maxRetryCount, err := u.resolveBatchPolicy(ctx, req, now)
+	if err != nil {
+		return nil, err
+	}
 
+	batchID := newUUID()
 	resolutionStatus := "RESOLVED"
 	if req.ProductID == nil {
 		resolutionStatus = "PENDING"
@@ -86,111 +91,113 @@ func (u *usecase) Enqueue(ctx context.Context, req dto.IngestLogBatchRequest) (*
 		IdempotencyKey:          req.IdempotencyKey,
 		DetectedProductCode:     req.DetectedProductCode,
 		ProductResolutionStatus: resolutionStatus,
-		Status:                  "QUEUED",
+		Status:                  "PROCESSING",
 		Priority:                req.Priority,
 		TotalLogs:               len(req.Logs),
 		ReceivedAt:              &now,
+		ProcessingStartedAt:     &now,
+		RetentionUntil:          retentionUntil,
 	}
 
-	// 3. แมป Logs ใน Request ลงในโมเดล LogQueueItem
-	items := make([]models.LogQueueItem, len(req.Logs))
-	// ส่วนที่ 4: แปลง Log แต่ละรายการเป็น Queue Item
-	// เริ่มด้วยสถานะ PENDING และ Retry ได้สูงสุด 3 ครั้ง
-	for i, logItem := range req.Logs {
-		sizeBytes := int64(len(logItem.InputPayload))
-		items[i] = models.LogQueueItem{
-			BatchID:             batchID,
-			SequenceNo:          logItem.SequenceNo,
-			SourceType:          logItem.SourceType,
-			SourcePlatform:      logItem.SourcePlatform,
-			InputPayload:        logItem.InputPayload,
-			PayloadSizeBytes:    &sizeBytes,
-			DetectedProductCode: logItem.DetectedProductCode,
-			Status:              "PENDING",
-			MaxRetryCount:       3,
-		}
-	}
-
-	// 4. บันทึกลงฐานข้อมูลภายใต้ Database Transaction
-	err := u.repo.Transaction(func(tx *gorm.DB) error {
-		// ส่วนที่ 5: บันทึก Batch และ Items ใน Transaction เดียวกัน
-		// ถ้าส่วนใดล้มเหลว ฐานข้อมูลจะ Rollback ทั้งชุด
-		if err := tx.Create(batch).Error; err != nil {
-			return err
-		}
-		if err := tx.Create(&items).Error; err != nil {
-			return err
-		}
-		return nil
-	})
-
-	if err != nil {
+	if err := u.repo.CreateBatch(ctx, batch); err != nil {
 		return nil, err
+	}
+
+	for i, logItem := range req.Logs {
+		envelope := queue.LogMessage{
+			LogID:               newUUID(),
+			QueueItemID:         queue.SyntheticQueueItemID(batchID, i+1),
+			BatchID:             batchID,
+			ProductID:           req.ProductID,
+			SourceID:            req.SourceID,
+			EnvironmentID:       req.EnvironmentID,
+			QueueKey:            req.QueueKey,
+			SourceType:          req.SourceType,
+			SourcePlatform:      req.SourcePlatform,
+			IdempotencyKey:      req.IdempotencyKey,
+			DetectedProductCode: chooseDetectedProductCode(logItem.DetectedProductCode, req.DetectedProductCode),
+			Priority:            req.Priority,
+			SequenceNo:          i + 1,
+			InputPayload:        logItem.InputPayload,
+			RetentionUntil:      retentionUntil,
+			RetryCount:          0,
+			MaxRetryCount:       maxRetryCount,
+			PublishedAt:         now,
+		}
+
+		payload, err := queue.MarshalMessage(envelope)
+		if err != nil {
+			errMsg := err.Error()
+			_ = u.repo.UpdateBatchStatus(ctx, batchID, "FAILED", &errMsg)
+			return nil, err
+		}
+		if err := u.natsQueue.Publish(ctx, payload); err != nil {
+			errMsg := err.Error()
+			_ = u.repo.UpdateBatchStatus(ctx, batchID, "FAILED", &errMsg)
+			return nil, err
+		}
 	}
 
 	return batch, nil
 }
 
 func (u *usecase) Consume(ctx context.Context) (*models.LogQueueBatch, error) {
-	// 1. ดึง Batch ที่ค้างอยู่ตัวถัดไป
-	batch, err := u.repo.GetPendingBatch(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if batch == nil {
-		return nil, ErrNotFound
-	}
-
-	// 2. ปรับสถานะ Batch เป็น PROCESSING
-	err = u.repo.UpdateBatchStatus(ctx, batch.BatchID, "PROCESSING", nil)
-	if err != nil {
-		return nil, err
-	}
-	batch.Status = "PROCESSING"
-
-	// 3. ดึง Log Queue Items ของ Batch นี้มาทำงาน
-	items, err := u.repo.GetItemsByBatchID(ctx, batch.BatchID)
-	if err != nil {
-		errMsg := err.Error()
-		_ = u.repo.UpdateBatchStatus(ctx, batch.BatchID, "FAILED", &errMsg)
-		return nil, err
-	}
-
-	// 4. วนลูปประมวลผล (ใน API Handler เราจะประมวลผลจำลองเปลี่ยนสถานะเป็น PROCESSED)
-	for _, item := range items {
-		err := u.repo.UpdateItemStatus(ctx, item.QueueItemID, "PROCESSED", nil)
-		if err != nil {
-			errMsg := err.Error()
-			_ = u.repo.UpdateItemStatus(ctx, item.QueueItemID, "FAILED", &errMsg)
-		}
-	}
-
-	// 5. ปรับสถานะ Batch เป็น COMPLETED
-	successMsg := "processed successfully"
-	err = u.repo.UpdateBatchStatus(ctx, batch.BatchID, "COMPLETED", &successMsg)
-	if err != nil {
-		return nil, err
-	}
-	batch.Status = "COMPLETED"
-	batch.ErrorMessage = &successMsg
-
-	return batch, nil
+	return nil, ErrNotFound
 }
 
 func (u *usecase) GetItemsByBatch(ctx context.Context, batchID string) ([]models.LogQueueItem, error) {
 	if batchID == "" {
 		return nil, errors.New("batch ID is required")
 	}
-	return u.repo.GetItemsByBatchID(ctx, batchID)
+	return []models.LogQueueItem{}, nil
 }
+
 func (u *usecase) GetItemByID(ctx context.Context, itemID int64) (*models.LogQueueItem, error) {
 	if itemID <= 0 {
 		return nil, errors.New("invalid item ID")
 	}
-	return u.repo.GetItemByID(ctx, itemID)
+	return nil, gorm.ErrRecordNotFound
 }
 
-// newUUID ฟังก์ชันจำลองการสร้าง UUID V4 ตามมาตรฐาน RFC 4122
+func (u *usecase) resolveBatchPolicy(ctx context.Context, req dto.IngestLogBatchRequest, now time.Time) (*time.Time, int, error) {
+	retentionDays := 7
+	maxRetryCount := 3
+
+	if req.ProductID != nil && req.EnvironmentID != nil {
+		var policies []models.LogIngestionPolicy
+		err := u.repo.DB().WithContext(ctx).
+			Where("product_id = ? AND environment_id = ?", *req.ProductID, *req.EnvironmentID).
+			Limit(1).
+			Find(&policies).Error
+		if err != nil {
+			return nil, 0, err
+		}
+		if len(policies) > 0 {
+			policy := policies[0]
+			if policy.RetentionDays != nil {
+				retentionDays = *policy.RetentionDays
+			}
+			if policy.MaxRetries != nil && *policy.MaxRetries > 0 {
+				maxRetryCount = *policy.MaxRetries
+			}
+		}
+	}
+
+	if retentionDays <= 0 {
+		return nil, maxRetryCount, nil
+	}
+
+	retentionUntil := now.AddDate(0, 0, retentionDays)
+	return &retentionUntil, maxRetryCount, nil
+}
+
+func chooseDetectedProductCode(itemValue *string, batchValue *string) *string {
+	if itemValue != nil && *itemValue != "" {
+		return itemValue
+	}
+	return batchValue
+}
+
 func newUUID() string {
 	bytes := make([]byte, 16)
 	if _, err := rand.Read(bytes); err != nil {

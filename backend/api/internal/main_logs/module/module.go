@@ -1,6 +1,7 @@
 package mainlogs
 
 import (
+	"omnilogs-api/configs"
 	auditrepo "omnilogs-api/internal/audit_logs/repository"
 	auditusecase "omnilogs-api/internal/audit_logs/usecase"
 	"omnilogs-api/internal/main_logs/handler"
@@ -10,9 +11,9 @@ import (
 	"gorm.io/gorm"
 )
 
-func NewHandler(db *gorm.DB, esClient *elasticsearch.Client, encryptionKey string) *handler.Handler {
+func NewHandler(db *gorm.DB, esClient *elasticsearch.Client, encryptionKey string, natsQueue *configs.NATSQueue) *handler.Handler {
 	repo := auditrepo.NewRepository(db)
 	audits := auditusecase.NewUsecase(repo)
 	mainLogs := mainlogusecase.NewUsecase(db, esClient, audits, encryptionKey)
-	return handler.NewHandler(mainLogs)
+	return handler.NewHandler(mainLogs, natsQueue)
 }

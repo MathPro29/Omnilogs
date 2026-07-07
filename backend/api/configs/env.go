@@ -11,8 +11,8 @@ import (
 )
 
 type Env struct {
-	AppEnv  string
-	AppPort string
+	AppEnv            string
+	AppPort           string
 	DataEncryptionKey string
 
 	DBHost     string
@@ -21,10 +21,10 @@ type Env struct {
 	DBUsername string
 	DBPassword string
 
-	DBMaxOpenConns            int
-	DBMaxIdleConns            int
-	DBConnMaxIdleTimeSeconds  int
-	DBConnMaxLifetimeSeconds  int
+	DBMaxOpenConns           int
+	DBMaxIdleConns           int
+	DBConnMaxIdleTimeSeconds int
+	DBConnMaxLifetimeSeconds int
 
 	JWTSecret                 string
 	AccessTokenExpireSeconds  int
@@ -39,8 +39,14 @@ type Env struct {
 	UploadRateLimitRequests      int
 	UploadRateLimitWindowSeconds int
 
-	SwaggerEnabled bool
-	ElasticURL     string
+	SwaggerEnabled     bool
+	ElasticURL         string
+	NATSURL            string
+	NATSStream         string
+	NATSSubject        string
+	NATSConsumer       string
+	NATSFetchBatchSize int
+	NATSFetchMaxWaitMS int
 
 	// UploadProvider    string
 	// UploadMockBaseURL string
@@ -67,10 +73,10 @@ func LoadEnv() *Env {
 		DBUsername: getEnv("DB_USERNAME", "postgres"),
 		DBPassword: getEnv("DB_PASSWORD", "admin"),
 
-		DBMaxOpenConns:            getEnvInt("DB_MAX_OPEN_CONNS", 25),
-		DBMaxIdleConns:            getEnvInt("DB_MAX_IDLE_CONNS", 25),
-		DBConnMaxIdleTimeSeconds:  getEnvInt("DB_CONN_MAX_IDLE_TIME_SECONDS", 300),
-		DBConnMaxLifetimeSeconds:  getEnvInt("DB_CONN_MAX_LIFETIME_SECONDS", 1800),
+		DBMaxOpenConns:           getEnvInt("DB_MAX_OPEN_CONNS", 25),
+		DBMaxIdleConns:           getEnvInt("DB_MAX_IDLE_CONNS", 25),
+		DBConnMaxIdleTimeSeconds: getEnvInt("DB_CONN_MAX_IDLE_TIME_SECONDS", 300),
+		DBConnMaxLifetimeSeconds: getEnvInt("DB_CONN_MAX_LIFETIME_SECONDS", 1800),
 
 		JWTSecret:                 getEnv("JWT_SECRET", "change-me"),
 		AccessTokenExpireSeconds:  getEnvInt("ACCESS_TOKEN_EXPIRE_SECONDS", 900),
@@ -85,8 +91,14 @@ func LoadEnv() *Env {
 		UploadRateLimitRequests:      getEnvInt("UPLOAD_RATE_LIMIT_REQUESTS", 20),
 		UploadRateLimitWindowSeconds: getEnvInt("UPLOAD_RATE_LIMIT_WINDOW_SECONDS", 60),
 
-		SwaggerEnabled: getEnvBool("SWAGGER_ENABLED", true),
-		ElasticURL:     getEnv("ELASTICSEARCH_URL", "http://localhost:9200"),
+		SwaggerEnabled:     getEnvBool("SWAGGER_ENABLED", true),
+		ElasticURL:         getEnv("ELASTICSEARCH_URL", "http://localhost:9200"),
+		NATSURL:            getEnv("NATS_URL", "nats://localhost:4222"),
+		NATSStream:         getEnv("NATS_STREAM", "OMNILOGS_LOGS"),
+		NATSSubject:        getEnv("NATS_SUBJECT", "omnilogs.logs.ingest"),
+		NATSConsumer:       getEnv("NATS_CONSUMER", "omnilogs-worker"),
+		NATSFetchBatchSize: getEnvInt("NATS_FETCH_BATCH_SIZE", 500),
+		NATSFetchMaxWaitMS: getEnvInt("NATS_FETCH_MAX_WAIT_MS", 2000),
 
 		DataEncryptionKey: getEnv("DATA_ENCRYPTION_KEY", ""),
 	}
@@ -123,7 +135,6 @@ func loadDotEnv() {
 
 func (e *Env) Validate() error {
 	var problems []string
-	
 
 	if strings.TrimSpace(e.AppPort) == "" {
 		problems = append(problems, "APP_PORT is required")
@@ -152,6 +163,24 @@ func (e *Env) Validate() error {
 	if strings.TrimSpace(e.ElasticURL) == "" {
 		problems = append(problems, "ELASTICSEARCH_URL is required")
 	}
+	if strings.TrimSpace(e.NATSURL) == "" {
+		problems = append(problems, "NATS_URL is required")
+	}
+	if strings.TrimSpace(e.NATSStream) == "" {
+		problems = append(problems, "NATS_STREAM is required")
+	}
+	if strings.TrimSpace(e.NATSSubject) == "" {
+		problems = append(problems, "NATS_SUBJECT is required")
+	}
+	if strings.TrimSpace(e.NATSConsumer) == "" {
+		problems = append(problems, "NATS_CONSUMER is required")
+	}
+	if e.NATSFetchBatchSize <= 0 {
+		problems = append(problems, "NATS_FETCH_BATCH_SIZE must be greater than 0")
+	}
+	if e.NATSFetchMaxWaitMS <= 0 {
+		problems = append(problems, "NATS_FETCH_MAX_WAIT_MS must be greater than 0")
+	}
 
 	if len(problems) == 0 {
 		if strings.TrimSpace(e.DataEncryptionKey) == "" {
@@ -161,7 +190,7 @@ func (e *Env) Validate() error {
 			problems = append(problems, "DATA_ENCRYPTION_KEY must be exactly 32 bytes")
 		}
 	}
-	
+
 	if len(problems) == 0 {
 		return nil
 	}

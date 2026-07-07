@@ -165,8 +165,25 @@ func (r *repository) PushToArchives(req dto.PushToArchivesRequest) (*dto.PushToA
 			lockRes.Body.Close()
 		}
 
+		// Load Ingestion Policy for custom formats and paths
+		var ingestPolicy models.LogIngestionPolicy
+		archiveFormat := "JSON"
+		archiveStoragePath := fmt.Sprintf("data/archives/product-%d", policy.ProductID)
+		errPolicy := r.db.
+			Where("product_id = ? AND (environment_id = ? OR environment_id IS NULL)", policy.ProductID, policy.EnvironmentID).
+			Order("environment_id DESC NULLS LAST").
+			First(&ingestPolicy).Error
+		if errPolicy == nil {
+			if ingestPolicy.ArchiveFormat != nil && *ingestPolicy.ArchiveFormat != "" {
+				archiveFormat = *ingestPolicy.ArchiveFormat
+			}
+			if ingestPolicy.ArchiveStoragePath != nil && *ingestPolicy.ArchiveStoragePath != "" {
+				archiveStoragePath = *ingestPolicy.ArchiveStoragePath
+			}
+		}
+
 		// 1. Archive actual Elasticsearch logs and PostgreSQL system_audit_logs
-		totalLogs, compressedSize, localPath, archiveErr := archive_utils.ArchiveIndex(context.Background(), r.db, r.esClient, indexName, policy.ProductID)
+		totalLogs, compressedSize, localPath, archiveErr := archive_utils.ArchiveIndex(context.Background(), r.db, r.esClient, indexName, policy.ProductID, archiveFormat, archiveStoragePath)
 		if archiveErr != nil {
 			// Unlock index if archiving fails
 			unlockRes, unlockErr := r.esClient.Indices.PutSettings(

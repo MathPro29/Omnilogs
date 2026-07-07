@@ -48,28 +48,26 @@ func seedGodUser(db *gorm.DB, email, password string) error {
 
 		// 3. Find or Create User
 		var user models.User
-		err = tx.Where("email = ?", email).First(&user).Error
-		if err != nil {
-			if err == gorm.ErrRecordNotFound {
-				// Create new user
-				user = models.User{
-					Email:        email,
-					PasswordHash: hash,
-					IsActive:     true,
-				}
-				// Set default name
-				firstName := "God"
-				lastName := "Administrator"
-				user.FirstName = &firstName
-				user.LastName = &lastName
-
-				if err := tx.Create(&user).Error; err != nil {
-					return fmt.Errorf("failed to create user: %w", err)
-				}
-				log.Printf("created new GOD user: %s", email)
-			} else {
-				return err
+		if err := tx.Where("email = ?", email).Limit(1).Find(&user).Error; err != nil {
+			return err
+		}
+		if user.UserID == 0 {
+			// Create new user
+			user = models.User{
+				Email:        email,
+				PasswordHash: hash,
+				IsActive:     true,
 			}
+			// Set default name
+			firstName := "God"
+			lastName := "Administrator"
+			user.FirstName = &firstName
+			user.LastName = &lastName
+
+			if err := tx.Create(&user).Error; err != nil {
+				return fmt.Errorf("failed to create user: %w", err)
+			}
+			log.Printf("created new GOD user: %s", email)
 		} else {
 			// Update password hash and make active
 			user.PasswordHash = hash
@@ -82,21 +80,19 @@ func seedGodUser(db *gorm.DB, email, password string) error {
 
 		// 4. Find or Create Platform Membership (Linking User to GOD Role)
 		var membership models.PlatformMembership
-		err = tx.Where("user_id = ?", user.UserID).First(&membership).Error
-		if err != nil {
-			if err == gorm.ErrRecordNotFound {
-				membership = models.PlatformMembership{
-					UserID:         user.UserID,
-					PlatformRoleID: godRole.PlatformRoleID,
-					IsActive:       true,
-				}
-				if err := tx.Create(&membership).Error; err != nil {
-					return fmt.Errorf("failed to create platform membership: %w", err)
-				}
-				log.Printf("assigned GOD platform role to user: %s", email)
-			} else {
-				return err
+		if err := tx.Where("user_id = ?", user.UserID).Limit(1).Find(&membership).Error; err != nil {
+			return err
+		}
+		if membership.PlatformMembershipID == 0 {
+			membership = models.PlatformMembership{
+				UserID:         user.UserID,
+				PlatformRoleID: godRole.PlatformRoleID,
+				IsActive:       true,
 			}
+			if err := tx.Create(&membership).Error; err != nil {
+				return fmt.Errorf("failed to create platform membership: %w", err)
+			}
+			log.Printf("assigned GOD platform role to user: %s", email)
 		} else {
 			// Update role to GOD if not already set, and set active
 			membership.PlatformRoleID = godRole.PlatformRoleID

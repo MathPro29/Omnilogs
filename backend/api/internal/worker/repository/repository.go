@@ -2,7 +2,6 @@ package repository
 
 import (
 	"context"
-	"time"
 
 	"omnilogs-api/models"
 
@@ -12,22 +11,15 @@ import (
 
 type Repository interface {
 	DB() *gorm.DB
-	ClaimNextBatch(ctx context.Context, workerID string, lockTimeout time.Duration) (*models.LogQueueBatch, error)
-	LoadPendingItems(ctx context.Context, batchID string) ([]models.LogQueueItem, error)
-	MarkItemProcessing(ctx context.Context, queueItemID int64, workerID string, now time.Time) error
 	UpsertIndexRef(ctx context.Context, indexRef *models.LogIndexRef) error
-	MarkItemProcessed(ctx context.Context, queueItemID int64, indexedAt time.Time) error
 	CreateFailure(ctx context.Context, failure *models.LogFailure) error
-	UpdateItemFailureState(ctx context.Context, queueItemID int64, nextStatus string, retryCount int, nextRetryAt *time.Time, now time.Time, reason string) error
-	FinishBatch(ctx context.Context, batchID, status string, message *string) error
 	FindIndexPolicy(ctx context.Context, productID int, environmentID *int) (*models.ElasticIndexPolicy, error)
 	GetSensitiveFieldDefinitions(ctx context.Context, productID int) ([]models.LogFieldDefinition, error)
 	GetLogMaskingRules(ctx context.Context, productID int) ([]models.LogMaskingRule, error)
-	CreateSensitiveFieldSecret(ctx context.Context, secret *models.LogSensitiveFieldSecret) error
-	UpsertObjectStorageRef(ctx context.Context, ref *models.LogObjectStorageRef) error
-	DeleteQueueItem(ctx context.Context, queueItemID int64) error
 	GetActiveIndexPolicies(ctx context.Context) ([]models.ElasticIndexPolicy, error)
 	CreateLogArchive(ctx context.Context, archive *models.LogArchive) error
+	BulkPersistSuccesses(ctx context.Context, indexRefs []models.LogIndexRef, objectRefs []models.LogObjectStorageRef, secrets []models.LogSensitiveFieldSecret) error
+	RefreshBatchStatusFromResults(ctx context.Context, batchID string) error
 }
 
 type repository struct {
@@ -42,83 +34,6 @@ func (r *repository) DB() *gorm.DB {
 	return r.db
 }
 
-func (r *repository) ClaimNextBatch(ctx context.Context, workerID string, lockTimeout time.Duration) (*models.LogQueueBatch, error) {
-	var claimed *models.LogQueueBatch
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var batch models.LogQueueBatch
-		lockCutoff := time.Now().Add(-lockTimeout)
-
-		query := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
-			Where("status IN ?", []string{"QUEUED", "RETRY_PENDING", "PARTIAL"}).
-			Where("(available_at IS NULL OR available_at <= ?)", time.Now()).
-			Where("(locked_at IS NULL OR locked_at < ?)", lockCutoff).
-			Order("priority DESC").
-			Order("received_at ASC NULLS LAST").
-			Order("created_at ASC NULLS LAST")
-
-		if err := query.First(&batch).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
-				return nil
-			}
-			return err
-		}
-
-		now := time.Now()
-		updates := map[string]any{
-			"status":                "PROCESSING",
-			"worker_id":             workerID,
-			"locked_by":             workerID,
-			"locked_at":             now,
-			"processing_started_at": now,
-			"processing_attempts":   gorm.Expr("processing_attempts + 1"),
-			"error_message":         nil,
-		}
-		if err := tx.Model(&models.LogQueueBatch{}).
-			Where("batch_id = ?", batch.BatchID).
-			Updates(updates).Error; err != nil {
-			return err
-		}
-
-		batch.Status = "PROCESSING"
-		batch.WorkerID = stringPtr(workerID)
-		batch.LockedBy = stringPtr(workerID)
-		batch.LockedAt = &now
-		batch.ProcessingStartedAt = &now
-		claimed = &batch
-		return nil
-	})
-	return claimed, err
-}
-
-func (r *repository) DeleteQueueItem(ctx context.Context, queueItemID int64) error {
-	return r.db.WithContext(ctx).Model(&models.LogQueueItem{}).
-		Where("queue_item_id = ?", queueItemID).
-		Delete(&models.LogQueueItem{}).Error
-}
-
-func (r *repository) LoadPendingItems(ctx context.Context, batchID string) ([]models.LogQueueItem, error) {
-	var items []models.LogQueueItem
-	err := r.db.WithContext(ctx).
-		Where("batch_id = ?", batchID).
-		Where("status IN ?", []string{"PENDING", "RETRY_PENDING"}).
-		Where("(next_retry_at IS NULL OR next_retry_at <= ?)", time.Now()).
-		Order("sequence_no ASC").
-		Find(&items).Error
-	return items, err
-}
-
-func (r *repository) MarkItemProcessing(ctx context.Context, queueItemID int64, workerID string, now time.Time) error {
-	return r.db.WithContext(ctx).Model(&models.LogQueueItem{}).
-		Where("queue_item_id = ?", queueItemID).
-		Updates(map[string]any{
-			"status":                "PROCESSING",
-			"worker_id":             workerID,
-			"processing_started_at": now,
-			"processing_attempts":   gorm.Expr("processing_attempts + 1"),
-			"error_message":         nil,
-		}).Error
-}
-
 func (r *repository) UpsertIndexRef(ctx context.Context, indexRef *models.LogIndexRef) error {
 	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "elastic_index"}, {Name: "elastic_document_id"}},
@@ -126,49 +41,108 @@ func (r *repository) UpsertIndexRef(ctx context.Context, indexRef *models.LogInd
 	}).Create(indexRef).Error
 }
 
-func (r *repository) MarkItemProcessed(ctx context.Context, queueItemID int64, indexedAt time.Time) error {
-	return r.db.WithContext(ctx).Model(&models.LogQueueItem{}).
-		Where("queue_item_id = ?", queueItemID).
-		Updates(map[string]any{
-			"status":        "PROCESSED",
-			"processed_at":  indexedAt,
-			"last_retry_at": indexedAt,
-			"error_message": nil,
-		}).Error
-}
-
 func (r *repository) CreateFailure(ctx context.Context, failure *models.LogFailure) error {
-	return r.db.WithContext(ctx).Create(failure).Error
+	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "queue_item_id"}, {Name: "attempt_no"}},
+		DoUpdates: clause.AssignmentColumns([]string{"failure_stage", "failure_type", "reason", "retry_count", "max_retry_count", "next_retry_at", "last_retry_at", "status"}),
+	}).Create(failure).Error
 }
 
-func (r *repository) UpdateItemFailureState(ctx context.Context, queueItemID int64, nextStatus string, retryCount int, nextRetryAt *time.Time, now time.Time, reason string) error {
-	return r.db.WithContext(ctx).Model(&models.LogQueueItem{}).
-		Where("queue_item_id = ?", queueItemID).
-		Updates(map[string]any{
-			"status":                nextStatus,
-			"retry_count":           retryCount,
-			"next_retry_at":         nextRetryAt,
-			"last_retry_at":         now,
-			"error_message":         reason,
-			"processing_started_at": now,
-		}).Error
+func (r *repository) BulkPersistSuccesses(ctx context.Context, indexRefs []models.LogIndexRef, objectRefs []models.LogObjectStorageRef, secrets []models.LogSensitiveFieldSecret) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if len(indexRefs) > 0 {
+			if err := tx.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "elastic_index"}, {Name: "elastic_document_id"}},
+				DoUpdates: clause.AssignmentColumns([]string{"log_id", "batch_id", "queue_item_id", "response_status_code", "index_status", "indexed_at", "last_sync_at", "sync_error", "updated_at"}),
+			}).CreateInBatches(indexRefs, 500).Error; err != nil {
+				return err
+			}
+		}
+
+		if len(objectRefs) > 0 {
+			if err := tx.Clauses(clause.OnConflict{
+				Columns: []clause.Column{{Name: "log_id"}, {Name: "object_type"}},
+				DoUpdates: clause.AssignmentColumns([]string{
+					"product_id", "environment_id", "storage_provider", "bucket_name", "object_path", "file_format",
+					"size_bytes", "checksum", "encrypted_payload", "encryption_key_ref", "encryption_algorithm",
+					"is_encrypted", "retention_until", "purged_at",
+				}),
+			}).CreateInBatches(objectRefs, 500).Error; err != nil {
+				return err
+			}
+		}
+
+		if len(secrets) > 0 {
+			if err := tx.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(secrets, 500).Error; err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
 }
 
-func (r *repository) FinishBatch(ctx context.Context, batchID, status string, message *string) error {
-	now := time.Now()
+func (r *repository) RefreshBatchStatusFromResults(ctx context.Context, batchID string) error {
+	type resultCounts struct {
+		TotalLogs int
+		Indexed   int
+		Failed    int
+	}
+
+	var counts resultCounts
+	if err := r.db.WithContext(ctx).Raw(`
+		SELECT
+			b.total_logs,
+			COALESCE((
+				SELECT COUNT(DISTINCT queue_item_id)
+				FROM log_index_refs
+				WHERE batch_id = b.batch_id
+			), 0) AS indexed,
+			COALESCE((
+				SELECT COUNT(DISTINCT queue_item_id)
+				FROM log_failures
+				WHERE batch_id = b.batch_id AND status = 'FAILED'
+			), 0) AS failed
+		FROM log_queue_batches b
+		WHERE b.batch_id = ?
+	`, batchID).Scan(&counts).Error; err != nil {
+		return err
+	}
+
+	status := "PROCESSING"
+	message := ""
+	switch {
+	case counts.Indexed == counts.TotalLogs && counts.TotalLogs > 0:
+		status = "COMPLETED"
+		message = "all logs indexed successfully"
+	case counts.Indexed == 0 && counts.Failed == counts.TotalLogs && counts.TotalLogs > 0:
+		status = "FAILED"
+		message = "all logs failed permanently"
+	case counts.Indexed+counts.Failed == counts.TotalLogs && counts.TotalLogs > 0:
+		status = "PARTIAL"
+		message = "batch completed with permanent failures"
+	default:
+		status = "PROCESSING"
+		message = "batch still processing or awaiting retries"
+	}
+
+	updates := map[string]any{
+		"status":        status,
+		"error_message": message,
+	}
+	if status != "PROCESSING" {
+		updates["processed_at"] = gorm.Expr("NOW()")
+		updates["locked_by"] = nil
+		updates["locked_at"] = nil
+	}
+
 	return r.db.WithContext(ctx).Model(&models.LogQueueBatch{}).
 		Where("batch_id = ?", batchID).
-		Updates(map[string]any{
-			"status":        status,
-			"processed_at":  now,
-			"locked_by":     nil,
-			"locked_at":     nil,
-			"error_message": message,
-		}).Error
+		Updates(updates).Error
 }
 
 func (r *repository) FindIndexPolicy(ctx context.Context, productID int, environmentID *int) (*models.ElasticIndexPolicy, error) {
-	var policy models.ElasticIndexPolicy
+	var list []models.ElasticIndexPolicy
 	query := r.db.WithContext(ctx).Where("product_id = ? AND is_active = TRUE", productID)
 	if environmentID != nil {
 		query = query.Where("(environment_id IS NULL OR environment_id = ?)", *environmentID).Order("environment_id DESC NULLS LAST")
@@ -176,17 +150,13 @@ func (r *repository) FindIndexPolicy(ctx context.Context, productID int, environ
 		query = query.Where("environment_id IS NULL")
 	}
 
-	if err := query.First(&policy).Error; err != nil {
+	if err := query.Limit(1).Find(&list).Error; err != nil {
 		return nil, err
 	}
-	return &policy, nil
-}
-
-func stringPtr(value string) *string {
-	if value == "" {
-		return nil
+	if len(list) == 0 {
+		return nil, gorm.ErrRecordNotFound
 	}
-	return &value
+	return &list[0], nil
 }
 
 func (r *repository) GetSensitiveFieldDefinitions(ctx context.Context, productID int) ([]models.LogFieldDefinition, error) {
@@ -194,44 +164,11 @@ func (r *repository) GetSensitiveFieldDefinitions(ctx context.Context, productID
 	err := r.db.WithContext(ctx).Where("product_id = ? AND is_sensitive = TRUE AND is_active = TRUE", productID).Find(&list).Error
 	return list, err
 }
+
 func (r *repository) GetLogMaskingRules(ctx context.Context, productID int) ([]models.LogMaskingRule, error) {
 	var list []models.LogMaskingRule
 	err := r.db.WithContext(ctx).Where("product_id = ? AND is_active = TRUE", productID).Find(&list).Error
 	return list, err
-}
-func (r *repository) CreateSensitiveFieldSecret(ctx context.Context, secret *models.LogSensitiveFieldSecret) error {
-	return r.db.WithContext(ctx).Create(secret).Error
-}
-
-func (r *repository) UpsertObjectStorageRef(ctx context.Context, ref *models.LogObjectStorageRef) error {
-	var existing models.LogObjectStorageRef
-	err := r.db.WithContext(ctx).
-		Where("log_id = ? AND object_type = ?", ref.LogID, ref.ObjectType).
-		First(&existing).Error
-	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return r.db.WithContext(ctx).Create(ref).Error
-		}
-		return err
-	}
-
-	ref.ObjectRefID = existing.ObjectRefID
-	return r.db.WithContext(ctx).Model(&existing).Updates(map[string]any{
-		"product_id":            ref.ProductID,
-		"environment_id":        ref.EnvironmentID,
-		"storage_provider":      ref.StorageProvider,
-		"bucket_name":           ref.BucketName,
-		"object_path":           ref.ObjectPath,
-		"file_format":           ref.FileFormat,
-		"size_bytes":            ref.SizeBytes,
-		"checksum":              ref.Checksum,
-		"encrypted_payload":     ref.EncryptedPayload,
-		"encryption_key_ref":    ref.EncryptionKeyRef,
-		"encryption_algorithm":  ref.EncryptionAlgorithm,
-		"is_encrypted":          ref.IsEncrypted,
-		"retention_until":       ref.RetentionUntil,
-		"purged_at":             ref.PurgedAt,
-	}).Error
 }
 
 func (r *repository) GetActiveIndexPolicies(ctx context.Context) ([]models.ElasticIndexPolicy, error) {

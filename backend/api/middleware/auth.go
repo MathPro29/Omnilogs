@@ -39,6 +39,12 @@ func UserAuthMiddleware(jwtSecret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
+			token := c.Query("token")
+			if token != "" {
+				authHeader = "Bearer " + token
+			}
+		}
+		if authHeader == "" {
 			responses.Unauthorized(c, "missing authorization header")
 			c.Abort()
 			return

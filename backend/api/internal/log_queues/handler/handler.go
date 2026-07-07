@@ -34,6 +34,10 @@ func (h *Handler) QueueHandler(c *gin.Context) {
 
 	batch, err := h.usecase.Enqueue(c.Request.Context(), req)
 	if err != nil {
+		if err.Error() == "environment does not belong to product" || err.Error() == "product_id is required when environment_id is provided" {
+			responses.BadRequest(c, err.Error())
+			return
+		}
 		responses.Error(c, "INTERNAL_ERROR", "Failed to enqueue log batch", err)
 		return
 	}

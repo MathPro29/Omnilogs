@@ -23,11 +23,16 @@ func Logger(db *gorm.DB, encryptionKey string) gin.HandlerFunc {
 		requestBody := readRequestBody(c)
 		c.Next()
 
+		if !shouldRecordAuditEvent(c) {
+			return
+		}
+
 		action := auditAction(c)
 		if action == "" {
 			return
 		}
 
+		auditID := newAuditUUID()
 		statusCode := c.Writer.Status()
 		result := models.AuditResultSuccess
 		if statusCode >= 400 && statusCode < 500 {
@@ -37,9 +42,9 @@ func Logger(db *gorm.DB, encryptionKey string) gin.HandlerFunc {
 		}
 
 		resourceType, resourceID := auditResource(c)
-		metadataJSON := buildAuditMetadata(c, requestBody, statusCode)
+		metadataResult := buildAuditMetadata(c, requestBody, statusCode, auditID, encryptionKey)
 		record := models.SystemAuditLog{
-			AuditID:      newAuditUUID(),
+			AuditID:      auditID,
 			ActorUserID:  auditUserID(c),
 			ProductID:    auditProductID(c, requestBody),
 			Action:       action,
@@ -50,13 +55,22 @@ func Logger(db *gorm.DB, encryptionKey string) gin.HandlerFunc {
 			Method:       stringPointer(c.Request.Method),
 			Path:         stringPointer(c.Request.URL.Path),
 			Result:       result,
-			Metadata:     metadataJSON,
+			Metadata:     metadataResult.Metadata,
 			IPAddress:    stringPointer(c.ClientIP()),
 			UserAgent:    stringPointer(c.Request.UserAgent()),
 		}
 
 		if err := db.WithContext(c.Request.Context()).Create(&record).Error; err != nil {
 			log.Printf("[ERROR] Failed to save audit log: %v", err)
+			return
+		}
+		for _, secret := range metadataResult.Secrets {
+			if secret.EncryptedValue == "" {
+				continue
+			}
+			if err := db.WithContext(c.Request.Context()).Create(&secret).Error; err != nil {
+				log.Printf("[ERROR] Failed to save audit secret: %v", err)
+			}
 		}
 	}
 }

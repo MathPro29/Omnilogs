@@ -12,7 +12,6 @@ const queryClient = new QueryClient({
       staleTime: 1000,
       retry: 1,
       refetchOnWindowFocus: false,
-      refetchInterval: 3000, // Real-time update every 3 seconds globally
     },
   },
 });

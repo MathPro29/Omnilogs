@@ -3,6 +3,7 @@ package routes
 import (
 	"omnilogs-api/configs"
 	auditmodule "omnilogs-api/internal/audit_logs/module"
+	auditsecretmodule "omnilogs-api/internal/audit_secret/module"
 	mainlogmodule "omnilogs-api/internal/main_logs/module"
 	"omnilogs-api/middleware"
 
@@ -12,8 +13,14 @@ import (
 )
 
 func AuditRoutes(router *gin.Engine, db *gorm.DB, esClient *elasticsearch.Client, env *configs.Env) {
+	natsQueue, err := configs.ConnectNATS(env)
+	if err != nil {
+		panic(err)
+	}
+
 	auditHandler := auditmodule.NewHandler(db)
-	mainLogHandler := mainlogmodule.NewHandler(db, esClient, env.DataEncryptionKey)
+	auditSecretHandler := auditsecretmodule.NewHandler(db, env.DataEncryptionKey)
+	mainLogHandler := mainlogmodule.NewHandler(db, esClient, env.DataEncryptionKey, natsQueue)
 
 	group := router.Group("/api/v1/audit-logs")
 	group.Use(middleware.UserAuthMiddleware(env.JWTSecret))
@@ -21,4 +28,9 @@ func AuditRoutes(router *gin.Engine, db *gorm.DB, esClient *elasticsearch.Client
 	group.GET("", auditHandler.List)
 	group.GET("/:auditId", auditHandler.GetByID)
 	group.GET("/:auditId/main-log", mainLogHandler.GetByAudit)
+	group.GET("/:auditId/secrets/requests", auditSecretHandler.ListRequests)
+	group.POST("/:auditId/secrets/requests", auditSecretHandler.CreateRequest)
+	group.POST("/:auditId/secrets/requests/:requestId/review", auditSecretHandler.ReviewRequest)
+	group.GET("/:auditId/secrets/history", auditSecretHandler.ListHistory)
+	group.POST("/:auditId/secrets/reveal", auditSecretHandler.RevealValue)
 }

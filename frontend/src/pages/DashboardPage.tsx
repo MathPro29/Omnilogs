@@ -6,9 +6,21 @@ import { SearchOutlined, EyeOutlined, SendOutlined, ReloadOutlined, LineChartOut
 import { productAdminService } from '@/services';
 import { useAppStore, useAutoLogStore } from '@/store';
 import { ROUTES } from '@/constants';
-import type { MainLog } from '@/types';
+import type { MainLog, ProjectFeature } from '@/types';
 
 const { Text, Title, Paragraph } = Typography;
+
+function getScopedAutoSendFeatures(features: ProjectFeature[], selectedCategoryId?: number | null) {
+  const activeFeatures = features.filter((feature) => feature.isActive);
+  if (!selectedCategoryId) {
+    return activeFeatures;
+  }
+
+  return activeFeatures.filter((feature) => {
+    const pathIds = feature.pathIds?.split(',').map((value) => value.trim()) || [];
+    return feature.categoryId === selectedCategoryId || pathIds.includes(String(selectedCategoryId));
+  });
+}
 
 export function DashboardPage() {
   const setBreadcrumbs = useAppStore((state) => state.setBreadcrumbs);
@@ -59,6 +71,7 @@ export function DashboardPage() {
         'eventType',
       ]);
       const allValues = generatorForm.getFieldsValue();
+      const scopedFeatures = getScopedAutoSendFeatures(generatorFeatures, allValues.categoryId);
       
       let featureFullPath = null;
       let featurePathIds = null;
@@ -78,7 +91,7 @@ export function DashboardPage() {
         featureFullPath,
         featurePathIds,
         eventType: values.eventType,
-        features: generatorFeatures,
+        features: scopedFeatures,
       });
       message.success('เริ่มส่ง Log อัตโนมัติแล้ว สามารถเปลี่ยนหน้าได้');
     } catch {

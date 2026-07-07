@@ -6,10 +6,10 @@ type ElasticIndexPolicy struct {
 	EnvironmentID    *int    `gorm:"uniqueIndex:uq_elastic_policy,priority:2" json:"environment_id,omitempty"`
 	ProjectID        *int    `gorm:"uniqueIndex:uq_elastic_policy,priority:3" json:"project_id,omitempty"`
 	CategoryID       *int    `gorm:"uniqueIndex:uq_elastic_policy,priority:4" json:"category_id,omitempty"`
-	IndexPrefix      string  `gorm:"not null;uniqueIndex" json:"index_prefix"`
+	IndexPrefix      string  `gorm:"not null;unique" json:"index_prefix"`
 	IndexPattern     *string `json:"index_pattern,omitempty"`
-	WriteAlias       *string `gorm:"uniqueIndex" json:"write_alias,omitempty"`
-	ILMPolicyName    *string `gorm:"uniqueIndex" json:"ilm_policy_name,omitempty"`
+	WriteAlias       *string `gorm:"unique" json:"write_alias,omitempty"`
+	ILMPolicyName    *string `gorm:"unique" json:"ilm_policy_name,omitempty"`
 	RolloverType     string  `gorm:"not null;default:MONTHLY" json:"rollover_type"`
 	NumberOfShards   int     `gorm:"not null;default:1" json:"number_of_shards"`
 	NumberOfReplicas int     `gorm:"not null;default:1" json:"number_of_replicas"`

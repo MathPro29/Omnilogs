@@ -29,8 +29,13 @@ func RunWorker(env *configs.Env, db *gorm.DB) error {
 	if err != nil {
 		return err
 	}
+	natsQueue, err := configs.ConnectNATS(env)
+	if err != nil {
+		return err
+	}
+	defer natsQueue.Close()
 
-	processor := workerprocessor.NewProcessor(db, esClient, env.DataEncryptionKey)
+	processor := workerprocessor.NewProcessor(db, esClient, env.DataEncryptionKey, natsQueue)
 	done := make(chan error, 1)
 	go func() {
 		// ลูปนี้จะคอยหยิบ batch จากคิวมาประมวลผลและส่งเข้า pipeline ของการ index

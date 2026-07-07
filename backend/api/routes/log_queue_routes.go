@@ -14,14 +14,18 @@ import (
 
 func LogQueueRoutes(router *gin.Engine, db *gorm.DB, env *configs.Env) {
 	repo := logqueuesrepo.NewRepository(db)
-	use := logqueuesusecase.NewUsecase(repo)
+	natsQueue, err := configs.ConnectNATS(env)
+	if err != nil {
+		panic(err)
+	}
+	use := logqueuesusecase.NewUsecase(repo, natsQueue)
 
 	esClient, err := configs.ConnectElasticsearch(env)
 	if err != nil {
 		panic(err)
 	}
 
-	processor := workerprocessor.NewProcessor(db, esClient, env.DataEncryptionKey)
+	processor := workerprocessor.NewProcessor(db, esClient, env.DataEncryptionKey, natsQueue)
 	handler := logqueueshandler.NewHandler(use, processor)
 
 	queues := router.Group("/api/v1/queues")
