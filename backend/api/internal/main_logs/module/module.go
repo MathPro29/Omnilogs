@@ -5,6 +5,7 @@ import (
 	auditrepo "omnilogs-api/internal/audit_logs/repository"
 	auditusecase "omnilogs-api/internal/audit_logs/usecase"
 	"omnilogs-api/internal/main_logs/handler"
+	mainlogrepo "omnilogs-api/internal/main_logs/repository"
 	mainlogusecase "omnilogs-api/internal/main_logs/usecase"
 
 	"github.com/elastic/go-elasticsearch/v8"
@@ -12,8 +13,10 @@ import (
 )
 
 func NewHandler(db *gorm.DB, esClient *elasticsearch.Client, encryptionKey string, natsQueue *configs.NATSQueue) *handler.Handler {
-	repo := auditrepo.NewRepository(db)
-	audits := auditusecase.NewUsecase(repo)
-	mainLogs := mainlogusecase.NewUsecase(db, esClient, audits, encryptionKey)
+	auditRepo := auditrepo.NewRepository(db)
+	audits := auditusecase.NewUsecase(auditRepo)
+	
+	mainLogRepo := mainlogrepo.NewRepository(db, esClient)
+	mainLogs := mainlogusecase.NewUsecase(mainLogRepo, audits, encryptionKey)
 	return handler.NewHandler(mainLogs, natsQueue)
 }
