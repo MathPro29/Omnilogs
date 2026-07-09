@@ -1,4 +1,6 @@
 APP_NAME=omnilogs-api
+COMPOSE_CMD=docker compose
+COMPOSE_FILE=..\\compose.yml
 
 .PHONY: build test swagger swagger-check api worker migrate seed
 
@@ -21,7 +23,10 @@ seed:
 	go run ./cmd/seed
 
 dev:
-	docker compose -f ..\docker-compose.yml up --build
+	$(COMPOSE_CMD) -f $(COMPOSE_FILE) up --build
+
+dev-down:
+	$(COMPOSE_CMD) -f $(COMPOSE_FILE) down
 
 swagger:
 	go run ./cmd/openapi sync

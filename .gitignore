@@ -27,5 +27,11 @@ Thumbs.db
 .tmpgocache/
 .tmpgomodcache/
 
-# Github
 .github/workflows/*.yml
+
+# Project specific ignores
+frontend.rar
+backend/api/data/
+backend/api/.codex-tmp/
+comparison_summary.html
+

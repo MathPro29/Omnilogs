@@ -16,9 +16,18 @@ import (
 )
 
 type batchCache struct {
-	fields    sync.Map // productID -> []models.LogFieldDefinition
-	rules     sync.Map // productID -> []models.LogMaskingRule
-	hierarchy sync.Map // string -> error (caching valid or invalid results)
+	fields     sync.Map // productID -> []models.LogFieldDefinition
+	rules      sync.Map // productID -> []models.LogMaskingRule
+	matchers   sync.Map // productID -> *sensitiveMatchers
+	hierarchy  sync.Map // string -> error (caching valid or invalid results)
+	indexNames sync.Map // productID-environmentID-date -> index name
+}
+
+type sensitiveMatchers struct {
+	fieldByKey  map[string]*models.LogFieldDefinition
+	fieldByPath map[string]*models.LogFieldDefinition
+	ruleByKey   map[string]*models.LogMaskingRule
+	ruleByPath  map[string]*models.LogMaskingRule
 }
 
 type processedLog struct {
@@ -35,6 +44,13 @@ type processedLog struct {
 }
 
 func (u *usecase) processFetchedMessages(ctx context.Context, msgs []*nats.Msg) error {
+	batchIDs := collectBatchIDs(msgs)
+	if len(batchIDs) > 0 {
+		defer u.refreshBatchStatuses(ctx, batchIDs)
+	}
+
+	u.markFetchedBatchesProcessing(ctx, msgs)
+
 	prepared, err := u.prepareLogs(ctx, msgs)
 	if err != nil {
 		return err
@@ -54,13 +70,11 @@ func (u *usecase) processFetchedMessages(ctx context.Context, msgs []*nats.Msg) 
 	indexRefs := make([]models.LogIndexRef, 0, len(prepared))
 	objectRefs := make([]models.LogObjectStorageRef, 0, len(prepared))
 	secrets := make([]models.LogSensitiveFieldSecret, 0, len(prepared))
-	batchIDs := make(map[string]struct{})
 
 	for _, item := range prepared {
 		indexRefs = append(indexRefs, item.indexRef)
 		objectRefs = append(objectRefs, item.objectRef)
 		secrets = append(secrets, item.secrets...)
-		batchIDs[item.message.BatchID] = struct{}{}
 	}
 
 	if err := u.repo.BulkPersistSuccesses(ctx, indexRefs, objectRefs, secrets); err != nil {
@@ -81,13 +95,58 @@ func (u *usecase) processFetchedMessages(ctx context.Context, msgs []*nats.Msg) 
 		}
 	}
 
+	return nil
+}
+
+func collectBatchIDs(msgs []*nats.Msg) map[string]struct{} {
+	batchIDs := make(map[string]struct{})
+	for _, msg := range msgs {
+		envelope, err := decodeMessage(msg)
+		if err != nil || envelope.BatchID == "" {
+			continue
+		}
+		batchIDs[envelope.BatchID] = struct{}{}
+	}
+	return batchIDs
+}
+
+func (u *usecase) refreshBatchStatuses(ctx context.Context, batchIDs map[string]struct{}) {
 	for batchID := range batchIDs {
 		if err := u.repo.RefreshBatchStatusFromResults(ctx, batchID); err != nil {
 			slog.Error("failed to refresh batch status", "batch_id", batchID, "error", err)
 		}
 	}
+}
 
-	return nil
+func (u *usecase) markFetchedBatchesProcessing(ctx context.Context, msgs []*nats.Msg) {
+	batchIDs := make(map[string]struct{})
+	for _, msg := range msgs {
+		envelope, err := decodeMessage(msg)
+		if err != nil || envelope.BatchID == "" {
+			continue
+		}
+		batchIDs[envelope.BatchID] = struct{}{}
+	}
+	if len(batchIDs) == 0 {
+		return
+	}
+
+	ids := make([]string, 0, len(batchIDs))
+	for batchID := range batchIDs {
+		ids = append(ids, batchID)
+	}
+
+	now := time.Now().UTC()
+	if err := u.repo.DB().WithContext(ctx).Model(&models.LogQueueBatch{}).
+		Where("batch_id IN ?", ids).
+		Updates(map[string]any{
+			"status":                "PROCESSING",
+			"processing_started_at": now,
+			"processed_at":          nil,
+			"error_message":         nil,
+		}).Error; err != nil {
+		slog.Error("failed to mark fetched batches as processing", "error", err)
+	}
 }
 
 func (u *usecase) prepareLogs(ctx context.Context, msgs []*nats.Msg) ([]processedLog, error) {
@@ -114,6 +173,7 @@ func (u *usecase) prepareLogs(ctx context.Context, msgs []*nats.Msg) ([]processe
 
 		rules, _ := u.repo.GetLogMaskingRules(ctx, pid)
 		cache.rules.Store(pid, rules)
+		cache.matchers.Store(pid, buildSensitiveMatchers(fields, rules))
 	}
 
 	for _, msg := range msgs {
@@ -166,10 +226,17 @@ func (u *usecase) prepareLog(ctx context.Context, msg *nats.Msg, cache *batchCac
 	if val, ok := cache.rules.Load(*envelope.ProductID); ok {
 		rules = val.([]models.LogMaskingRule)
 	}
+	var matchers *sensitiveMatchers
+	if val, ok := cache.matchers.Load(*envelope.ProductID); ok {
+		matchers = val.(*sensitiveMatchers)
+	}
 
 	var payload map[string]any
 	if err := json.Unmarshal(envelope.InputPayload, &payload); err != nil {
 		return nil, u.failMessage(ctx, msg, envelope, "TRANSFORM", "INVALID_PAYLOAD", err.Error(), false)
+	}
+	if payload == nil {
+		return nil, u.failMessage(ctx, msg, envelope, "TRANSFORM", "INVALID_PAYLOAD", "payload is null or empty", false)
 	}
 
 	originalPayload := append([]byte(nil), envelope.InputPayload...)
@@ -181,7 +248,7 @@ func (u *usecase) prepareLog(ctx context.Context, msg *nats.Msg, cache *batchCac
 		return nil, u.failMessage(ctx, msg, envelope, "VALIDATION", "INVALID_LOG_HIERARCHY", err.Error(), false)
 	}
 
-	secrets, err := u.maskPayloadAndExtractSecrets(payload, "", *envelope.ProductID, envelope.LogID, fields, rules)
+	secrets, err := u.maskPayloadAndExtractSecrets(payload, "", *envelope.ProductID, envelope.LogID, fields, rules, matchers)
 	if err != nil {
 		return nil, u.failMessage(ctx, msg, envelope, "TRANSFORM", "MASKING_FAILED", err.Error(), true)
 	}
@@ -192,7 +259,7 @@ func (u *usecase) prepareLog(ctx context.Context, msg *nats.Msg, cache *batchCac
 	}
 
 	indexedAt := time.Now().UTC()
-	indexName := u.resolveIndexName(ctx, *envelope.ProductID, envelope.EnvironmentID, meta.Timestamp)
+	indexName := u.resolveIndexNameCached(ctx, *envelope.ProductID, envelope.EnvironmentID, meta.Timestamp, cache)
 	objectRef, err := u.buildObjectStorageRef(envelope, originalPayload)
 	if err != nil {
 		return nil, u.failMessage(ctx, msg, envelope, "DATABASE", "PAYLOAD_ARCHIVE_CREATE_FAILED", err.Error(), true)
@@ -275,54 +342,34 @@ func (u *usecase) buildObjectStorageRef(envelope queue.LogMessage, payload []byt
 }
 
 func (u *usecase) failMessage(ctx context.Context, msg *nats.Msg, envelope queue.LogMessage, stage string, failureType string, reason string, retryable bool) error {
-	now := time.Now().UTC()
-	nextRetryCount := envelope.RetryCount + 1
-	status := "FAILED"
-	var nextRetryAt *time.Time
-
-	if retryable && nextRetryCount <= envelope.MaxRetryCount {
-		status = "RETRY_PENDING"
-		retryAt := now.Add(time.Duration(nextRetryCount) * time.Minute)
-		nextRetryAt = &retryAt
-	}
-
+	_ = retryable
 	reasonCopy := reason
 	failure := models.LogFailure{
 		FailureID:     newUUID(),
-		AttemptNo:     nextRetryCount,
+		LogID:         envelope.LogID,
+		AttemptNo:     1,
 		QueueItemID:   envelope.QueueItemID,
 		BatchID:       envelope.BatchID,
+		SequenceNo:    envelope.SequenceNo,
 		ProductID:     envelope.ProductID,
 		SourceID:      envelope.SourceID,
 		EnvironmentID: envelope.EnvironmentID,
 		FailureStage:  stage,
 		FailureType:   failureType,
 		Reason:        &reasonCopy,
-		RetryCount:    nextRetryCount,
-		MaxRetryCount: envelope.MaxRetryCount,
-		NextRetryAt:   nextRetryAt,
-		LastRetryAt:   &now,
-		Status:        status,
+		ErrorDetails:  envelope.InputPayload, // เก็บ Payload ดิบเอาไว้สำหรับนำไปทำ Retry
+		RetryCount:    0,
+		MaxRetryCount: 0,
+		NextRetryAt:   nil,
+		LastRetryAt:   nil,
+		Status:        "FAILED",
 	}
+
 	if err := u.repo.CreateFailure(ctx, &failure); err != nil {
 		return err
 	}
 
-	if status == "RETRY_PENDING" {
-		envelope.RetryCount = nextRetryCount
-		payload, err := queue.MarshalMessage(envelope)
-		if err != nil {
-			return err
-		}
-		if err := u.natsQueue.Publish(ctx, payload); err != nil {
-			return err
-		}
-	}
-
 	if err := msg.Ack(); err != nil {
-		return err
-	}
-	if err := u.repo.RefreshBatchStatusFromResults(ctx, envelope.BatchID); err != nil {
 		return err
 	}
 	return nil

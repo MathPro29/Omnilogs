@@ -16,6 +16,8 @@ tags:
   - name: Environments
   - name: Scopes
   - name: Authorization
+  - name: Users
+  - name: Queues
 paths:
   /health/live:
     get:
@@ -236,6 +238,206 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SuccessEnvelope'
+  /api/v1/admin/edit-user:
+    put:
+      tags: [Admin]
+      summary: Edit platform role and permissions for a user
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EditUserRoleRequest'
+      responses:
+        '200':
+          description: Role updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/admin/user/{id}:
+    get:
+      tags: [Admin]
+      summary: Get user details by ID for platform administrators
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: User details retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    delete:
+      tags: [Admin]
+      summary: Delete user by ID for platform administrators
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: User deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/users:
+    post:
+      tags: [Users]
+      summary: Create user
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/users/{id}:
+    get:
+      tags: [Users]
+      summary: Get user by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: User details retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    put:
+      tags: [Users]
+      summary: Update user
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserAdminRequest'
+      responses:
+        '200':
+          description: User updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    delete:
+      tags: [Users]
+      summary: Delete user
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: User deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
   /api/v1/products:
     get:
       tags: [Products]
@@ -1150,8 +1352,119 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SuccessEnvelope'
+  /api/v1/queues:
+    post:
+      tags: [Queues]
+      summary: Enqueue log batch
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IngestLogBatchRequest'
+      responses:
+        '201':
+          description: Log batch enqueued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          description: Invalid request payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/queues/consume:
+    post:
+      tags: [Queues]
+      summary: Trigger queue consume worker (manual trigger)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Consume completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/queues/batches/{batchId}/items:
+    get:
+      tags: [Queues]
+      summary: Get list of log queue items in a batch
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/BatchId'
+      responses:
+        '200':
+          description: Batch items retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/queues/items/{itemId}:
+    get:
+      tags: [Queues]
+      summary: Get details of a single log queue item
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ItemId'
+      responses:
+        '200':
+          description: Item details retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
         '404':
-          description: Policy not found
+          description: Item not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/queues/failed:
+    get:
+      tags: [Queues]
+      summary: List all failed queue batches
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of failed batches retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          description: Unauthorized
           content:
             application/json:
               schema:
@@ -1224,6 +1537,24 @@ components:
       schema:
         type: string
         format: uuid
+    UserId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    BatchId:
+      name: batchId
+      in: path
+      required: true
+      schema:
+        type: string
+    ItemId:
+      name: itemId
+      in: path
+      required: true
+      schema:
+        type: integer
   schemas:
     SuccessEnvelope:
       type: object
@@ -1793,4 +2124,314 @@ components:
           type: integer
         environment_id:
           type: integer
+          nullable: true
+    EditUserRoleRequest:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: integer
+        first_name:
+          type: string
+        last_name:
+          type: string
+        email:
+          type: string
+          format: email
+        platform_role_id:
+          type: integer
+        product_role_id:
+          type: integer
+        environment_id:
+          type: integer
+        permission_level:
+          type: integer
+        is_active:
+          type: boolean
+          nullable: true
+    CreateUserRequest:
+      type: object
+      required: [fullName, email, password, role]
+      properties:
+        username:
+          type: string
+          nullable: true
+        fullName:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+          nullable: true
+        password:
+          type: string
+          format: password
+        role:
+          type: string
+    UpdateUserAdminRequest:
+      type: object
+      properties:
+        fullName:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+          nullable: true
+        role:
+          type: string
+        status:
+          type: string
+          enum: [active, inactive]
+    UserResponse:
+      type: object
+      required: [id, email, is_active]
+      properties:
+        id:
+          type: integer
+        user_id:
+          type: integer
+        username:
+          type: string
+          nullable: true
+        first_name:
+          type: string
+          nullable: true
+        last_name:
+          type: string
+          nullable: true
+        email:
+          type: string
+          format: email
+        phone_number:
+          type: string
+          nullable: true
+        is_active:
+          type: boolean
+        role:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+    IngestLogItemRequest:
+      type: object
+      required: [sequence_no, source_type, source_platform, input_payload]
+      properties:
+        sequence_no:
+          type: integer
+        source_type:
+          type: string
+        source_platform:
+          type: string
+        input_payload:
+          type: object
+          additionalProperties: true
+        detected_product_code:
+          type: string
+          nullable: true
+    IngestLogBatchRequest:
+      type: object
+      required: [queue_key, source_type, source_platform, logs]
+      properties:
+        product_id:
+          type: integer
+          nullable: true
+        source_id:
+          type: integer
+          nullable: true
+        environment_id:
+          type: integer
+          nullable: true
+        queue_key:
+          type: string
+        source_type:
+          type: string
+        source_platform:
+          type: string
+        idempotency_key:
+          type: string
+          nullable: true
+        detected_product_code:
+          type: string
+          nullable: true
+        priority:
+          type: integer
+        logs:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/IngestLogItemRequest'
+    LogQueueBatchResponse:
+      type: object
+      properties:
+        batch_id:
+          type: string
+          format: uuid
+        product_id:
+          type: integer
+          nullable: true
+        source_id:
+          type: integer
+          nullable: true
+        environment_id:
+          type: integer
+          nullable: true
+        queue_key:
+          type: string
+        source_type:
+          type: string
+        source_platform:
+          type: string
+        source_ip:
+          type: string
+          nullable: true
+        user_agent:
+          type: string
+          nullable: true
+        idempotency_key:
+          type: string
+          nullable: true
+        detected_product_code:
+          type: string
+          nullable: true
+        product_resolution_status:
+          type: string
+        product_resolution_reason:
+          type: string
+          nullable: true
+        product_resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+        available_at:
+          type: string
+          format: date-time
+          nullable: true
+        worker_id:
+          type: string
+          nullable: true
+        processing_attempts:
+          type: integer
+        total_logs:
+          type: integer
+        status:
+          type: string
+        priority:
+          type: integer
+        received_at:
+          type: string
+          format: date-time
+          nullable: true
+        processing_started_at:
+          type: string
+          format: date-time
+          nullable: true
+        processed_at:
+          type: string
+          format: date-time
+          nullable: true
+        retention_until:
+          type: string
+          format: date-time
+          nullable: true
+        purged_at:
+          type: string
+          format: date-time
+          nullable: true
+        locked_by:
+          type: string
+          nullable: true
+        locked_at:
+          type: string
+          format: date-time
+          nullable: true
+        error_message:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+    LogQueueItemResponse:
+      type: object
+      properties:
+        queue_item_id:
+          type: integer
+        batch_id:
+          type: string
+          format: uuid
+        sequence_no:
+          type: integer
+        source_type:
+          type: string
+        source_platform:
+          type: string
+        input_payload:
+          type: object
+          additionalProperties: true
+          nullable: true
+        payload_size_bytes:
+          type: integer
+          nullable: true
+        payload_purged:
+          type: boolean
+        detected_product_code:
+          type: string
+          nullable: true
+        worker_id:
+          type: string
+          nullable: true
+        processing_attempts:
+          type: integer
+        status:
+          type: string
+        retry_count:
+          type: integer
+        max_retry_count:
+          type: integer
+        next_retry_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_retry_at:
+          type: string
+          format: date-time
+          nullable: true
+        processing_started_at:
+          type: string
+          format: date-time
+          nullable: true
+        processed_at:
+          type: string
+          format: date-time
+          nullable: true
+        error_message:
+          type: string
+          nullable: true
+        retention_until:
+          type: string
+          format: date-time
+          nullable: true
+        purged_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
           nullable: true

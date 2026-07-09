@@ -41,6 +41,7 @@ func Migrate(db *gorm.DB, env *configs.Env) {
 		&models.ProjectFeature{},
 		&models.RoleTemplate{},
 		&models.UserRolePermissionRule{},
+		&models.UserPermission{},
 		&models.ElasticIndexPolicy{},
 		&models.LogArchive{},
 		&models.LogFailure{},

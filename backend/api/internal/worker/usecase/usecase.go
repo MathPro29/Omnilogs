@@ -21,6 +21,8 @@ import (
 
 const DefaultPollInterval = 2 * time.Second
 
+var ErrQueueDisabled = errors.New("nats queue is not configured")
+
 type Usecase interface {
 	Run(ctx context.Context) error
 	RunOnce(ctx context.Context) (bool, error)
@@ -51,20 +53,14 @@ func NewUsecase(repo workerrepo.Repository, esClient *elasticsearch.Client, encr
 
 func (u *usecase) Run(ctx context.Context) error {
 	if u.natsQueue == nil {
-		return errors.New("nats queue is not configured")
+		return ErrQueueDisabled
 	}
 
 	ticker := time.NewTicker(u.pollInterval)
 	defer ticker.Stop()
 
 	for {
-		if time.Since(u.lastRetentionCheck) > 30*time.Second {
-			if err := u.runRetentionCheck(ctx); err != nil {
-				slog.Error("retention check failed", "error", err)
-			} else {
-				u.lastRetentionCheck = time.Now()
-			}
-		}
+		u.runPeriodicMaintenance(ctx)
 
 		if _, err := u.RunOnce(ctx); err != nil {
 			slog.Error("jetstream batch processing failed",
@@ -83,8 +79,10 @@ func (u *usecase) Run(ctx context.Context) error {
 
 func (u *usecase) RunOnce(ctx context.Context) (bool, error) {
 	if u.natsQueue == nil {
-		return false, errors.New("nats queue is not configured")
+		return false, ErrQueueDisabled
 	}
+
+	u.runPeriodicMaintenance(ctx)
 
 	sub, err := u.getSubscription()
 	if err != nil {
@@ -103,6 +101,17 @@ func (u *usecase) RunOnce(ctx context.Context) (bool, error) {
 	}
 
 	return true, u.processFetchedMessages(ctx, msgs)
+}
+
+func (u *usecase) runPeriodicMaintenance(ctx context.Context) {
+	if time.Since(u.lastRetentionCheck) > 30*time.Second {
+		if err := u.runRetentionCheck(ctx); err != nil {
+			slog.Error("retention check failed", "error", err)
+		} else {
+			u.lastRetentionCheck = time.Now()
+		}
+	}
+
 }
 
 func (u *usecase) getSubscription() (*nats.Subscription, error) {

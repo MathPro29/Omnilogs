@@ -28,6 +28,7 @@ type Usecase interface {
 	Consume(ctx context.Context) (*models.LogQueueBatch, error)
 	GetItemsByBatch(ctx context.Context, batchID string) ([]models.LogQueueItem, error)
 	GetItemByID(ctx context.Context, itemID int64) (*models.LogQueueItem, error)
+	GetFailedBatches(ctx context.Context) ([]models.LogQueueBatch, error)
 }
 
 type usecase struct {
@@ -69,7 +70,7 @@ func (u *usecase) Enqueue(ctx context.Context, req dto.IngestLogBatchRequest) (*
 	}
 
 	now := time.Now().UTC()
-	retentionUntil, maxRetryCount, err := u.resolveBatchPolicy(ctx, req, now)
+	retentionUntil, err := u.resolveBatchPolicy(ctx, req, now)
 	if err != nil {
 		return nil, err
 	}
@@ -91,11 +92,10 @@ func (u *usecase) Enqueue(ctx context.Context, req dto.IngestLogBatchRequest) (*
 		IdempotencyKey:          req.IdempotencyKey,
 		DetectedProductCode:     req.DetectedProductCode,
 		ProductResolutionStatus: resolutionStatus,
-		Status:                  "PROCESSING",
+		Status:                  "QUEUED",
 		Priority:                req.Priority,
 		TotalLogs:               len(req.Logs),
 		ReceivedAt:              &now,
-		ProcessingStartedAt:     &now,
 		RetentionUntil:          retentionUntil,
 	}
 
@@ -120,8 +120,6 @@ func (u *usecase) Enqueue(ctx context.Context, req dto.IngestLogBatchRequest) (*
 			SequenceNo:          i + 1,
 			InputPayload:        logItem.InputPayload,
 			RetentionUntil:      retentionUntil,
-			RetryCount:          0,
-			MaxRetryCount:       maxRetryCount,
 			PublishedAt:         now,
 		}
 
@@ -159,9 +157,12 @@ func (u *usecase) GetItemByID(ctx context.Context, itemID int64) (*models.LogQue
 	return nil, gorm.ErrRecordNotFound
 }
 
-func (u *usecase) resolveBatchPolicy(ctx context.Context, req dto.IngestLogBatchRequest, now time.Time) (*time.Time, int, error) {
+func (u *usecase) GetFailedBatches(ctx context.Context) ([]models.LogQueueBatch, error) {
+	return u.repo.GetFailedBatches(ctx)
+}
+
+func (u *usecase) resolveBatchPolicy(ctx context.Context, req dto.IngestLogBatchRequest, now time.Time) (*time.Time, error) {
 	retentionDays := 7
-	maxRetryCount := 3
 
 	if req.ProductID != nil && req.EnvironmentID != nil {
 		var policies []models.LogIngestionPolicy
@@ -170,25 +171,22 @@ func (u *usecase) resolveBatchPolicy(ctx context.Context, req dto.IngestLogBatch
 			Limit(1).
 			Find(&policies).Error
 		if err != nil {
-			return nil, 0, err
+			return nil, err
 		}
 		if len(policies) > 0 {
 			policy := policies[0]
 			if policy.RetentionDays != nil {
 				retentionDays = *policy.RetentionDays
 			}
-			if policy.MaxRetries != nil && *policy.MaxRetries > 0 {
-				maxRetryCount = *policy.MaxRetries
-			}
 		}
 	}
 
 	if retentionDays <= 0 {
-		return nil, maxRetryCount, nil
+		return nil, nil
 	}
 
 	retentionUntil := now.AddDate(0, 0, retentionDays)
-	return &retentionUntil, maxRetryCount, nil
+	return &retentionUntil, nil
 }
 
 func chooseDetectedProductCode(itemValue *string, batchValue *string) *string {

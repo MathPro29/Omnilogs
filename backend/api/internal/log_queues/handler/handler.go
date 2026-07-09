@@ -16,7 +16,7 @@ import (
 )
 
 type Handler struct {
-	usecase    usecase.Usecase
+	usecase   usecase.Usecase
 	processor *workerprocessor.Processor
 }
 
@@ -57,6 +57,7 @@ func (h *Handler) ConsumeHandler(c *gin.Context) {
 		responses.Error(c, "INTERNAL_ERROR", "Failed to consume batch", err)
 		return
 	}
+	// ถ้าไม่มีคิวค้างให้เป็น 404 
 	if !processed {
 		responses.NotFound(c, "No pending batches in queue")
 		return
@@ -104,4 +105,15 @@ func (h *Handler) GetItemHandler(c *gin.Context) {
 	}
 
 	utils.Success(c, http.StatusOK, item)
+}
+
+// GetFailedBatchesHandler ดึงรายการ Failed Batches ทั้งหมด (จำกัดจำนวนตาม Config)
+func (h *Handler) GetFailedBatchesHandler(c *gin.Context) {
+	batches, err := h.usecase.GetFailedBatches(c.Request.Context())
+	if err != nil {
+		responses.Error(c, "INTERNAL_ERROR", "Failed to retrieve failed batches", err)
+		return
+	}
+
+	utils.Success(c, http.StatusOK, batches)
 }

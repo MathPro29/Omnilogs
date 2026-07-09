@@ -44,7 +44,7 @@ func (r *repository) UpsertIndexRef(ctx context.Context, indexRef *models.LogInd
 func (r *repository) CreateFailure(ctx context.Context, failure *models.LogFailure) error {
 	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "queue_item_id"}, {Name: "attempt_no"}},
-		DoUpdates: clause.AssignmentColumns([]string{"failure_stage", "failure_type", "reason", "retry_count", "max_retry_count", "next_retry_at", "last_retry_at", "status"}),
+		DoUpdates: clause.AssignmentColumns([]string{"log_id", "sequence_no", "failure_stage", "failure_type", "reason", "error_details", "retry_count", "max_retry_count", "next_retry_at", "last_retry_at", "status", "resolved_at"}),
 	}).Create(failure).Error
 }
 
@@ -75,6 +75,28 @@ func (r *repository) BulkPersistSuccesses(ctx context.Context, indexRefs []model
 		if len(secrets) > 0 {
 			if err := tx.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(secrets, 500).Error; err != nil {
 				return err
+			}
+		}
+
+		if len(indexRefs) > 0 {
+			queueItemIDs := make([]int64, 0, len(indexRefs))
+			for _, ref := range indexRefs {
+				if ref.QueueItemID == nil || *ref.QueueItemID == 0 {
+					continue
+				}
+				queueItemIDs = append(queueItemIDs, *ref.QueueItemID)
+			}
+			if len(queueItemIDs) > 0 {
+				if err := tx.Model(&models.LogFailure{}).
+					Where("queue_item_id IN ?", queueItemIDs).
+					Where("status <> ?", "RESOLVED").
+					Updates(map[string]any{
+						"status":        "RESOLVED",
+						"resolved_at":   gorm.Expr("NOW()"),
+						"next_retry_at": nil,
+					}).Error; err != nil {
+					return err
+				}
 			}
 		}
 
@@ -118,12 +140,12 @@ func (r *repository) RefreshBatchStatusFromResults(ctx context.Context, batchID 
 	case counts.Indexed == 0 && counts.Failed == counts.TotalLogs && counts.TotalLogs > 0:
 		status = "FAILED"
 		message = "all logs failed permanently"
-	case counts.Indexed+counts.Failed == counts.TotalLogs && counts.TotalLogs > 0:
+	case counts.Indexed+counts.Failed == counts.TotalLogs && counts.Failed > 0 && counts.TotalLogs > 0:
 		status = "PARTIAL"
 		message = "batch completed with permanent failures"
 	default:
 		status = "PROCESSING"
-		message = "batch still processing or awaiting retries"
+		message = "batch still processing"
 	}
 
 	updates := map[string]any{

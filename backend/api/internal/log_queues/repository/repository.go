@@ -20,6 +20,7 @@ type Repository interface {
 	GetItemByID(ctx context.Context, itemID int64) (*models.LogQueueItem, error)
 	UpdateBatchStatus(ctx context.Context, batchID string, status string, errorMessage *string) error
 	UpdateItemStatus(ctx context.Context, itemID int64, status string, errorMessage *string) error
+	GetFailedBatches(ctx context.Context) ([]models.LogQueueBatch, error)
 }
 
 type repository struct {
@@ -66,9 +67,9 @@ func (r *repository) GetItemByID(ctx context.Context, itemID int64) (*models.Log
 
 func (r *repository) GetPendingBatch(ctx context.Context) (*models.LogQueueBatch, error) {
 	var batch models.LogQueueBatch
-	// ดึง Batch แรกที่มีสถานะ QUEUED หรือ RETRY_PENDING โดยเรียงตาม Priority สูงสุดก่อน
+	// ดึง Batch แรกที่มีสถานะ QUEUED โดยเรียงตาม Priority สูงสุดก่อน
 	err := r.db.WithContext(ctx).
-		Where("status IN ?", []string{"QUEUED", "RETRY_PENDING"}).
+		Where("status = ?", "QUEUED").
 		Order("priority DESC").
 		Order("received_at ASC").
 		First(&batch).Error
@@ -120,4 +121,21 @@ func (r *repository) UpdateItemStatus(ctx context.Context, itemID int64, status 
 	return r.db.WithContext(ctx).Model(&models.LogQueueItem{}).
 		Where("queue_item_id = ?", itemID).
 		Updates(updates).Error
+}
+
+func (r *repository) GetFailedBatches(ctx context.Context) ([]models.LogQueueBatch, error) {
+	var batches []models.LogQueueBatch
+	err := r.db.WithContext(ctx).
+		Where(`
+			EXISTS (
+				SELECT 1
+				FROM log_failures lf
+				WHERE lf.batch_id = log_queue_batches.batch_id
+				  AND lf.status = ?
+			)
+		`, "FAILED").
+		Order("received_at ASC").
+		Limit(100).
+		Find(&batches).Error
+	return batches, err
 }

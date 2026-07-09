@@ -4,6 +4,8 @@
 FROM golang:1.25-bookworm AS builder
 
 WORKDIR /app
+ENV GOCACHE=/go-cache
+ENV GOTMPDIR=/go-tmp
 
 # Cache Go modules
 COPY go.mod go.sum ./
@@ -11,6 +13,10 @@ RUN go mod download
 
 # Copy application source code
 COPY . .
+
+# Keep Go's build cache and temporary files off /tmp so Docker builds
+# remain stable even when the default temp filesystem is mounted read-only.
+RUN mkdir -p "$GOCACHE" "$GOTMPDIR"
 
 # Build statically linked binaries for Linux
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bin/omnilogs-api ./cmd/api

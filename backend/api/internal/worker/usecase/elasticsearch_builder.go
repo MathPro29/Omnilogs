@@ -38,6 +38,25 @@ func (u *usecase) resolveIndexName(ctx context.Context, productID int, environme
 	return fmt.Sprintf("omnilogs-product-%d-%s", productID, timestamp.UTC().Format("2006.01.02"))
 }
 
+func (u *usecase) resolveIndexNameCached(ctx context.Context, productID int, environmentID *int, timestamp time.Time, cache *batchCache) string {
+	if cache == nil {
+		return u.resolveIndexName(ctx, productID, environmentID, timestamp)
+	}
+
+	environmentKey := "nil"
+	if environmentID != nil {
+		environmentKey = fmt.Sprintf("%d", *environmentID)
+	}
+	cacheKey := fmt.Sprintf("%d:%s:%s", productID, environmentKey, timestamp.UTC().Format("2006.01.02"))
+	if val, ok := cache.indexNames.Load(cacheKey); ok {
+		return val.(string)
+	}
+
+	indexName := u.resolveIndexName(ctx, productID, environmentID, timestamp)
+	cache.indexNames.Store(cacheKey, indexName)
+	return indexName
+}
+
 func (u *usecase) bulkIndexDocuments(ctx context.Context, entries []processedLog) ([]processedLog, error) {
 	var body bytes.Buffer
 	for i := range entries {

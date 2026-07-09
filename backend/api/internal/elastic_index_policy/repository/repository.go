@@ -129,10 +129,9 @@ func (r *repository) PushToArchives(req dto.PushToArchivesRequest) (*dto.PushToA
 			continue
 		}
 
-
 		// B. Check if there are active queue batches for this product and environment
 		var pendingCount int64
-		q := r.db.Model(&models.LogQueueBatch{}).Where("product_id = ? AND status IN ?", policy.ProductID, []string{"QUEUED", "CLAIMED", "PROCESSING", "RETRY_PENDING"})
+		q := r.db.Model(&models.LogQueueBatch{}).Where("product_id = ? AND status IN ?", policy.ProductID, []string{"QUEUED", "CLAIMED", "PROCESSING"})
 		if policy.EnvironmentID != nil {
 			q = q.Where("environment_id = ?", *policy.EnvironmentID)
 		} else {

@@ -7,9 +7,11 @@ import (
 
 type LogFailure struct {
 	FailureID     string          `gorm:"type:uuid;primaryKey" json:"failure_id"`
+	LogID         string          `gorm:"not null;index" json:"log_id"`
 	AttemptNo     int             `gorm:"not null;default:1;uniqueIndex:uq_failure_attempt,priority:2" json:"attempt_no"`
 	QueueItemID   int64           `gorm:"not null;uniqueIndex:uq_failure_attempt,priority:1" json:"queue_item_id"`
 	BatchID       string          `gorm:"type:uuid;not null;index" json:"batch_id"`
+	SequenceNo    int             `gorm:"not null;default:0" json:"sequence_no"`
 	ProductID     *int            `json:"product_id,omitempty"`
 	SourceID      *int            `json:"source_id,omitempty"`
 	EnvironmentID *int            `json:"environment_id,omitempty"`

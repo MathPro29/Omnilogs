@@ -109,7 +109,7 @@ func redactMetadata(metadata map[string]any) map[string]any {
 	cloned := make(map[string]any, len(metadata))
 	for key, value := range metadata {
 		if looksSensitive(key) {
-			cloned[key] = "[REDACTED]"
+			cloned[key] = "[SENSITIVE_DATA]"
 			continue
 		}
 		cloned[key] = redactValue(value)
@@ -163,7 +163,7 @@ func isAllowedResult(value string) bool {
 func newAuditUUID() string {
 	bytes := make([]byte, 16)
 	if _, err := rand.Read(bytes); err != nil {
-		return "00000000-0000-4000-8000-000000000000"
+		return "OMNILOG-00000000-0000-4000-8000-000000000000"
 	}
 
 	bytes[6] = (bytes[6] & 0x0f) | 0x40

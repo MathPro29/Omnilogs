@@ -20,21 +20,21 @@ import (
 var ErrMainLogNotFound = errors.New("main log not found")
 
 type SearchInput struct {
-	ActorUserID    uint
-	PlatformAdmin  bool
-	ProductID      int64
-	EnvironmentID  *int64
-	ProjectID      *int64
-	ProjectIDs     []int64
-	CategoryID     *int64
-	CategoryIDs    []int64
-	Level          *string
-	LogType        *string
-	RequestID      *string
-	TraceID        *string
-	Keyword        *string
-	Page           int
-	PerPage        int
+	ActorUserID   uint
+	PlatformAdmin bool
+	ProductID     int64
+	EnvironmentID *int64
+	ProjectID     *int64
+	ProjectIDs    []int64
+	CategoryID    *int64
+	CategoryIDs   []int64
+	Level         *string
+	LogType       *string
+	RequestID     *string
+	TraceID       *string
+	Keyword       *string
+	Page          int
+	PerPage       int
 }
 
 type MainLogDocument struct {
@@ -76,9 +76,9 @@ type Usecase interface {
 }
 
 type usecase struct {
-	db           *gorm.DB
-	esClient     *elasticsearch.Client
-	auditUsecase auditusecase.Usecase
+	db            *gorm.DB
+	esClient      *elasticsearch.Client
+	auditUsecase  auditusecase.Usecase
 	encryptionKey string
 }
 
@@ -89,15 +89,15 @@ func NewUsecase(db *gorm.DB, esClient *elasticsearch.Client, auditUsecase auditu
 func (u *usecase) Search(ctx context.Context, input SearchInput, requestID, traceID, ipAddress, userAgent *string) (*SearchResult, error) {
 	if err := u.ensureProductAccess(ctx, input.ActorUserID, input.PlatformAdmin, input.ProductID); err != nil {
 		_ = u.auditUsecase.Record(ctx, auditusecase.RecordAuditInput{
-			ActorUserID: uintToInt64Ptr(input.ActorUserID),
-			ProductID:   &input.ProductID,
-			Action:      models.AuditActionSearchLogs,
+			ActorUserID:  uintToInt64Ptr(input.ActorUserID),
+			ProductID:    &input.ProductID,
+			Action:       models.AuditActionSearchLogs,
 			ResourceType: models.AuditResourceTypeMainLog,
-			RequestID:   requestID,
-			TraceID:     traceID,
-			Result:      models.AuditResultDenied,
-			IPAddress:   ipAddress,
-			UserAgent:   userAgent,
+			RequestID:    requestID,
+			TraceID:      traceID,
+			Result:       models.AuditResultDenied,
+			IPAddress:    ipAddress,
+			UserAgent:    userAgent,
 		})
 		return nil, err
 	}
@@ -146,23 +146,6 @@ func (u *usecase) Search(ctx context.Context, input SearchInput, requestID, trac
 			result.Items = append(result.Items, mapMainLog(logID, source))
 		}
 	}
-
-	_ = u.auditUsecase.Record(ctx, auditusecase.RecordAuditInput{
-		ActorUserID:  uintToInt64Ptr(input.ActorUserID),
-		ProductID:    &input.ProductID,
-		Action:       models.AuditActionSearchLogs,
-		ResourceType: models.AuditResourceTypeMainLog,
-		RequestID:    requestID,
-		TraceID:      traceID,
-		Result:       models.AuditResultSuccess,
-		Metadata: map[string]any{
-			"page":       input.Page,
-			"per_page":   input.PerPage,
-			"result_cnt": result.Total,
-		},
-		IPAddress: ipAddress,
-		UserAgent: userAgent,
-	})
 
 	return result, nil
 }
@@ -394,15 +377,67 @@ func buildSearchQuery(input SearchInput) map[string]any {
 
 	must := []map[string]any{}
 	if input.Keyword != nil && strings.TrimSpace(*input.Keyword) != "" {
+		keyword := strings.TrimSpace(*input.Keyword)
 		must = append(must, map[string]any{
-			"multi_match": map[string]any{
-				"query": strings.TrimSpace(*input.Keyword),
-				"fields": []string{
-					"payload.message",
-					"payload.error_message",
-					"payload.request_path",
-					"payload.route_pattern",
+			"bool": map[string]any{
+				"should": []map[string]any{
+					{
+						"multi_match": map[string]any{
+							"query":  keyword,
+							"type":   "best_fields",
+							"fields": []string{
+								"payload.message^4",
+								"payload.error_message^3",
+								"payload.stack_trace^2",
+								"payload.request_path^3",
+								"payload.route_pattern^2",
+								"payload.url^2",
+								"payload.event_type^2",
+								"payload.source_request_id^3",
+								"payload.trace_id^3",
+								"payload.correlation_id^2",
+								"payload.feature_full_path^2",
+							},
+							"operator": "and",
+						},
+					},
+					{
+						"multi_match": map[string]any{
+							"query":  keyword,
+							"type":   "phrase_prefix",
+							"fields": []string{
+								"payload.message^5",
+								"payload.request_path^3",
+								"payload.route_pattern^2",
+								"payload.url^2",
+								"payload.event_type^2",
+								"payload.source_request_id^4",
+								"payload.trace_id^4",
+								"payload.feature_full_path^2",
+							},
+						},
+					},
+					{
+						"simple_query_string": map[string]any{
+							"query": keyword + "*",
+							"fields": []string{
+								"payload.message^4",
+								"payload.error_message^3",
+								"payload.stack_trace^2",
+								"payload.request_path^3",
+								"payload.route_pattern^2",
+								"payload.url^2",
+								"payload.event_type^2",
+								"payload.source_request_id^3",
+								"payload.trace_id^3",
+								"payload.correlation_id^2",
+								"payload.feature_full_path^2",
+							},
+							"default_operator": "and",
+						},
+					},
 				},
+				"minimum_should_match": 1,
 			},
 		})
 	}

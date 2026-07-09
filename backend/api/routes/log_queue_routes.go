@@ -35,4 +35,5 @@ func LogQueueRoutes(router *gin.Engine, db *gorm.DB, env *configs.Env) {
 	queues.POST("/consume", handler.ConsumeHandler)
 	queues.GET("/batches/:batchId/items", handler.GetBatchItemsHandler)
 	queues.GET("/items/:itemId", handler.GetItemHandler)
+	queues.GET("/failed", handler.GetFailedBatchesHandler)
 }

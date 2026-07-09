@@ -8,6 +8,7 @@ import (
 	authrepo "omnilogs-api/internal/auth/repository"
 	authservice "omnilogs-api/internal/auth/service"
 	"omnilogs-api/models"
+
 )
 
 const defaultUserRoleID uint = 4
@@ -28,6 +29,11 @@ type Usecase interface {
 	GetMe(userID uint) (*dto.UserResponse, error)
 	GiveAdminAccess(userID uint, adminID uint, roleID uint) (*dto.GiveAdminAccessResponse, error)
 	CheckUserExistsByUsername(username string) error
+	GetUserByID(userID uint) (*dto.UserResponse, error)
+	CreateUser(req dto.CreateUserRequest) (*dto.UserResponse, error)
+	UpdateUser(userID uint, req dto.UpdateUserAdminRequest) (*dto.UserResponse, error)
+	EditUserRole(userID uint, req dto.EditUserRoleRequest) error
+	DeleteUserByID(userID uint) error
 }
 
 type usecase struct {

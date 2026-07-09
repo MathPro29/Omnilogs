@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 	"time"
@@ -15,22 +15,7 @@ import (
 
 	"github.com/elastic/go-elasticsearch/v8"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
-
-type ArchiveData struct {
-	Logs      []map[string]any        `json:"logs"`
-	AuditLogs []models.SystemAuditLog `json:"audit_logs"`
-}
-
-func parseDateFromIndexName(indexName string) (time.Time, error) {
-	parts := strings.Split(indexName, "-")
-	if len(parts) < 2 {
-		return time.Time{}, fmt.Errorf("invalid index name structure: %s", indexName)
-	}
-	dateStr := parts[len(parts)-1]
-	return time.Parse("2006.01.02", dateStr)
-}
 
 // ArchiveIndex pulls logs from Elasticsearch and system audit logs from PostgreSQL,
 // compresses them in GZIP, saves the archive locally, and deletes the postgres audit logs.
@@ -135,34 +120,54 @@ func ArchiveIndex(ctx context.Context, db *gorm.DB, esClient *elasticsearch.Clie
 	gzipWriter := gzip.NewWriter(file)
 	var errEncode error
 	if formatUpper == "CSV" {
-		var csvBuf bytes.Buffer
-		csvBuf.WriteString("log_id,timestamp,message,raw_payload\n")
-		for _, logDoc := range logs {
-			logID, _ := logDoc["_id"].(string)
-			source, _ := logDoc["_source"].(map[string]any)
-			timestamp, _ := source["@timestamp"].(string)
-			payload, _ := source["payload"].(map[string]any)
-			message := ""
-			if payload != nil {
-				message, _ = payload["message"].(string)
+		csvWriter := csv.NewWriter(gzipWriter)
+		if err := csvWriter.Write([]string{"log_id", "timestamp", "message", "raw_payload"}); err != nil {
+			errEncode = err
+		} else {
+			for _, logDoc := range logs {
+				logID, _ := logDoc["_id"].(string)
+				source, _ := logDoc["_source"].(map[string]any)
+				timestamp, _ := source["@timestamp"].(string)
+				payload, _ := source["payload"].(map[string]any)
+				message := ""
+				if payload != nil {
+					message, _ = payload["message"].(string)
+				}
+				rawPayload, _ := json.Marshal(source)
+				record := []string{logID, timestamp, message, string(rawPayload)}
+				if err := csvWriter.Write(record); err != nil {
+					errEncode = err
+					break
+				}
 			}
-			rawPayload, _ := json.Marshal(source)
-			csvBuf.WriteString(fmt.Sprintf("%q,%q,%q,%q\n", logID, timestamp, message, string(rawPayload)))
+			if errEncode == nil {
+				csvWriter.Flush()
+				errEncode = csvWriter.Error()
+			}
 		}
-		_, errEncode = gzipWriter.Write(csvBuf.Bytes())
 	} else {
 		errEncode = json.NewEncoder(gzipWriter).Encode(archiveData)
 	}
 
 	if errEncode != nil {
 		gzipWriter.Close()
+		file.Close()
+		os.Remove(filePath)
 		return 0, 0, "", errEncode
 	}
+
 	if err := gzipWriter.Close(); err != nil {
+		file.Close()
+		os.Remove(filePath)
 		return 0, 0, "", err
 	}
 
-	fileInfo, err := file.Stat()
+	if err := file.Close(); err != nil {
+		os.Remove(filePath)
+		return 0, 0, "", err
+	}
+
+	fileInfo, err := os.Stat(filePath)
 	if err != nil {
 		return 0, 0, "", err
 	}
@@ -181,101 +186,4 @@ func ArchiveIndex(ctx context.Context, db *gorm.DB, esClient *elasticsearch.Clie
 	}
 
 	return len(logs), fileInfo.Size(), filePath, nil
-}
-
-// RestoreIndex reads the compressed archive, indexes logs back to Elasticsearch, and saves audits back to PostgreSQL.
-func RestoreIndex(ctx context.Context, db *gorm.DB, esClient *elasticsearch.Client, filePath string, targetIndexName string) (int, error) {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return 0, err
-	}
-	defer file.Close()
-
-	gzipReader, err := gzip.NewReader(file)
-	if err != nil {
-		return 0, err
-	}
-	defer gzipReader.Close()
-
-	var archiveData ArchiveData
-	if err := json.NewDecoder(gzipReader).Decode(&archiveData); err != nil {
-		return 0, err
-	}
-
-	// 1. Re-index Elasticsearch documents
-	for _, doc := range archiveData.Logs {
-		docID, _ := doc["_id"].(string)
-		source, _ := doc["_source"].(map[string]any)
-
-		var buf bytes.Buffer
-		if err := json.NewEncoder(&buf).Encode(source); err != nil {
-			return 0, err
-		}
-
-		res, err := esClient.Index(
-			targetIndexName,
-			&buf,
-			esClient.Index.WithContext(ctx),
-			esClient.Index.WithDocumentID(docID),
-		)
-		if err != nil {
-			return 0, fmt.Errorf("failed to index document %s during restore: %w", docID, err)
-		}
-		res.Body.Close()
-		if res.IsError() {
-			return 0, fmt.Errorf("failed to index document %s: status %s", docID, res.Status())
-		}
-	}
-
-	// 2. Restore PostgreSQL SystemAuditLog logs
-	if len(archiveData.AuditLogs) > 0 {
-		err = db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			for _, audit := range archiveData.AuditLogs {
-				err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&audit).Error
-				if err != nil {
-					return err
-				}
-			}
-			return nil
-		})
-		if err != nil {
-			return 0, fmt.Errorf("failed to restore postgres audit logs: %w", err)
-		}
-	}
-
-	return len(archiveData.Logs), nil
-}
-
-// Helper function to decode compressed payload to inspect/read stream (if needed)
-func GetDecompressedReader(filePath string) (io.ReadCloser, error) {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return nil, err
-	}
-	gzipReader, err := gzip.NewReader(file)
-	if err != nil {
-		file.Close()
-		return nil, err
-	}
-	return struct {
-		io.Reader
-		io.Closer
-	}{
-		Reader: gzipReader,
-		Closer: gzipCloser{gzipReader, file},
-	}, nil
-}
-
-type gzipCloser struct {
-	gr *gzip.Reader
-	f  *os.File
-}
-
-func (gc gzipCloser) Close() error {
-	err1 := gc.gr.Close()
-	err2 := gc.f.Close()
-	if err1 != nil {
-		return err1
-	}
-	return err2
 }

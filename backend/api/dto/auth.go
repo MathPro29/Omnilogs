@@ -114,3 +114,32 @@ type ForgotPasswordResponse struct {
 	Message    string `json:"message"`
 	ResetToken string `json:"reset_token,omitempty"`
 }
+
+type EditUserRoleRequest struct {
+	ID              uint   `json:"id" binding:"required,gt=0"`
+	FirstName       string `json:"first_name,omitempty"`
+	LastName        string `json:"last_name,omitempty"`
+	Email           string `json:"email,omitempty,email"`
+	PlatformRoleID  uint   `json:"platform_role_id,omitempty,gt=0"`
+	ProductRoleID   uint   `json:"product_role_id,omitempty,gt=0"`
+	EnvironmentID   uint   `json:"environment_id,omitempty,gt=0"`
+	PermissionLevel uint   `json:"permission_level,omitempty,gt=0"`
+	IsActive        *bool  `json:"is_active,omitempty"`
+}
+
+type CreateUserRequest struct {
+	Username    *string `json:"username,omitempty"`
+	FullName    string  `json:"fullName" binding:"required"`
+	Email       string  `json:"email" binding:"required,email"`
+	PhoneNumber *string `json:"phone,omitempty"`
+	Password    string  `json:"password" binding:"required,min=8"`
+	Role        string  `json:"role" binding:"required"`
+}
+
+type UpdateUserAdminRequest struct {
+	FullName    string  `json:"fullName"`
+	Email       string  `json:"email" binding:"email"`
+	PhoneNumber *string `json:"phone,omitempty"`
+	Role        string  `json:"role"`
+	Status      string  `json:"status"` // 'active' | 'inactive'
+}
