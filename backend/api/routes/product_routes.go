@@ -94,6 +94,7 @@ func ProductRoutes(router *gin.Engine, db *gorm.DB, env *configs.Env) {
 	products.POST("/:productId/sensitive-logs/requests", sensitiveHandler.CreateAccessRequest)
 	products.POST("/:productId/sensitive-logs/requests/:requestId/review", sensitiveHandler.ReviewAccessRequest)
 	products.GET("/:productId/sensitive-logs/requests", sensitiveHandler.ListAccessRequests)
+	products.GET("/:productId/sensitive-logs/secrets", sensitiveHandler.ListSecrets)
 	products.POST("/:productId/sensitive-logs/reveal", sensitiveHandler.RevealSensitiveValue)
 	products.GET("/:productId/sensitive-logs/history", sensitiveHandler.ListAccessHistory)
 

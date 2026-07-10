@@ -591,6 +591,37 @@ NATS JetStream Queue
    - เรียกระบบ `archive_utils.ArchiveIndex` เพื่อดาวน์โหลดและบีบอัดข้อมูลออกมาเขียนเป็นไฟล์เก็บในเซิร์ฟเวอร์ (เช่น data/archives/) พร้อมเขียนประวัติลงตาราง `log_archives`
    - ทำการลบ Index ที่หมดอายุออกจาก Elasticsearch อย่างปลอดภัย
 
+#### Sensitive Data Masking Flow
+
+Flow นี้มีหน้าที่ป้องกันไม่ให้ข้อมูลอ่อนไหวถูกจัดเก็บหรือแสดงผลใน Elasticsearch โดยตรง ขณะที่ยังสามารถเปิดดูค่าจริงได้เมื่อผู้ใช้มีสิทธิ์และได้รับอนุมัติตามกระบวนการ Sensitive Data Access
+
+```text
+Log Payload จาก NATS JetStream
+  → อ่าน Sensitive Field Definitions และ Log Masking Rules ของ Product
+  → เดินสำรวจข้อมูลแบบ Nested Object / Array พร้อมระบุ Field Path
+  → ตรวจจับฟิลด์ที่ตรงตาม Key หรือ Path ที่กำหนดเป็น Sensitive
+  → เข้ารหัสค่าจริงด้วย AES-256-GCM
+  → บันทึก Secret แยกใน PostgreSQL พร้อม Log ID, Field Key และ Field Path
+  → แทนค่าจริงใน Payload ด้วยค่า Mask เช่น [REDACTED]
+  → ส่ง Payload ที่ถูก Mask ไปสร้างเอกสารใน Elasticsearch
+```
+
+ขั้นตอนการทำงานมีดังนี้:
+
+1. Worker โหลดรายการฟิลด์อ่อนไหวที่เปิดใช้งาน (`is_sensitive = true` และ `is_active = true`) รวมถึงกฎ `LogMaskingRules` ของ Product และเก็บไว้ใน Cache เพื่อลดการอ่านข้อมูลซ้ำ
+2. ระบบวนตรวจสอบ Payload แบบ Recursive ครอบคลุมทั้ง Object และ Array พร้อมสร้างตำแหน่งของฟิลด์ เช่น `user.password` หรือ `items[0].token`
+3. หากชื่อฟิลด์หรือ Field Path ตรงกับ Sensitive Field Definition หรือ Masking Rule ระบบจะถือว่าเป็นข้อมูลอ่อนไหวและจะไม่ส่งค่าจริงเข้า Elasticsearch
+4. ค่าจริงจะถูกเข้ารหัสด้วย `AES-256-GCM` และสร้าง `secret_id` สำหรับอ้างอิง จากนั้นเตรียมบันทึกลงตาราง `log_sensitive_field_secrets`
+5. ค่าใน Payload ที่จะทำดัชนีจะถูกแทนด้วยค่า Mask ของ Rule หากมีการกำหนดไว้ หรือใช้ค่าเริ่มต้น `[REDACTED]`
+6. ระบบส่ง Payload ที่ถูก Mask ไปยัง Elasticsearch ส่วนค่าจริงและ Metadata สำหรับค้นคืนจะถูกเก็บแยกใน PostgreSQL
+7. การถอดรหัสทำได้ผ่าน Sensitive Data Access Flow เท่านั้น โดยต้องตรวจสอบสิทธิ์ คำขออนุมัติ และบันทึกประวัติการเปิดดูใน `sensitive_log_access_histories`
+
+หลักการด้านความปลอดภัย:
+
+- ห้ามเขียนค่าจริงของข้อมูลอ่อนไหวลงใน Elasticsearch, Live Tail, Error Log หรือ Audit Log
+- หากการเข้ารหัสหรือการบันทึก Secret ล้มเหลว ต้องไม่ยืนยันข้อความ NATS สำเร็จ เพื่อให้ระบบ Retry และป้องกันข้อมูลสูญหาย
+- การค้นคืนต้องอ้างอิงทั้ง `log_id` และ `field_path` เพื่อไม่ให้เปิดเผย Secret ผิดรายการ
+
 #### Input
 
 - **Source**: NATS JetStream messages (Queue payload)

@@ -23,6 +23,7 @@ type Usecase interface {
 	CreateRequest(ctx context.Context, actor Actor, req dto.CreateSensitiveLogAccessRequest) (*models.SensitiveLogAccessRequest, error)
 	ReviewRequest(ctx context.Context, actor Actor, requestID string, req dto.ReviewSensitiveLogAccessRequest) (*models.SensitiveLogAccessRequest, error)
 	ListRequests(ctx context.Context, actor Actor, productID int) ([]models.SensitiveLogAccessRequest, error)
+	ListSecrets(ctx context.Context, actor Actor, productID int) ([]dto.SensitiveLogSecretResponse, error)
 	RevealValue(ctx context.Context, actor Actor, req dto.RevealSensitiveLogRequest) (*dto.RevealedSensitiveLogResponse, error)
 	ListHistory(ctx context.Context, actor Actor, productID int) ([]models.SensitiveLogAccessHistory, error)
 }
@@ -40,6 +41,10 @@ func NewUsecase(repo repository.Repository, encryptionKey string) Usecase {
 }
 
 func (u *usecase) CreateRequest(ctx context.Context, actor Actor, req dto.CreateSensitiveLogAccessRequest) (*models.SensitiveLogAccessRequest, error) {
+	if req.SecretID == nil && (req.LogID == nil || req.FieldPath == nil) {
+		return nil, errors.New("request must include secret_id or both log_id and field_path")
+	}
+
 	requestID := newUUID()
 	
 	accessReq := &models.SensitiveLogAccessRequest{
@@ -98,6 +103,34 @@ func (u *usecase) ListRequests(ctx context.Context, actor Actor, productID int) 
 	return u.repo.ListRequests(ctx, productID)
 }
 
+func (u *usecase) ListSecrets(ctx context.Context, actor Actor, productID int) ([]dto.SensitiveLogSecretResponse, error) {
+	values, err := u.repo.ListSecrets(ctx, productID)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]dto.SensitiveLogSecretResponse, 0, len(values))
+	for _, item := range values {
+		result = append(result, dto.SensitiveLogSecretResponse{
+			SecretID:          item.SecretID,
+			LogID:             item.LogID,
+			ProductID:         item.ProductID,
+			ProjectID:         item.ProjectID,
+			CategoryID:        item.CategoryID,
+			EnvironmentID:     item.EnvironmentID,
+			FieldDefinitionID: item.FieldDefinitionID,
+			FieldKey:          item.FieldKey,
+			FieldPath:         item.FieldPath,
+			SourceSection:     item.SourceSection,
+			RequiresApproval:  item.RequiresApproval,
+			RetentionUntil:    item.RetentionUntil,
+			PurgedAt:          item.PurgedAt,
+			CreatedAt:         item.CreatedAt,
+		})
+	}
+	return result, nil
+}
+
 func (u *usecase) RevealValue(ctx context.Context, actor Actor, req dto.RevealSensitiveLogRequest) (*dto.RevealedSensitiveLogResponse, error) {
 	// 1. Verify access request
 	accessReq, err := u.repo.GetRequest(ctx, req.RequestID)
@@ -148,6 +181,9 @@ func (u *usecase) RevealValue(ctx context.Context, actor Actor, req dto.RevealSe
 	}
 	if err != nil {
 		return nil, responses.ErrNotFound
+	}
+	if secret == nil {
+		return nil, errors.New("request does not identify a sensitive log field to reveal")
 	}
 
 	decryptedValue, err := utils.DecryptAESGCM(secret.EncryptedValue, u.encryptKey)

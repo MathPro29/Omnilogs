@@ -111,6 +111,25 @@ func (h *Handler) ListAccessRequests(c *gin.Context) {
 	utils.Success(c, http.StatusOK, res)
 }
 
+func (h *Handler) ListSecrets(c *gin.Context) {
+	act, ok := actor(c)
+	if !ok {
+		responses.Unauthorized(c, "unauthorized")
+		return
+	}
+	productID, ok := idParam(c, "productId")
+	if !ok {
+		return
+	}
+
+	res, err := h.usecase.ListSecrets(c.Request.Context(), act, productID)
+	if err != nil {
+		responses.Error(c, "INVALID_REQUEST", err.Error(), err)
+		return
+	}
+	utils.Success(c, http.StatusOK, res)
+}
+
 func (h *Handler) RevealSensitiveValue(c *gin.Context) {
 	act, ok := actor(c)
 	if !ok {

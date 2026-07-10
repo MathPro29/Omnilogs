@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"omnilogs-api/configs"
@@ -35,6 +36,8 @@ type usecase struct {
 	pollInterval       time.Duration
 	encryptionKey      string
 	lastRetentionCheck time.Time
+	maintenanceMu      sync.Mutex
+	maintenanceRunning bool
 	natsQueue          *configs.NATSQueue
 	subscription       *nats.Subscription
 }
@@ -104,14 +107,25 @@ func (u *usecase) RunOnce(ctx context.Context) (bool, error) {
 }
 
 func (u *usecase) runPeriodicMaintenance(ctx context.Context) {
-	if time.Since(u.lastRetentionCheck) > 30*time.Second {
+	u.maintenanceMu.Lock()
+	if u.maintenanceRunning || time.Since(u.lastRetentionCheck) <= 30*time.Second {
+		u.maintenanceMu.Unlock()
+		return
+	}
+	u.maintenanceRunning = true
+	u.lastRetentionCheck = time.Now()
+	u.maintenanceMu.Unlock()
+
+	go func() {
+		defer func() {
+			u.maintenanceMu.Lock()
+			u.maintenanceRunning = false
+			u.maintenanceMu.Unlock()
+		}()
 		if err := u.runRetentionCheck(ctx); err != nil {
 			slog.Error("retention check failed", "error", err)
-		} else {
-			u.lastRetentionCheck = time.Now()
 		}
-	}
-
+	}()
 }
 
 func (u *usecase) getSubscription() (*nats.Subscription, error) {

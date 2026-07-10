@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"runtime"
 	"sync"
 	"time"
 
@@ -61,7 +62,12 @@ func (u *usecase) processFetchedMessages(ctx context.Context, msgs []*nats.Msg) 
 
 	prepared, err = u.bulkIndexDocuments(ctx, prepared)
 	if err != nil {
-		return err
+		for _, item := range prepared {
+			if retryErr := u.failMessage(ctx, item.natsMsg, item.message, "ELASTICSEARCH", "BULK_REQUEST_FAILED", err.Error(), true); retryErr != nil {
+				return retryErr
+			}
+		}
+		return nil
 	}
 	if len(prepared) == 0 {
 		return nil
@@ -150,13 +156,6 @@ func (u *usecase) markFetchedBatchesProcessing(ctx context.Context, msgs []*nats
 }
 
 func (u *usecase) prepareLogs(ctx context.Context, msgs []*nats.Msg) ([]processedLog, error) {
-	var (
-		wg       sync.WaitGroup
-		mu       sync.Mutex
-		prepared []processedLog
-		firstErr error
-	)
-
 	cache := &batchCache{}
 	uniqueProductIDs := make(map[int]struct{})
 
@@ -168,41 +167,59 @@ func (u *usecase) prepareLogs(ctx context.Context, msgs []*nats.Msg) ([]processe
 	}
 
 	for pid := range uniqueProductIDs {
-		fields, _ := u.repo.GetSensitiveFieldDefinitions(ctx, pid)
+		fields, err := u.repo.GetSensitiveFieldDefinitions(ctx, pid)
+		if err != nil {
+			return nil, fmt.Errorf("load sensitive field definitions for product %d: %w", pid, err)
+		}
 		cache.fields.Store(pid, fields)
 
-		rules, _ := u.repo.GetLogMaskingRules(ctx, pid)
+		rules, err := u.repo.GetLogMaskingRules(ctx, pid)
+		if err != nil {
+			return nil, fmt.Errorf("load masking rules for product %d: %w", pid, err)
+		}
 		cache.rules.Store(pid, rules)
 		cache.matchers.Store(pid, buildSensitiveMatchers(fields, rules))
 	}
 
-	for _, msg := range msgs {
-		wg.Add(1)
-		go func(msg *nats.Msg) {
-			defer wg.Done()
-
-			entry, err := u.prepareLog(ctx, msg, cache)
-			if err != nil {
-				mu.Lock()
-				if firstErr == nil {
-					firstErr = err
-				}
-				mu.Unlock()
-				return
-			}
-			if entry == nil {
-				return
-			}
-
-			mu.Lock()
-			prepared = append(prepared, *entry)
-			mu.Unlock()
-		}(msg)
+	type prepareResult struct {
+		entry *processedLog
+		err   error
 	}
-
+	workerCount := runtime.GOMAXPROCS(0) * 2
+	if workerCount < 1 {
+		workerCount = 1
+	}
+	if workerCount > len(msgs) {
+		workerCount = len(msgs)
+	}
+	jobs := make(chan *nats.Msg)
+	results := make(chan prepareResult, len(msgs))
+	var wg sync.WaitGroup
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for msg := range jobs {
+				entry, err := u.prepareLog(ctx, msg, cache)
+				results <- prepareResult{entry: entry, err: err}
+			}
+		}()
+	}
+	for _, msg := range msgs {
+		jobs <- msg
+	}
+	close(jobs)
 	wg.Wait()
-	if firstErr != nil {
-		return nil, firstErr
+	close(results)
+
+	prepared := make([]processedLog, 0, len(msgs))
+	for result := range results {
+		if result.err != nil {
+			return nil, result.err
+		}
+		if result.entry != nil {
+			prepared = append(prepared, *result.entry)
+		}
 	}
 	return prepared, nil
 }
@@ -342,12 +359,28 @@ func (u *usecase) buildObjectStorageRef(envelope queue.LogMessage, payload []byt
 }
 
 func (u *usecase) failMessage(ctx context.Context, msg *nats.Msg, envelope queue.LogMessage, stage string, failureType string, reason string, retryable bool) error {
-	_ = retryable
+	attemptNo := 1
+	if metadata, err := msg.Metadata(); err == nil && metadata.NumDelivered > 0 {
+		attemptNo = int(metadata.NumDelivered)
+	}
+	maxRetryCount := envelope.MaxRetryCount
+	if maxRetryCount <= 0 {
+		maxRetryCount = 3
+	}
+	retryCount := attemptNo - 1
+	status := "FAILED"
+	var nextRetryAt *time.Time
+	if retryable && retryCount < maxRetryCount {
+		delay := time.Second << min(retryCount, 5)
+		next := time.Now().UTC().Add(delay)
+		nextRetryAt = &next
+		status = "RETRYING"
+	}
 	reasonCopy := reason
 	failure := models.LogFailure{
 		FailureID:     newUUID(),
 		LogID:         envelope.LogID,
-		AttemptNo:     1,
+		AttemptNo:     attemptNo,
 		QueueItemID:   envelope.QueueItemID,
 		BatchID:       envelope.BatchID,
 		SequenceNo:    envelope.SequenceNo,
@@ -358,15 +391,18 @@ func (u *usecase) failMessage(ctx context.Context, msg *nats.Msg, envelope queue
 		FailureType:   failureType,
 		Reason:        &reasonCopy,
 		ErrorDetails:  envelope.InputPayload, // เก็บ Payload ดิบเอาไว้สำหรับนำไปทำ Retry
-		RetryCount:    0,
-		MaxRetryCount: 0,
-		NextRetryAt:   nil,
-		LastRetryAt:   nil,
-		Status:        "FAILED",
+		RetryCount:    retryCount,
+		MaxRetryCount: maxRetryCount,
+		NextRetryAt:   nextRetryAt,
+		LastRetryAt:   func() *time.Time { now := time.Now().UTC(); return &now }(),
+		Status:        status,
 	}
 
 	if err := u.repo.CreateFailure(ctx, &failure); err != nil {
 		return err
+	}
+	if status == "RETRYING" {
+		return msg.NakWithDelay(time.Until(*nextRetryAt))
 	}
 
 	if err := msg.Ack(); err != nil {

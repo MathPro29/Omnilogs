@@ -83,6 +83,30 @@ func (h *Handler) ListRequests(c *gin.Context) {
 	utils.Success(c, http.StatusOK, res)
 }
 
+func (h *Handler) ListPendingRequests(c *gin.Context) {
+	act, ok := actor(c)
+	if !ok {
+		responses.Unauthorized(c, "unauthorized")
+		return
+	}
+	res, err := h.usecase.ListPendingRequests(c.Request.Context(), act)
+	if err != nil {
+		responses.Error(c, "INVALID_REQUEST", err.Error(), err)
+		return
+	}
+	utils.Success(c, http.StatusOK, res)
+}
+
+func (h *Handler) ListSecrets(c *gin.Context) {
+	auditID := c.Param("auditId")
+	res, err := h.usecase.ListSecrets(c.Request.Context(), auditID)
+	if err != nil {
+		responses.Error(c, "INVALID_REQUEST", err.Error(), err)
+		return
+	}
+	utils.Success(c, http.StatusOK, res)
+}
+
 func (h *Handler) RevealValue(c *gin.Context) {
 	act, ok := actor(c)
 	if !ok {

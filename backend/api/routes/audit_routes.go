@@ -26,9 +26,11 @@ func AuditRoutes(router *gin.Engine, db *gorm.DB, esClient *elasticsearch.Client
 	group.Use(middleware.UserAuthMiddleware(env.JWTSecret))
 
 	group.GET("", auditHandler.List)
+	group.GET("/secrets/requests", auditSecretHandler.ListPendingRequests)
 	group.GET("/:auditId", auditHandler.GetByID)
 	group.GET("/:auditId/main-log", mainLogHandler.GetByAudit)
 	group.GET("/:auditId/secrets/requests", auditSecretHandler.ListRequests)
+	group.GET("/:auditId/secrets", auditSecretHandler.ListSecrets)
 	group.POST("/:auditId/secrets/requests", auditSecretHandler.CreateRequest)
 	group.POST("/:auditId/secrets/requests/:requestId/review", auditSecretHandler.ReviewRequest)
 	group.GET("/:auditId/secrets/history", auditSecretHandler.ListHistory)

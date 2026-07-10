@@ -23,6 +23,8 @@ type Usecase interface {
 	CreateRequest(ctx context.Context, actor Actor, auditID string, req dto.CreateAuditSecretAccessRequest) (*models.AuditSecretAccessRequest, error)
 	ReviewRequest(ctx context.Context, actor Actor, auditID string, requestID string, req dto.ReviewAuditSecretAccessRequest) (*models.AuditSecretAccessRequest, error)
 	ListRequests(ctx context.Context, auditID string) ([]models.AuditSecretAccessRequest, error)
+	ListPendingRequests(ctx context.Context, actor Actor) ([]models.AuditSecretAccessRequest, error)
+	ListSecrets(ctx context.Context, auditID string) ([]models.AuditSecret, error)
 	RevealValue(ctx context.Context, actor Actor, auditID string, req dto.RevealAuditSecretRequest) (*dto.RevealedAuditSecretResponse, error)
 	ListHistory(ctx context.Context, auditID string) ([]models.AuditSecretAccessHistory, error)
 }
@@ -88,6 +90,17 @@ func (u *usecase) ReviewRequest(ctx context.Context, actor Actor, auditID string
 
 func (u *usecase) ListRequests(ctx context.Context, auditID string) ([]models.AuditSecretAccessRequest, error) {
 	return u.repo.ListRequests(ctx, auditID)
+}
+
+func (u *usecase) ListPendingRequests(ctx context.Context, actor Actor) ([]models.AuditSecretAccessRequest, error) {
+	if !actor.PlatformAdmin {
+		return u.repo.ListRequestsForUser(ctx, actor.UserID)
+	}
+	return u.repo.ListPendingRequests(ctx)
+}
+
+func (u *usecase) ListSecrets(ctx context.Context, auditID string) ([]models.AuditSecret, error) {
+	return u.repo.ListSecrets(ctx, auditID)
 }
 
 func (u *usecase) RevealValue(ctx context.Context, actor Actor, auditID string, req dto.RevealAuditSecretRequest) (*dto.RevealedAuditSecretResponse, error) {

@@ -40,67 +40,78 @@ func seedGodUser(db *gorm.DB, email, password string) error {
 			return fmt.Errorf("platform role 'god' not found (please run migrations first): %w", err)
 		}
 
-		// 2. Hash the password
-		hash, err := utils.HashPassword(password)
-		if err != nil {
-			return fmt.Errorf("failed to hash password: %w", err)
+		// Helper function to seed a user
+		seedUser := func(usrEmail, usrUsername, usrPassword, usrFirstName, usrLastName string) error {
+			hash, err := utils.HashPassword(usrPassword)
+			if err != nil {
+				return fmt.Errorf("failed to hash password: %w", err)
+			}
+
+			var user models.User
+			if err := tx.Where("email = ? OR username = ?", usrEmail, usrUsername).Limit(1).Find(&user).Error; err != nil {
+				return err
+			}
+
+			if user.UserID == 0 {
+				user = models.User{
+					Email:        usrEmail,
+					Username:     &usrUsername,
+					PasswordHash: hash,
+					IsActive:     true,
+					FirstName:    &usrFirstName,
+					LastName:     &usrLastName,
+				}
+				if err := tx.Create(&user).Error; err != nil {
+					return fmt.Errorf("failed to create user %s: %w", usrEmail, err)
+				}
+				log.Printf("created new user: %s", usrEmail)
+			} else {
+				user.Email = usrEmail
+				user.Username = &usrUsername
+				user.PasswordHash = hash
+				user.IsActive = true
+				user.FirstName = &usrFirstName
+				user.LastName = &usrLastName
+				if err := tx.Save(&user).Error; err != nil {
+					return fmt.Errorf("failed to update user %s: %w", usrEmail, err)
+				}
+				log.Printf("updated password for existing user: %s", usrEmail)
+			}
+
+			// Find or Create Platform Membership
+			var membership models.PlatformMembership
+			if err := tx.Where("user_id = ?", user.UserID).Limit(1).Find(&membership).Error; err != nil {
+				return err
+			}
+			if membership.PlatformMembershipID == 0 {
+				membership = models.PlatformMembership{
+					UserID:         user.UserID,
+					PlatformRoleID: godRole.PlatformRoleID,
+					IsActive:       true,
+				}
+				if err := tx.Create(&membership).Error; err != nil {
+					return fmt.Errorf("failed to create platform membership: %w", err)
+				}
+				log.Printf("assigned GOD platform role to user: %s", usrEmail)
+			} else {
+				membership.PlatformRoleID = godRole.PlatformRoleID
+				membership.IsActive = true
+				if err := tx.Save(&membership).Error; err != nil {
+					return fmt.Errorf("failed to update platform membership: %w", err)
+				}
+				log.Printf("confirmed GOD platform role assignment for user: %s", usrEmail)
+			}
+			return nil
 		}
 
-		// 3. Find or Create User
-		var user models.User
-		if err := tx.Where("email = ?", email).Limit(1).Find(&user).Error; err != nil {
+		// Seed godmode user
+		if err := seedUser(email, "godmode", password, "God", "Administrator"); err != nil {
 			return err
 		}
-		if user.UserID == 0 {
-			// Create new user
-			user = models.User{
-				Email:        email,
-				PasswordHash: hash,
-				IsActive:     true,
-			}
-			// Set default name
-			firstName := "God"
-			lastName := "Administrator"
-			user.FirstName = &firstName
-			user.LastName = &lastName
 
-			if err := tx.Create(&user).Error; err != nil {
-				return fmt.Errorf("failed to create user: %w", err)
-			}
-			log.Printf("created new GOD user: %s", email)
-		} else {
-			// Update password hash and make active
-			user.PasswordHash = hash
-			user.IsActive = true
-			if err := tx.Save(&user).Error; err != nil {
-				return fmt.Errorf("failed to update user: %w", err)
-			}
-			log.Printf("updated password for existing GOD user: %s", email)
-		}
-
-		// 4. Find or Create Platform Membership (Linking User to GOD Role)
-		var membership models.PlatformMembership
-		if err := tx.Where("user_id = ?", user.UserID).Limit(1).Find(&membership).Error; err != nil {
+		// Seed admin user
+		if err := seedUser("admin@company.com", "admin", "admin123", "System", "Administrator"); err != nil {
 			return err
-		}
-		if membership.PlatformMembershipID == 0 {
-			membership = models.PlatformMembership{
-				UserID:         user.UserID,
-				PlatformRoleID: godRole.PlatformRoleID,
-				IsActive:       true,
-			}
-			if err := tx.Create(&membership).Error; err != nil {
-				return fmt.Errorf("failed to create platform membership: %w", err)
-			}
-			log.Printf("assigned GOD platform role to user: %s", email)
-		} else {
-			// Update role to GOD if not already set, and set active
-			membership.PlatformRoleID = godRole.PlatformRoleID
-			membership.IsActive = true
-			if err := tx.Save(&membership).Error; err != nil {
-				return fmt.Errorf("failed to update platform membership: %w", err)
-			}
-			log.Printf("confirmed GOD platform role assignment for user: %s", email)
 		}
 
 		return nil

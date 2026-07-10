@@ -12,6 +12,7 @@ type Repository interface {
 	ListRequests(ctx context.Context, productID int) ([]models.SensitiveLogAccessRequest, error)
 	UpdateRequest(ctx context.Context, req *models.SensitiveLogAccessRequest) error
 	
+	ListSecrets(ctx context.Context, productID int) ([]models.LogSensitiveFieldSecret, error)
 	GetSecret(ctx context.Context, secretID string) (*models.LogSensitiveFieldSecret, error)
 	GetSecretByLogAndPath(ctx context.Context, logID, path string) (*models.LogSensitiveFieldSecret, error)
 	
@@ -42,6 +43,16 @@ func (r *repository) ListRequests(ctx context.Context, productID int) ([]models.
 
 func (r *repository) UpdateRequest(ctx context.Context, req *models.SensitiveLogAccessRequest) error {
 	return r.db.WithContext(ctx).Save(req).Error
+}
+
+func (r *repository) ListSecrets(ctx context.Context, productID int) ([]models.LogSensitiveFieldSecret, error) {
+	var list []models.LogSensitiveFieldSecret
+	err := r.db.WithContext(ctx).
+		Where("product_id = ? AND purged_at IS NULL", productID).
+		Order("created_at desc").
+		Limit(200).
+		Find(&list).Error
+	return list, err
 }
 
 func (r *repository) GetSecret(ctx context.Context, secretID string) (*models.LogSensitiveFieldSecret, error) {

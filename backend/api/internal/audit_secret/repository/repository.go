@@ -11,10 +11,13 @@ import (
 type Repository interface {
 	GetAudit(ctx context.Context, auditID string) (*models.SystemAuditLog, error)
 	GetSecret(ctx context.Context, auditID string, secretID string) (*models.AuditSecret, error)
+	ListSecrets(ctx context.Context, auditID string) ([]models.AuditSecret, error)
 	CreateRequest(ctx context.Context, req *models.AuditSecretAccessRequest) error
 	GetRequest(ctx context.Context, requestID string) (*models.AuditSecretAccessRequest, error)
 	UpdateRequest(ctx context.Context, req *models.AuditSecretAccessRequest) error
 	ListRequests(ctx context.Context, auditID string) ([]models.AuditSecretAccessRequest, error)
+	ListPendingRequests(ctx context.Context) ([]models.AuditSecretAccessRequest, error)
+	ListRequestsForUser(ctx context.Context, userID int) ([]models.AuditSecretAccessRequest, error)
 	CreateHistory(ctx context.Context, hist *models.AuditSecretAccessHistory) error
 	ListHistory(ctx context.Context, auditID string) ([]models.AuditSecretAccessHistory, error)
 	GetUser(ctx context.Context, userID int) (*models.User, error)
@@ -36,6 +39,12 @@ func (r *repository) GetSecret(ctx context.Context, auditID string, secretID str
 	return &secret, err
 }
 
+func (r *repository) ListSecrets(ctx context.Context, auditID string) ([]models.AuditSecret, error) {
+	var list []models.AuditSecret
+	err := r.db.WithContext(ctx).Where("audit_id = ?", auditID).Order("created_at desc").Find(&list).Error
+	return list, err
+}
+
 func (r *repository) CreateRequest(ctx context.Context, req *models.AuditSecretAccessRequest) error {
 	return r.db.WithContext(ctx).Create(req).Error
 }
@@ -53,6 +62,19 @@ func (r *repository) UpdateRequest(ctx context.Context, req *models.AuditSecretA
 func (r *repository) ListRequests(ctx context.Context, auditID string) ([]models.AuditSecretAccessRequest, error) {
 	var list []models.AuditSecretAccessRequest
 	err := r.db.WithContext(ctx).Where("audit_id = ?", auditID).Order("created_at desc").Find(&list).Error
+	return list, err
+}
+
+func (r *repository) ListPendingRequests(ctx context.Context) ([]models.AuditSecretAccessRequest, error) {
+	var list []models.AuditSecretAccessRequest
+	// Keep reviewed requests visible in the shared approval table for auditability.
+	err := r.db.WithContext(ctx).Order("created_at desc").Find(&list).Error
+	return list, err
+}
+
+func (r *repository) ListRequestsForUser(ctx context.Context, userID int) ([]models.AuditSecretAccessRequest, error) {
+	var list []models.AuditSecretAccessRequest
+	err := r.db.WithContext(ctx).Where("user_id = ?", userID).Order("created_at desc").Find(&list).Error
 	return list, err
 }
 
