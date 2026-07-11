@@ -1,0 +1,15 @@
+/* ===== Error Pages Styles (403, 404) ===== */
+
+.error-page {
+  /* สามารถเพิ่ม custom styles สำหรับหน้า Error ได้ที่นี่ */
+}
+
+.error-page .error-icon {
+  margin-bottom: 24px;
+}
+
+.error-page .error-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
