@@ -15,6 +15,13 @@ func TestEnvValidate(t *testing.T) {
 		AccessTokenExpireSeconds:  900,
 		RefreshTokenExpireSeconds: 604800,
 		ElasticURL:                "http://localhost:9200",
+		NATSURL:                   "nats://localhost:4222",
+		NATSStream:                "OMNILOGS_LOGS",
+		NATSSubject:               "omnilogs.logs.ingest",
+		NATSConsumer:              "omnilogs-worker",
+		NATSFetchBatchSize:        100,
+		NATSFetchMaxWaitMS:        250,
+		NATSMaxAckPending:         200,
 		DataEncryptionKey:         "abcdefghijklmnopqrstuvwxyz123456",
 	}
 

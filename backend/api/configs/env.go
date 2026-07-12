@@ -47,6 +47,7 @@ type Env struct {
 	NATSConsumer       string
 	NATSFetchBatchSize int
 	NATSFetchMaxWaitMS int
+	NATSMaxAckPending  int
 
 	// UploadProvider    string
 	// UploadMockBaseURL string
@@ -91,14 +92,18 @@ func LoadEnv() *Env {
 		UploadRateLimitRequests:      getEnvInt("UPLOAD_RATE_LIMIT_REQUESTS", 20),
 		UploadRateLimitWindowSeconds: getEnvInt("UPLOAD_RATE_LIMIT_WINDOW_SECONDS", 60),
 
-		SwaggerEnabled:     getEnvBool("SWAGGER_ENABLED", true),
-		ElasticURL:         getEnv("ELASTICSEARCH_URL", "http://localhost:9200"),
-		NATSURL:            getEnv("NATS_URL", "nats://localhost:4222"),
-		NATSStream:         getEnv("NATS_STREAM", "OMNILOGS_LOGS"),
-		NATSSubject:        getEnv("NATS_SUBJECT", "omnilogs.logs.ingest"),
-		NATSConsumer:       getEnv("NATS_CONSUMER", "omnilogs-worker"),
-		NATSFetchBatchSize: getEnvInt("NATS_FETCH_BATCH_SIZE", 500),
-		NATSFetchMaxWaitMS: getEnvInt("NATS_FETCH_MAX_WAIT_MS", 2000),
+		SwaggerEnabled: getEnvBool("SWAGGER_ENABLED", true),
+		ElasticURL:     getEnv("ELASTICSEARCH_URL", "http://localhost:9200"),
+		NATSURL:        getEnv("NATS_URL", "nats://localhost:4222"),
+		NATSStream:     getEnv("NATS_STREAM", "OMNILOGS_LOGS"),
+		NATSSubject:    getEnv("NATS_SUBJECT", "omnilogs.logs.ingest"),
+		NATSConsumer:   getEnv("NATS_CONSUMER", "omnilogs-worker"),
+		// Keep each pull modest so one noisy product does not monopolize a
+		// processing round. Throughput can still be increased deliberately by
+		// changing these values or adding worker instances.
+		NATSFetchBatchSize: getEnvInt("NATS_FETCH_BATCH_SIZE", 100),
+		NATSFetchMaxWaitMS: getEnvInt("NATS_FETCH_MAX_WAIT_MS", 250),
+		NATSMaxAckPending:  getEnvInt("NATS_MAX_ACK_PENDING", 200),
 
 		DataEncryptionKey: getEnv("DATA_ENCRYPTION_KEY", ""),
 	}
@@ -180,6 +185,9 @@ func (e *Env) Validate() error {
 	}
 	if e.NATSFetchMaxWaitMS <= 0 {
 		problems = append(problems, "NATS_FETCH_MAX_WAIT_MS must be greater than 0")
+	}
+	if e.NATSMaxAckPending <= 0 {
+		problems = append(problems, "NATS_MAX_ACK_PENDING must be greater than 0")
 	}
 
 	if len(problems) == 0 {
