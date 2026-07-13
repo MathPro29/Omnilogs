@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -66,6 +67,36 @@ func buildSearchQuery(input SearchInput) map[string]any {
 	if input.TraceID != nil && strings.TrimSpace(*input.TraceID) != "" {
 		filters = append(filters, map[string]any{"term": map[string]any{"payload.trace_id.keyword": strings.TrimSpace(*input.TraceID)}})
 	}
+	if input.CustomFieldPath != nil && input.CustomFieldValue != nil && strings.TrimSpace(*input.CustomFieldPath) != "" {
+		path := strings.TrimPrefix(strings.TrimSpace(*input.CustomFieldPath), "payload.")
+		field := "payload." + path
+		value := strings.TrimSpace(*input.CustomFieldValue)
+
+		shouldClauses := []map[string]any{
+			{"term": map[string]any{field + ".keyword": value}},
+			{"term": map[string]any{field: value}},
+			{"match_phrase": map[string]any{field: value}},
+		}
+
+		// Try parsing as boolean
+		if strings.EqualFold(value, "true") {
+			shouldClauses = append(shouldClauses, map[string]any{"term": map[string]any{field: true}})
+		} else if strings.EqualFold(value, "false") {
+			shouldClauses = append(shouldClauses, map[string]any{"term": map[string]any{field: false}})
+		}
+
+		// Try parsing as numeric
+		if intVal, err := strconv.ParseInt(value, 10, 64); err == nil {
+			shouldClauses = append(shouldClauses, map[string]any{"term": map[string]any{field: intVal}})
+		} else if floatVal, err := strconv.ParseFloat(value, 64); err == nil {
+			shouldClauses = append(shouldClauses, map[string]any{"term": map[string]any{field: floatVal}})
+		}
+
+		filters = append(filters, map[string]any{"bool": map[string]any{
+			"should":               shouldClauses,
+			"minimum_should_match": 1,
+		}})
+	}
 
 	must := []map[string]any{}
 	if input.Keyword != nil && strings.TrimSpace(*input.Keyword) != "" {
@@ -75,8 +106,8 @@ func buildSearchQuery(input SearchInput) map[string]any {
 				"should": []map[string]any{
 					{
 						"multi_match": map[string]any{
-							"query":  keyword,
-							"type":   "best_fields",
+							"query": keyword,
+							"type":  "best_fields",
 							"fields": []string{
 								"payload.message^4",
 								"payload.error_message^3",
@@ -95,8 +126,8 @@ func buildSearchQuery(input SearchInput) map[string]any {
 					},
 					{
 						"multi_match": map[string]any{
-							"query":  keyword,
-							"type":   "phrase_prefix",
+							"query": keyword,
+							"type":  "phrase_prefix",
 							"fields": []string{
 								"payload.message^5",
 								"payload.request_path^3",

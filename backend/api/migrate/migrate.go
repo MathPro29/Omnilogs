@@ -13,6 +13,10 @@ import (
 )
 
 func Migrate(db *gorm.DB, env *configs.Env) {
+	if err := migrateCustomFieldSchema(db); err != nil {
+		log.Fatalf("Custom field schema migration failed: %v", err)
+	}
+
 	if err := repairOrphanProductEnvironments(db); err != nil {
 		log.Fatalf("Product environment data repair failed: %v", err)
 	}
@@ -62,6 +66,8 @@ func Migrate(db *gorm.DB, env *configs.Env) {
 		&models.SensitiveLogAccessHistory{},
 		&models.SensitiveLogAccessRequest{},
 		&models.SystemAuditLog{},
+		&models.LogSchemaVersion{},
+		&models.LogFieldTemplate{},
 	)
 	if err != nil {
 		log.Fatalf("AutoMigrate failed: %v", err)
@@ -320,4 +326,15 @@ func seedPlatformRoles(db *gorm.DB) {
 
 	// Reset sequence in PostgreSQL
 	db.Exec("SELECT setval(pg_get_serial_sequence('platform_roles', 'platform_role_id'), COALESCE((SELECT MAX(platform_role_id) FROM platform_roles), 1), true)")
+}
+
+func migrateCustomFieldSchema(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&models.LogFieldDefinition{}) {
+		return nil
+	}
+	if !db.Migrator().HasColumn(&models.LogFieldDefinition{}, "config_json") {
+		return nil // AutoMigrate hasn't run yet, we'll migrate next time or let it be
+	}
+	// Note: Proper migration logic for extracting flat columns to JSONB can be added here
+	return nil
 }

@@ -13,6 +13,7 @@ const ApiTestPage = lazy(() => import('@/pages/ApiTestPage').then(module => ({ d
 const LogsExplorerPage = lazy(() => import('@/pages/LogsExplorerPage').then(module => ({ default: module.LogsExplorerPage })));
 const RetentionTestPage = lazy(() => import('@/pages/RetentionTestPage').then(module => ({ default: module.RetentionTestPage })));
 const SensitiveAccessPage = lazy(() => import('@/pages/SensitiveAccessPage').then(module => ({ default: module.SensitiveAccessPage })));
+const CustomFieldsPage = lazy(() => import('@/pages/CustomFieldsPage').then(module => ({ default: module.CustomFieldsPage })));
 
 /**
  * Route item config
@@ -79,6 +80,7 @@ export const adminRoutes: RouteConfig[] = [
     element: <LogsExplorerPage />,
   },
   { path: ROUTES.SENSITIVE_ACCESS, element: <SensitiveAccessPage /> },
+  { path: ROUTES.CUSTOM_FIELDS, element: <CustomFieldsPage /> },
   {
     path: ROUTES.FORBIDDEN,
     element: <ForbiddenPage />,

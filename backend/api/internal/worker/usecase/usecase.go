@@ -153,12 +153,20 @@ func (u *usecase) runRetentionCheck(ctx context.Context) error {
 		}
 
 		prefix := strings.ToLower(strings.TrimSpace(policy.IndexPrefix))
+		prefix = strings.ReplaceAll(prefix, "_", "-")
+		prefix = strings.ReplaceAll(prefix, " ", "-")
 		if prefix == "" {
 			prefix = fmt.Sprintf("omnilogs-product-%d", policy.ProductID)
+		}
+		if policy.EnvironmentID != nil {
+			prefix = fmt.Sprintf("%s-env-%d", prefix, *policy.EnvironmentID)
 		}
 
 		targets := []string{prefix + "-*"}
 		defaultPrefix := fmt.Sprintf("omnilogs-product-%d", policy.ProductID)
+		if policy.EnvironmentID != nil {
+			defaultPrefix = fmt.Sprintf("%s-env-%d", defaultPrefix, *policy.EnvironmentID)
+		}
 		if prefix != defaultPrefix {
 			targets = append(targets, defaultPrefix+"-*")
 		}
@@ -243,7 +251,7 @@ func (u *usecase) runRetentionCheck(ctx context.Context) error {
 				}
 
 				if archiveEnabled {
-					totalLogs, compressedSize, localPath, archiveErr := archive_utils.ArchiveIndex(ctx, u.repo.DB(), u.esClient, indexName, policy.ProductID, archiveFormat, archiveStoragePath)
+					totalLogs, compressedSize, localPath, archiveErr := archive_utils.ArchiveIndex(ctx, u.repo.DB(), u.esClient, indexName, policy.ProductID, policy.EnvironmentID, archiveFormat, archiveStoragePath)
 					if archiveErr != nil {
 						slog.Error("failed to archive index", "index", indexName, "error", archiveErr)
 						unlockRes, unlockErr := u.esClient.Indices.PutSettings(
@@ -281,19 +289,37 @@ func (u *usecase) runRetentionCheck(ctx context.Context) error {
 
 					if err := u.repo.CreateLogArchive(ctx, archive); err != nil {
 						slog.Error("failed to create log archive record", "index", indexName, "error", err)
+						unlockRes, unlockErr := u.esClient.Indices.PutSettings(
+							strings.NewReader(`{"index":{"blocks.write":false}}`),
+							u.esClient.Indices.PutSettings.WithIndex(indexName),
+							u.esClient.Indices.PutSettings.WithContext(ctx),
+						)
+						if unlockErr == nil {
+							unlockRes.Body.Close()
+						}
 						continue
 					}
 				}
+				if policy.EnvironmentID != nil {
+					unlockRes, unlockErr := u.esClient.Indices.PutSettings(
+						strings.NewReader(`{"index":{"blocks.write":false}}`),
+						u.esClient.Indices.PutSettings.WithIndex(indexName),
+						u.esClient.Indices.PutSettings.WithContext(ctx),
+					)
+					if unlockErr != nil || unlockRes.IsError() {
+						if unlockErr == nil {
+							unlockRes.Body.Close()
+						}
+						slog.Error("failed to unlock index before deleting archived environment logs", "index", indexName, "error", unlockErr)
+						continue
+					}
+					unlockRes.Body.Close()
+				}
 
-				delRes, err := u.esClient.Indices.Delete(
-					[]string{indexName},
-					u.esClient.Indices.Delete.WithContext(ctx),
-				)
-				if err != nil {
-					slog.Error("failed to delete expired index from ES", "index", indexName, "error", err)
+				if err := archive_utils.DeleteArchivedLogs(ctx, u.esClient, indexName, policy.EnvironmentID); err != nil {
+					slog.Error("failed to delete archived logs from ES", "index", indexName, "environment_id", policy.EnvironmentID, "error", err)
 					continue
 				}
-				delRes.Body.Close()
 			}
 		}()
 	}

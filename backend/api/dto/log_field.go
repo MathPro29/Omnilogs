@@ -1,6 +1,9 @@
 package dto
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"omnilogs-api/models"
+)
 
 type CreateLogFieldDefinitionRequest struct {
 	ProductID            *int    `json:"product_id,omitempty" binding:"omitempty,gt=0"`
@@ -24,8 +27,10 @@ type CreateLogFieldDefinitionRequest struct {
 	IsFilterable         bool    `json:"is_filterable"`
 	IsSortable           bool    `json:"is_sortable"`
 	IsAggregatable       bool    `json:"is_aggregatable"`
-	DisplayOrder         *int    `json:"display_order,omitempty" binding:"omitempty,gte=0"`
-	DefaultValue         *string `json:"default_value,omitempty"`
+	DisplayOrder         *int                    `json:"display_order,omitempty" binding:"omitempty,gte=0"`
+	DefaultValue         *string                 `json:"default_value,omitempty"`
+	FieldType            *string                 `json:"field_type,omitempty"`
+	ConfigJSON           *models.FieldConfigJSON `json:"config_json,omitempty"`
 }
 
 type UpdateLogFieldDefinitionRequest struct {
@@ -45,9 +50,11 @@ type UpdateLogFieldDefinitionRequest struct {
 	IsFilterable         *bool   `json:"is_filterable,omitempty"`
 	IsSortable           *bool   `json:"is_sortable,omitempty"`
 	IsAggregatable       *bool   `json:"is_aggregatable,omitempty"`
-	DisplayOrder         *int    `json:"display_order,omitempty" binding:"omitempty,gte=0"`
-	DefaultValue         *string `json:"default_value,omitempty"`
-	IsActive             *bool   `json:"is_active,omitempty"`
+	DisplayOrder         *int                    `json:"display_order,omitempty" binding:"omitempty,gte=0"`
+	DefaultValue         *string                 `json:"default_value,omitempty"`
+	IsActive             *bool                   `json:"is_active,omitempty"`
+	FieldType            *string                 `json:"field_type,omitempty"`
+	ConfigJSON           *models.FieldConfigJSON `json:"config_json,omitempty"`
 }
 
 type LogFieldDefinitionResponse struct {
@@ -73,25 +80,33 @@ type LogFieldDefinitionResponse struct {
 	IsFilterable         bool    `json:"is_filterable"`
 	IsSortable           bool    `json:"is_sortable"`
 	IsAggregatable       bool    `json:"is_aggregatable"`
-	DisplayOrder         *int    `json:"display_order,omitempty"`
-	DefaultValue         *string `json:"default_value,omitempty"`
-	IsActive             bool    `json:"is_active"`
+	DisplayOrder         *int                    `json:"display_order,omitempty"`
+	DefaultValue         *string                 `json:"default_value,omitempty"`
+	IsActive             bool                    `json:"is_active"`
+	SchemaVersion        int                     `json:"schema_version"`
+	FieldType            *string                 `json:"field_type,omitempty"`
+	ConfigJSON           *models.FieldConfigJSON `json:"config_json,omitempty"`
 	TimestampResponse
 }
 
 type CreateLogFieldEnumOptionRequest struct {
-	FieldDefinitionID int    `json:"field_definition_id" binding:"required,gt=0"`
+	FieldDefinitionID int    `json:"field_definition_id,omitempty"`
 	OptionKey         string `json:"option_key" binding:"required"`
 	OptionLabel       string `json:"option_label" binding:"required"`
-	OptionValue       string `json:"option_value" binding:"required"`
-	DisplayOrder      *int   `json:"display_order,omitempty" binding:"omitempty,gte=0"`
-	IsDefault         bool   `json:"is_default"`
+	OptionValue       string  `json:"option_value" binding:"required"`
+	DisplayOrder      *int    `json:"display_order,omitempty" binding:"omitempty,gte=0"`
+	ColorCode         *string `json:"color_code,omitempty"`
+	Description       *string `json:"description,omitempty"`
+	IsDefault         bool    `json:"is_default"`
 }
 
 type UpdateLogFieldEnumOptionRequest struct {
+	OptionKey    *string `json:"option_key,omitempty"`
 	OptionLabel  *string `json:"option_label,omitempty"`
 	OptionValue  *string `json:"option_value,omitempty"`
 	DisplayOrder *int    `json:"display_order,omitempty" binding:"omitempty,gte=0"`
+	ColorCode    *string `json:"color_code,omitempty"`
+	Description  *string `json:"description,omitempty"`
 	IsDefault    *bool   `json:"is_default,omitempty"`
 	IsActive     *bool   `json:"is_active,omitempty"`
 }
@@ -104,7 +119,7 @@ type LogFieldEnumOptionResponse struct {
 }
 
 type CreateLogFieldValueSourceRequest struct {
-	FieldDefinitionID int             `json:"field_definition_id" binding:"required,gt=0"`
+	FieldDefinitionID int             `json:"field_definition_id,omitempty"`
 	SourceType        string          `json:"source_type" binding:"required"`
 	SourceKey         string          `json:"source_key" binding:"required"`
 	SourceConfig      json.RawMessage `json:"source_config,omitempty"`

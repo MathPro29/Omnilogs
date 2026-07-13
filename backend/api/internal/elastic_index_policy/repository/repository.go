@@ -101,6 +101,9 @@ func (r *repository) PushToArchives(req dto.PushToArchivesRequest) (*dto.PushToA
 
 	targets := []string{prefix + "-*"}
 	defaultPrefix := fmt.Sprintf("omnilogs-product-%d", policy.ProductID)
+	if policy.EnvironmentID != nil {
+		defaultPrefix = fmt.Sprintf("%s-env-%d", defaultPrefix, *policy.EnvironmentID)
+	}
 	if prefix != defaultPrefix {
 		targets = append(targets, defaultPrefix+"-*")
 	}
@@ -142,17 +145,23 @@ func (r *repository) PushToArchives(req dto.PushToArchivesRequest) (*dto.PushToA
 			continue
 		}
 
-		path := fmt.Sprintf("data/archives/product-%d/%s.json.gz", policy.ProductID, indexName)
 		var latestArchive models.LogArchive
 		var archiveFound bool
-		err = r.db.Where("product_id = ? AND file_path = ?", policy.ProductID, path).Order("created_at DESC").First(&latestArchive).Error
-		if err == nil {
+		archiveQuery := r.db.Where("product_id = ? AND date_from = ?", policy.ProductID, indexDate)
+		if policy.EnvironmentID != nil {
+			archiveQuery = archiveQuery.Where("environment_id = ?", *policy.EnvironmentID)
+		} else {
+			archiveQuery = archiveQuery.Where("environment_id IS NULL")
+		}
+		archiveResult := archiveQuery.Order("created_at DESC").Limit(1).Find(&latestArchive)
+		if archiveResult.Error != nil {
+			return nil, archiveResult.Error
+		}
+		if archiveResult.RowsAffected > 0 {
 			archiveFound = true
 			if latestArchive.Status != nil && *latestArchive.Status == "COMPLETED" {
 				continue
 			}
-		} else if err != gorm.ErrRecordNotFound {
-			return nil, err
 		}
 
 		// C. Lock Index as Read-only before archiving
@@ -171,7 +180,8 @@ func (r *repository) PushToArchives(req dto.PushToArchivesRequest) (*dto.PushToA
 		errPolicy := r.db.
 			Where("product_id = ? AND (environment_id = ? OR environment_id IS NULL)", policy.ProductID, policy.EnvironmentID).
 			Order("environment_id DESC NULLS LAST").
-			First(&ingestPolicy).Error
+			Limit(1).
+			Find(&ingestPolicy).Error
 		if errPolicy == nil {
 			if ingestPolicy.ArchiveFormat != nil && *ingestPolicy.ArchiveFormat != "" {
 				archiveFormat = *ingestPolicy.ArchiveFormat
@@ -182,7 +192,7 @@ func (r *repository) PushToArchives(req dto.PushToArchivesRequest) (*dto.PushToA
 		}
 
 		// 1. Archive actual Elasticsearch logs and PostgreSQL system_audit_logs
-		totalLogs, compressedSize, localPath, archiveErr := archive_utils.ArchiveIndex(context.Background(), r.db, r.esClient, indexName, policy.ProductID, archiveFormat, archiveStoragePath)
+		totalLogs, compressedSize, localPath, archiveErr := archive_utils.ArchiveIndex(context.Background(), r.db, r.esClient, indexName, policy.ProductID, policy.EnvironmentID, archiveFormat, archiveStoragePath)
 		if archiveErr != nil {
 			// Unlock index if archiving fails
 			unlockRes, unlockErr := r.esClient.Indices.PutSettings(
@@ -236,20 +246,22 @@ func (r *repository) PushToArchives(req dto.PushToArchivesRequest) (*dto.PushToA
 		}
 
 		if dbErr != nil {
+			unlockIndex(r.esClient, indexName)
 			result.FailedCount++
 			continue
+		}
+		if policy.EnvironmentID != nil {
+			if err := unlockIndex(r.esClient, indexName); err != nil {
+				result.FailedCount++
+				failed := "FAILED"
+				_ = r.db.Model(archive).Updates(map[string]any{"status": &failed}).Error
+				continue
+			}
 		}
 
-		// 3. Delete index from Elasticsearch
-		del, err := r.esClient.Indices.Delete([]string{indexName})
-		if err != nil {
-			result.FailedCount++
-			failed := "FAILED"
-			_ = r.db.Model(archive).Updates(map[string]any{"status": &failed}).Error
-			continue
-		}
-		del.Body.Close()
-		if del.IsError() {
+		// 3. Delete the archived logs. For an environment policy this is a scoped
+		// delete-by-query, so legacy indexes shared by multiple environments stay safe.
+		if err := archive_utils.DeleteArchivedLogs(context.Background(), r.esClient, indexName, policy.EnvironmentID); err != nil {
 			result.FailedCount++
 			failed := "FAILED"
 			_ = r.db.Model(archive).Updates(map[string]any{"status": &failed}).Error
@@ -258,6 +270,21 @@ func (r *repository) PushToArchives(req dto.PushToArchivesRequest) (*dto.PushToA
 		result.SuccessCount++
 	}
 	return result, nil
+}
+
+func unlockIndex(esClient *elasticsearch.Client, indexName string) error {
+	res, err := esClient.Indices.PutSettings(
+		strings.NewReader(`{"index":{"blocks.write":false}}`),
+		esClient.Indices.PutSettings.WithIndex(indexName),
+	)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	if res.IsError() {
+		return fmt.Errorf("elasticsearch unlock index failed: %s", res.Status())
+	}
+	return nil
 }
 
 func newUUID() string {

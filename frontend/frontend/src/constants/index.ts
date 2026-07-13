@@ -14,6 +14,7 @@ export const ROUTES = {
   LOGS_EXPLORER: '/logs-explorer',
   RETENTION_TEST: '/retention-test',
   SENSITIVE_ACCESS: '/sensitive-access',
+  CUSTOM_FIELDS: '/custom-fields',
   FORBIDDEN: '/403',
   NOT_FOUND: '/404',
 } as const;
@@ -92,6 +93,7 @@ export const MENU_KEYS = {
   LOGS_EXPLORER: 'logs-explorer',
   RETENTION_TEST: 'retention-test',
   SENSITIVE_ACCESS: 'sensitive-access',
+  CUSTOM_FIELDS: 'custom-fields',
 } as const;
 
 // ===== API Endpoints =====

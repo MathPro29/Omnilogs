@@ -48,21 +48,23 @@ func (h *Handler) Search(c *gin.Context) {
 	}
 
 	input := usecase.SearchInput{
-		ActorUserID: userID,
-		PlatformAdmin: middleware.HasAdminPlatformRole(c),
-		ProductID:   productID,
-		Page:        page,
-		PerPage:     perPage,
-		EnvironmentID: parseOptionalInt64(c.Query("environment_id")),
-		ProjectID:   parseOptionalInt64(c.Query("project_id")),
-		ProjectIDs:  parseCSVInt64(c.Query("project_ids")),
-		CategoryID:  parseOptionalInt64(c.Query("category_id")),
-		CategoryIDs: parseCSVInt64(c.Query("category_ids")),
-		Level:       stringParam(c.Query("level")),
-		LogType:     stringParam(c.Query("log_type")),
-		RequestID:   stringParam(c.Query("request_id")),
-		TraceID:     stringParam(c.Query("trace_id")),
-		Keyword:     stringParam(c.Query("keyword")),
+		ActorUserID:      userID,
+		PlatformAdmin:    middleware.HasAdminPlatformRole(c),
+		ProductID:        productID,
+		Page:             page,
+		PerPage:          perPage,
+		EnvironmentID:    parseOptionalInt64(c.Query("environment_id")),
+		ProjectID:        parseOptionalInt64(c.Query("project_id")),
+		ProjectIDs:       parseCSVInt64(c.Query("project_ids")),
+		CategoryID:       parseOptionalInt64(c.Query("category_id")),
+		CategoryIDs:      parseCSVInt64(c.Query("category_ids")),
+		Level:            stringParam(c.Query("level")),
+		LogType:          stringParam(c.Query("log_type")),
+		RequestID:        stringParam(c.Query("request_id")),
+		TraceID:          stringParam(c.Query("trace_id")),
+		CustomFieldPath:  stringParam(c.Query("custom_field_path")),
+		CustomFieldValue: stringParam(c.Query("custom_field_value")),
+		Keyword:          stringParam(c.Query("keyword")),
 	}
 
 	result, err := h.usecase.Search(c.Request.Context(), input, requestID(c), traceID(c), ipAddress(c), userAgent(c))

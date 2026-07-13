@@ -256,6 +256,38 @@ func (u *usecase) prepareLog(ctx context.Context, msg *nats.Msg, cache *batchCac
 		return nil, u.failMessage(ctx, msg, envelope, "TRANSFORM", "INVALID_PAYLOAD", "payload is null or empty", false)
 	}
 
+	// 1. EXTRACT & TRANSFORM & VALIDATE PIPELINE
+	for _, field := range fields {
+		if field.FieldPath == nil || *field.FieldPath == "" {
+			continue
+		}
+		
+		val, exists := payload[*field.FieldPath]
+		if exists {
+			transformed, err := PipelineTransformer(ctx, field, val)
+			if err != nil {
+				return nil, u.failMessage(ctx, msg, envelope, "TRANSFORM", "TRANSFORMATION_FAILED", err.Error(), false)
+			}
+			payload[*field.FieldPath] = transformed
+
+			if err := PipelineValidator(ctx, field, transformed); err != nil {
+				if errs, ok := payload["_validation_errors"].([]string); ok {
+					payload["_validation_errors"] = append(errs, err.Error())
+				} else {
+					payload["_validation_errors"] = []string{err.Error()}
+				}
+			}
+		} else {
+			if err := PipelineValidator(ctx, field, nil); err != nil {
+				if errs, ok := payload["_validation_errors"].([]string); ok {
+					payload["_validation_errors"] = append(errs, err.Error())
+				} else {
+					payload["_validation_errors"] = []string{err.Error()}
+				}
+			}
+		}
+	}
+
 	originalPayload := append([]byte(nil), envelope.InputPayload...)
 	document, meta, err := buildElasticDocument(&envelope, payload)
 	if err != nil {

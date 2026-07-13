@@ -33,7 +33,14 @@ type indexedLogMeta struct {
 func (u *usecase) resolveIndexName(ctx context.Context, productID int, environmentID *int, timestamp time.Time) string {
 	policy, err := u.repo.FindIndexPolicy(ctx, productID, environmentID)
 	if err == nil && strings.TrimSpace(policy.IndexPrefix) != "" {
-		return fmt.Sprintf("%s-%s", normalizeIndexSegment(policy.IndexPrefix), timestamp.UTC().Format("2006.01.02"))
+		prefix := normalizeIndexSegment(policy.IndexPrefix)
+		if environmentID != nil {
+			prefix = fmt.Sprintf("%s-env-%d", prefix, *environmentID)
+		}
+		return fmt.Sprintf("%s-%s", prefix, timestamp.UTC().Format("2006.01.02"))
+	}
+	if environmentID != nil {
+		return fmt.Sprintf("omnilogs-product-%d-env-%d-%s", productID, *environmentID, timestamp.UTC().Format("2006.01.02"))
 	}
 	return fmt.Sprintf("omnilogs-product-%d-%s", productID, timestamp.UTC().Format("2006.01.02"))
 }

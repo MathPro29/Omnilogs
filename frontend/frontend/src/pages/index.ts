@@ -12,4 +12,5 @@ export { default as AuditsPage } from './Audits';
 export { LogsExplorerPage } from './LogsExplorerPage';
 export { RetentionTestPage } from './RetentionTestPage';
 export { SensitiveAccessPage } from './SensitiveAccessPage';
+export { CustomFieldsPage } from './CustomFieldsPage';
 

@@ -19,14 +19,20 @@ import (
 
 // ArchiveIndex pulls logs from Elasticsearch and system audit logs from PostgreSQL,
 // compresses them in GZIP, saves the archive locally, and deletes the postgres audit logs.
-func ArchiveIndex(ctx context.Context, db *gorm.DB, esClient *elasticsearch.Client, indexName string, productID int, archiveFormat string, storagePath string) (int, int64, string, error) {
+func ArchiveIndex(ctx context.Context, db *gorm.DB, esClient *elasticsearch.Client, indexName string, productID int, environmentID *int, archiveFormat string, storagePath string) (int, int64, string, error) {
 	// 1. Fetch logs from Elasticsearch index
 	var buf bytes.Buffer
+	queryBody := map[string]any{"match_all": map[string]any{}}
+	if environmentID != nil {
+		queryBody = map[string]any{
+			"bool": map[string]any{
+				"filter": []map[string]any{{"term": map[string]any{"environment_id": *environmentID}}},
+			},
+		}
+	}
 	query := map[string]any{
-		"query": map[string]any{
-			"match_all": map[string]any{},
-		},
-		"size": 10000,
+		"query": queryBody,
+		"size":  10000,
 	}
 	if err := json.NewEncoder(&buf).Encode(query); err != nil {
 		return 0, 0, "", err
@@ -36,6 +42,7 @@ func ArchiveIndex(ctx context.Context, db *gorm.DB, esClient *elasticsearch.Clie
 		esClient.Search.WithContext(ctx),
 		esClient.Search.WithIndex(indexName),
 		esClient.Search.WithBody(&buf),
+		esClient.Search.WithScroll(time.Minute),
 	)
 	if err != nil {
 		return 0, 0, "", err
@@ -56,26 +63,43 @@ func ArchiveIndex(ctx context.Context, db *gorm.DB, esClient *elasticsearch.Clie
 
 	var logs []map[string]any
 	if searchRes != nil {
-		hitsObj, _ := searchRes["hits"].(map[string]any)
-		hitList, _ := hitsObj["hits"].([]any)
-		logs = make([]map[string]any, 0, len(hitList))
-		for _, hit := range hitList {
-			hitMap, ok := hit.(map[string]any)
-			if !ok {
-				continue
+		logs = appendSearchHits(logs, searchRes)
+		scrollID, _ := searchRes["_scroll_id"].(string)
+		for scrollID != "" {
+			scrollRes, scrollErr := esClient.Scroll(
+				esClient.Scroll.WithContext(ctx),
+				esClient.Scroll.WithScrollID(scrollID),
+				esClient.Scroll.WithScroll(time.Minute),
+			)
+			if scrollErr != nil {
+				return 0, 0, "", fmt.Errorf("failed to scroll Elasticsearch archive results: %w", scrollErr)
 			}
-			doc := map[string]any{
-				"_id":     hitMap["_id"],
-				"_source": hitMap["_source"],
+
+			if scrollRes.IsError() {
+				scrollRes.Body.Close()
+				return 0, 0, "", fmt.Errorf("elasticsearch scroll returned error status: %s", scrollRes.Status())
 			}
-			logs = append(logs, doc)
+			var scrollPayload map[string]any
+			decodeErr := json.NewDecoder(scrollRes.Body).Decode(&scrollPayload)
+			scrollRes.Body.Close()
+			if decodeErr != nil {
+				return 0, 0, "", decodeErr
+			}
+
+			before := len(logs)
+			logs = appendSearchHits(logs, scrollPayload)
+			nextScrollID, _ := scrollPayload["_scroll_id"].(string)
+			if len(logs) == before || nextScrollID == scrollID {
+				break
+			}
+			scrollID = nextScrollID
 		}
 	}
 
 	// 2. Fetch PostgreSQL system_audit_logs for this product on the index date
 	var auditLogs []models.SystemAuditLog
 	date, parseErr := parseDateFromIndexName(indexName)
-	if parseErr == nil {
+	if parseErr == nil && environmentID == nil {
 		startOfDay := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, time.UTC)
 		endOfDay := time.Date(date.Year(), date.Month(), date.Day(), 23, 59, 59, 999999999, time.UTC)
 
@@ -110,7 +134,11 @@ func ArchiveIndex(ctx context.Context, db *gorm.DB, esClient *elasticsearch.Clie
 		ext = ".csv.gz"
 	}
 
-	filePath := fmt.Sprintf("%s/%s%s", dir, indexName, ext)
+	archiveName := indexName
+	if environmentID != nil {
+		archiveName = fmt.Sprintf("%s-archive-env-%d", indexName, *environmentID)
+	}
+	filePath := fmt.Sprintf("%s/%s%s", dir, archiveName, ext)
 	file, err := os.Create(filePath)
 	if err != nil {
 		return 0, 0, "", err
@@ -173,7 +201,7 @@ func ArchiveIndex(ctx context.Context, db *gorm.DB, esClient *elasticsearch.Clie
 	}
 
 	// 4. Delete system_audit_logs from PostgreSQL since they are archived
-	if len(auditLogs) > 0 && parseErr == nil {
+	if len(auditLogs) > 0 && parseErr == nil && environmentID == nil {
 		startOfDay := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, time.UTC)
 		endOfDay := time.Date(date.Year(), date.Month(), date.Day(), 23, 59, 59, 999999999, time.UTC)
 		prodID64 := int64(productID)
@@ -186,4 +214,53 @@ func ArchiveIndex(ctx context.Context, db *gorm.DB, esClient *elasticsearch.Clie
 	}
 
 	return len(logs), fileInfo.Size(), filePath, nil
+}
+
+func appendSearchHits(logs []map[string]any, searchRes map[string]any) []map[string]any {
+	hitsObj, _ := searchRes["hits"].(map[string]any)
+	hitList, _ := hitsObj["hits"].([]any)
+	for _, hit := range hitList {
+		hitMap, ok := hit.(map[string]any)
+		if !ok {
+			continue
+		}
+		logs = append(logs, map[string]any{
+			"_id":     hitMap["_id"],
+			"_source": hitMap["_source"],
+		})
+	}
+	return logs
+}
+
+// DeleteArchivedLogs removes exactly the archived documents for an environment.
+// Environment-specific indexes may contain legacy mixed data, so deleting by query
+// prevents logs from another environment from being removed accidentally.
+func DeleteArchivedLogs(ctx context.Context, esClient *elasticsearch.Client, indexName string, environmentID *int) error {
+	if environmentID == nil {
+		res, err := esClient.Indices.Delete([]string{indexName}, esClient.Indices.Delete.WithContext(ctx))
+		if err != nil {
+			return err
+		}
+		defer res.Body.Close()
+		if res.IsError() {
+			return fmt.Errorf("elasticsearch delete index failed: %s", res.Status())
+		}
+		return nil
+	}
+
+	body := bytes.NewBufferString(fmt.Sprintf(`{"query":{"term":{"environment_id":%d}}}`, *environmentID))
+	res, err := esClient.DeleteByQuery(
+		[]string{indexName},
+		body,
+		esClient.DeleteByQuery.WithContext(ctx),
+		esClient.DeleteByQuery.WithConflicts("proceed"),
+	)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	if res.IsError() {
+		return fmt.Errorf("elasticsearch delete logs failed: %s", res.Status())
+	}
+	return nil
 }

@@ -4,10 +4,14 @@ import { Card, Space, Typography, Modal, Button, Select, Input, Table, Tag, Form
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { SearchOutlined, EyeOutlined, SendOutlined, ReloadOutlined, LineChartOutlined } from '@ant-design/icons';
 import { productAdminService } from '@/services';
+import { CustomFieldInputs } from '@/components/CustomFieldInputs';
+import { getCustomFieldInitialValues, normalizeCustomFieldValues } from '@/utils/custom-field-values';
+import { customFieldService } from '@/services/custom-field.service';
 import { useAppStore, useAutoLogStore } from '@/store';
 import { apiClient } from '@/api';
 import { ROUTES } from '@/constants';
 import type { MainLog, ProjectFeature } from '@/types';
+import type { CustomField } from '@/services/custom-field.service';
 
 const { Text, Title, Paragraph } = Typography;
 
@@ -21,6 +25,16 @@ function getScopedAutoSendFeatures(features: ProjectFeature[], selectedCategoryI
     const pathIds = feature.pathIds?.split(',').map((value) => value.trim()) || [];
     return feature.categoryId === selectedCategoryId || pathIds.includes(String(selectedCategoryId));
   });
+}
+
+function formatCustomValue(fields: CustomField[], key: string, value: unknown): string {
+  const field = fields.find((item) => item.field_key === key);
+  if (field?.data_type === 'enum') {
+    return field.enum_options?.find((option) => option.option_value === String(value))?.option_label || String(value);
+  }
+  if (typeof value === 'boolean') return value ? 'ใช่' : 'ไม่ใช่';
+  if (typeof value === 'object' && value !== null) return JSON.stringify(value);
+  return String(value ?? '—');
 }
 
 export function DashboardPage() {
@@ -43,6 +57,7 @@ export function DashboardPage() {
   const [generatorForm] = Form.useForm();
   const generatorProductId = Form.useWatch('productId', generatorForm);
   const generatorProjectId = Form.useWatch('projectId', generatorForm);
+  const generatorCategoryId = Form.useWatch('categoryId', generatorForm);
 
   // Elastic Online Status
   // refresh every 5 seconds
@@ -144,11 +159,32 @@ export function DashboardPage() {
     enabled: !!generatorProductId && !!generatorProjectId,
   });
 
+  const { data: generatorCustomFieldDefinitions = [] } = useQuery({
+    queryKey: ['custom-fields-generator', generatorProductId, generatorProjectId, generatorCategoryId],
+    queryFn: () => customFieldService.list(generatorProductId!, generatorProjectId || undefined, generatorCategoryId || undefined),
+    enabled: !!generatorProductId,
+  });
+  const generatorCustomFields = generatorCustomFieldDefinitions.filter((field) =>
+    (field.product_id == null || field.product_id === generatorProductId) &&
+    (field.project_id == null || field.project_id === generatorProjectId) &&
+    (field.category_id == null || field.category_id === generatorCategoryId)
+  );
+
+  useEffect(() => {
+    generatorForm.setFieldValue('customFields', getCustomFieldInitialValues(generatorCustomFields));
+  }, [generatorForm, generatorProductId, generatorProjectId, generatorCategoryId, generatorCustomFieldDefinitions]);
+
   // Features for Monitor Filter
   const { data: monitorFeatures = [], isLoading: isLoadingMonitorFeatures } = useQuery({
     queryKey: ['features-admin-monitor', selectedProductId, selectedProjectId],
     queryFn: () => productAdminService.listFeatures(selectedProductId!, selectedProjectId!),
     enabled: !!selectedProductId && !!selectedProjectId,
+  });
+
+  const { data: monitorCustomFields = [] } = useQuery({
+    queryKey: ['custom-fields-dashboard', selectedProductId, selectedProjectId, selectedCategoryId],
+    queryFn: () => customFieldService.list(selectedProductId!, selectedProjectId || undefined, selectedCategoryId || undefined),
+    enabled: !!selectedProductId,
   });
 
   // Sync monitor environment options when product changes
@@ -242,6 +278,7 @@ export function DashboardPage() {
       logLevel: string;
       message: string;
       eventType: string;
+      customFields?: Record<string, unknown>;
     }) => {
       let featureFullPath = null;
       let featurePathIds = null;
@@ -262,6 +299,7 @@ export function DashboardPage() {
         logLevel: values.logLevel,
         message: values.message,
         eventType: values.eventType,
+        customFields: normalizeCustomFieldValues(generatorCustomFields, values.customFields),
       });
     },
     onSuccess: (_, variables) => {
@@ -377,15 +415,19 @@ export function DashboardPage() {
                 onValuesChange={(changedValues) => {
                   if ('productId' in changedValues) {
                     setSelectedProductId(changedValues.productId);
+                    generatorForm.setFieldValue('customFields', {});
                   }
                   if ('environmentId' in changedValues) {
                     setSelectedEnvironmentId(changedValues.environmentId);
                   }
                   if ('projectId' in changedValues) {
                     setSelectedProjectId(changedValues.projectId);
+                    generatorForm.setFieldValue('categoryId', null);
+                    generatorForm.setFieldValue('customFields', {});
                   }
                   if ('categoryId' in changedValues) {
                     setSelectedCategoryId(changedValues.categoryId);
+                    generatorForm.setFieldValue('customFields', {});
                   }
                 }}
               >
@@ -491,6 +533,8 @@ export function DashboardPage() {
                 >
                   <Input.TextArea rows={3} placeholder="กรอกข้อความแจ้งเตือนหรือข้อมูลที่ต้องการเก็บบันทึก..." />
                 </Form.Item>
+
+                <CustomFieldInputs fields={generatorCustomFields} />
 
                 <Form.Item style={{ marginBottom: '12px' }}>
                   <Button
@@ -899,6 +943,19 @@ export function DashboardPage() {
                         ),
                       },
                       {
+                        title: 'Custom Fields',
+                        key: 'customFields',
+                        width: 220,
+                        render: (_: unknown, record: MainLog) => record.customFields && Object.keys(record.customFields).length > 0 ? (
+                          <Space wrap size={[4, 4]}>
+                            {Object.entries(record.customFields).map(([key, value]) => {
+                              const field = monitorCustomFields.find((item) => item.field_key === key);
+                              return <Tag key={key}>{field?.display_name || key}: {formatCustomValue(monitorCustomFields, key, value)}</Tag>;
+                            })}
+                          </Space>
+                        ) : <Text type="secondary">—</Text>,
+                      },
+                      {
                         title: 'ข้อความบันทึก (Message)',
                         dataIndex: 'message',
                         key: 'message',
@@ -982,6 +1039,22 @@ export function DashboardPage() {
                 </Card>
               </Col>
             </Row>
+
+            {selectedLog.customFields && Object.keys(selectedLog.customFields).length > 0 && (
+              <Card size="small" title="Custom Fields" style={{ marginBottom: 16 }}>
+                <Row gutter={[16, 12]}>
+                  {Object.entries(selectedLog.customFields).map(([key, value]) => {
+                    const field = monitorCustomFields.find((item) => item.field_key === key);
+                    return (
+                      <Col xs={24} sm={12} key={key}>
+                        <Text type="secondary">{field?.display_name || key}</Text>
+                        <div><Text strong>{formatCustomValue(monitorCustomFields, key, value)}</Text></div>
+                      </Col>
+                    );
+                  })}
+                </Row>
+              </Card>
+            )}
 
             <Title level={5}>Raw JSON Document (Elasticsearch payload)</Title>
             <pre

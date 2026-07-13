@@ -31,6 +31,6 @@ func RegisterAuthRoutes(router *gin.Engine, db *gorm.DB, env *configs.Env) {
 	AdminAuthRoutes(router, db, env)
 	ProductRoutes(router, db, env)
 	EnvironmentRoutes(router, db, env)
+	CustomFieldRoutes(router, db, env)
 	ScopeRoutes(router, db, env)
 }
-

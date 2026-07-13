@@ -19,21 +19,23 @@ import (
 var ErrMainLogNotFound = errors.New("main log not found")
 
 type SearchInput struct {
-	ActorUserID   uint
-	PlatformAdmin bool
-	ProductID     int64
-	EnvironmentID *int64
-	ProjectID     *int64
-	ProjectIDs    []int64
-	CategoryID    *int64
-	CategoryIDs   []int64
-	Level         *string
-	LogType       *string
-	RequestID     *string
-	TraceID       *string
-	Keyword       *string
-	Page          int
-	PerPage       int
+	ActorUserID      uint
+	PlatformAdmin    bool
+	ProductID        int64
+	EnvironmentID    *int64
+	ProjectID        *int64
+	ProjectIDs       []int64
+	CategoryID       *int64
+	CategoryIDs      []int64
+	Level            *string
+	LogType          *string
+	RequestID        *string
+	TraceID          *string
+	CustomFieldPath  *string
+	CustomFieldValue *string
+	Keyword          *string
+	Page             int
+	PerPage          int
 }
 
 type MainLogDocument struct {
@@ -112,7 +114,7 @@ func (u *usecase) Search(ctx context.Context, input SearchInput, requestID, trac
 		return nil, err
 	}
 	defer res.Body.Close()
-	
+
 	if res.IsError() {
 		return nil, fmt.Errorf("elasticsearch returned status %d", res.StatusCode)
 	}

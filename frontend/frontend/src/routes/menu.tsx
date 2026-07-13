@@ -9,6 +9,7 @@ import {
   ChartBarSquareIcon,
   ArchiveBoxIcon,
   LockClosedIcon,
+  AdjustmentsHorizontalIcon,
 } from '@heroicons/react/24/outline';
 import { ROUTES, PERMISSIONS, MENU_KEYS } from '@/constants';
 import type { MenuItem } from '@/types';
@@ -94,6 +95,12 @@ export const menuConfig: MenuItem[] = [
     label: 'Sensitive log access',
     icon: <LockClosedIcon className="w-5 h-5" /> as ReactNode,
     path: ROUTES.SENSITIVE_ACCESS,
+  },
+  {
+    key: MENU_KEYS.CUSTOM_FIELDS,
+    label: 'Custom Fields',
+    icon: <AdjustmentsHorizontalIcon className="w-5 h-5" /> as ReactNode,
+    path: ROUTES.CUSTOM_FIELDS,
   },
 
   // ===== ตั้งค่าระบบ =====

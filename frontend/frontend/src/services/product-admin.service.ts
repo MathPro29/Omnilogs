@@ -85,6 +85,8 @@ interface SearchLogsMultiParams {
   categoryIds?: number[];
   levels?: string[];
   keyword?: string;
+  customFieldPath?: string;
+  customFieldValue?: string;
   page?: number;
   perPage?: number;
 }
@@ -106,6 +108,7 @@ interface ImportLogsPayload {
   logLevel: string;
   message: string;
   eventType?: string;
+  customFields?: Record<string, unknown>;
 }
 
 function shouldUseMock(): boolean {
@@ -971,6 +974,8 @@ export const productAdminService = {
         category_ids: params.categoryIds?.join(',') || undefined,
         level: params.levels?.join(',') || undefined,
         keyword: params.keyword,
+        custom_field_path: params.customFieldPath,
+        custom_field_value: params.customFieldValue,
         page: params.page ?? 1,
         per_page: params.perPage ?? 20,
       },
@@ -1073,6 +1078,7 @@ export const productAdminService = {
             ...(payload.categoryId ? { category_id: payload.categoryId } : {}),
             ...(payload.featureFullPath ? { feature_full_path: payload.featureFullPath } : {}),
             ...(payload.featurePathIds ? { feature_path_ids: payload.featurePathIds } : {}),
+            ...(payload.customFields && Object.keys(payload.customFields).length > 0 ? { custom_fields: payload.customFields } : {}),
           },
         },
       ],
@@ -1096,7 +1102,11 @@ export const productAdminService = {
     }
 
     const enqueueResponse = await apiClient.post<ApiResponse<any>>('/queues', body);
-    await apiClient.post<ApiResponse<any>>('/queues/consume', {});
+    try {
+      await apiClient.post<ApiResponse<any>>('/queues/consume', {});
+    } catch (e) {
+      console.warn('Manual consume trigger ignored:', e);
+    }
     return normalizeQueueBatch(enqueueResponse.data.data);
   },
 
@@ -1120,7 +1130,7 @@ export const productAdminService = {
 
   getFailedBatches: async (): Promise<ApiResponse<any[]>> => {
     if (shouldUseMock()) {
-      return { success: true, data: [] };
+      return { success: true, data: [], message: 'Mock failed batches retrieved' };
     }
     const response = await apiClient.get<ApiResponse<any[]>>('/queues/failed');
     return response.data;

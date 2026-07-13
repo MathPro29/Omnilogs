@@ -50,8 +50,10 @@ export const retentionService = {
     const response = await apiClient.post<RetentionPolicy>(`/products/${productId}/elastic-index-policies`, payload);
     return response.data;
   },
-  listPolicies: async (productId: number): Promise<RetentionPolicy[]> => {
-    const response = await apiClient.get<RetentionPolicy[]>(`/products/${productId}/elastic-index-policies`);
+  listPolicies: async (productId: number, environmentId?: number): Promise<RetentionPolicy[]> => {
+    const response = await apiClient.get<RetentionPolicy[]>(`/products/${productId}/elastic-index-policies`, {
+      params: environmentId ? { environment_id: environmentId } : undefined,
+    });
     return response.data;
   },
   listArchives: async (productId: number, environmentId?: number): Promise<LogArchiveRecord[]> => {
@@ -93,5 +95,3 @@ export const retentionService = {
     await apiClient.post(`/products/${productId}/log-archives/${archiveId}/restore`);
   },
 };
-
-
