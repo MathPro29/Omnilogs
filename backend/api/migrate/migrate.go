@@ -73,6 +73,10 @@ func Migrate(db *gorm.DB, env *configs.Env) {
 		log.Fatalf("AutoMigrate failed: %v", err)
 	}
 
+	if err := ensureQueryPerformanceIndexes(db); err != nil {
+		log.Fatalf("Query performance index migration failed: %v", err)
+	}
+
 	if err := backfillLegacyProductRolePermissions(db); err != nil {
 		log.Fatalf("Product role permission backfill failed: %v", err)
 	}

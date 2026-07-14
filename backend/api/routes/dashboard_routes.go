@@ -1,6 +1,8 @@
 package routes
 
 import (
+	"time"
+
 	"omnilogs-api/configs"
 	"omnilogs-api/internal/dashboard/handler"
 	"omnilogs-api/internal/dashboard/repository"
@@ -14,12 +16,18 @@ import (
 
 // DashboardRoutes registers endpoints for log monitoring
 func DashboardRoutes(router *gin.Engine, db *gorm.DB, esClient *elasticsearch.Client, env *configs.Env) {
-	repo := repository.NewRepository(db, esClient)
+	repo := repository.NewRepository(
+		db,
+		esClient,
+		time.Duration(env.ElasticsearchQueryTimeoutSeconds)*time.Second,
+		time.Duration(env.ElasticsearchSlowQueryThresholdMS)*time.Millisecond,
+	)
 	uc := usecase.NewUsecase(repo)
 	dashHandler := handler.NewHandler(uc)
 
 	group := router.Group("/api/v1/dashboard")
 	group.Use(middleware.UserAuthMiddleware(env.JWTSecret))
+	group.Use(middleware.RequestTimeout(time.Duration(env.APIRequestTimeoutSeconds) * time.Second))
 
 	group.GET("/logs", dashHandler.GetLogs)
 	group.GET("/stats", dashHandler.GetLogStats)

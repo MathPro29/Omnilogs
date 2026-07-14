@@ -52,6 +52,8 @@ func Error(c *gin.Context, code string, message string, err error) {
 	switch code {
 	case "INTERNAL_ERROR", "INTERNAL_SERVER_ERROR":
 		status = http.StatusInternalServerError
+	case "TIMEOUT":
+		status = http.StatusGatewayTimeout
 	case "FORBIDDEN", "ACCESS_DENIED":
 		status = http.StatusForbidden
 	case "SESSION_EXPIRED", "UNAUTHORIZED":

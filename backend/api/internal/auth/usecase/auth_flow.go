@@ -66,6 +66,10 @@ func (u *usecase) authenticate(req dto.LoginRequest) (*models.User, error) {
 		return nil, responses.ErrorUserCode["INVALID_CREDENTIAL"]
 	}
 
+	if !user.IsActive {
+		return nil, responses.ErrorUserCode["USER_INACTIVE"]
+	}
+
 	return user, nil
 }
 
@@ -126,6 +130,10 @@ func (u *usecase) RefreshToken(refreshToken string) (*dto.AuthTokenResponse, err
 	}
 	if err != nil {
 		return nil, err
+	}
+
+	if !user.IsActive {
+		return nil, responses.ErrorUserCode["USER_INACTIVE"]
 	}
 
 	return u.buildAuthTokens(user)

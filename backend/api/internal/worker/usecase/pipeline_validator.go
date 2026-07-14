@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 
@@ -10,11 +11,20 @@ import (
 
 // PipelineValidator validates a single custom field value against its schema configuration.
 func PipelineValidator(ctx context.Context, field models.LogFieldDefinition, value any) error {
-	if field.ConfigJSON == nil || field.ConfigJSON.Validation == nil {
+	if field.ConfigJSON == nil {
 		return nil
 	}
 
-	valConfig := field.ConfigJSON.Validation
+	var config models.FieldConfigJSON
+	if err := json.Unmarshal(*field.ConfigJSON, &config); err != nil {
+		return nil
+	}
+
+	if config.Validation == nil {
+		return nil
+	}
+
+	valConfig := config.Validation
 
 	if valConfig.Required && value == nil {
 		return fmt.Errorf("field %s is required", field.FieldKey)
@@ -35,9 +45,9 @@ func PipelineValidator(ctx context.Context, field models.LogFieldDefinition, val
 		return nil
 	}
 
-	if field.ConfigJSON.StringConfig != nil {
+	if config.StringConfig != nil {
 		if str, ok := value.(string); ok {
-			strConfig := field.ConfigJSON.StringConfig
+			strConfig := config.StringConfig
 			if strConfig.MinLength != nil && len(str) < *strConfig.MinLength {
 				return fmt.Errorf("field %s must be at least %d characters", field.FieldKey, *strConfig.MinLength)
 			}
@@ -53,7 +63,7 @@ func PipelineValidator(ctx context.Context, field models.LogFieldDefinition, val
 		}
 	}
 
-	if field.ConfigJSON.NumberConfig != nil {
+	if config.NumberConfig != nil {
 		var num float64
 		isNum := false
 		switch v := value.(type) {
@@ -71,7 +81,7 @@ func PipelineValidator(ctx context.Context, field models.LogFieldDefinition, val
 			isNum = true
 		}
 		if isNum {
-			numConfig := field.ConfigJSON.NumberConfig
+			numConfig := config.NumberConfig
 			if numConfig.Min != nil && num < *numConfig.Min {
 				return fmt.Errorf("field %s must be at least %f", field.FieldKey, *numConfig.Min)
 			}

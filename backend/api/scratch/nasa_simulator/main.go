@@ -27,30 +27,59 @@ func main() {
 		log.Fatalf("❌ เชื่อมต่อฐานข้อมูลล้มเหลว: %v", err)
 	}
 
+	// 1. ดึง Product
 	var product models.Product
 	if err := db.Where("product_name = ?", "NASA").First(&product).Error; err != nil {
-		log.Fatalf("❌ ไม่พบ Product 'NASA': %v (กรุณาสร้างไว้ในระบบก่อน)", err)
+		fmt.Println("⚠️ ไม่พบ Product 'NASA', กำลังใช้สิทธิ์เลือก Product แรกในฐานข้อมูล...")
+		if err := db.First(&product).Error; err != nil {
+			log.Fatalf("❌ ไม่พบ Product ใด ๆ ในฐานข้อมูล: %v", err)
+		}
 	}
 
+	// 2. ดึง Environment
 	var envItem models.ProductEnvironment
 	if err := db.Where("product_id = ?", product.ProductID).First(&envItem).Error; err != nil {
-		log.Fatalf("❌ ไม่พบ Environment ของ NASA: %v", err)
+		log.Fatalf("❌ ไม่พบ Environment ของ Product ID %d: %v", product.ProductID, err)
 	}
 
+	// 3. ดึง Project
 	var project models.Project
 	if err := db.Where("product_id = ? AND project_name = ?", product.ProductID, "Apollo11").First(&project).Error; err != nil {
-		log.Fatalf("❌ ไม่พบ Project 'Apollo11': %v", err)
+		fmt.Println("⚠️ ไม่พบ Project 'Apollo11', กำลังใช้สิทธิ์เลือก Project แรกใน Product นี้...")
+		if err := db.Where("product_id = ?", product.ProductID).First(&project).Error; err != nil {
+			log.Fatalf("❌ ไม่พบ Project ใด ๆ ใน Product นี้: %v", err)
+		}
 	}
 
+	// 4. ดึง Features
 	var features []models.ProjectFeature
 	if err := db.Where("project_id = ?", project.ProjectID).Find(&features).Error; err != nil {
-		log.Fatalf("❌ ไม่พบ Features (Categories): %v", err)
+		log.Printf("⚠️ ดึง Features (Categories) ล้มเหลว: %v", err)
 	}
 
-	fmt.Printf("🛰️ ข้อมูลเป้าหมาย => Product: %d, Env: %d, Project: %d, Features: %d รายการ\n", 
-		product.ProductID, envItem.EnvironmentID, project.ProjectID, len(features))
+	// โหลด Custom Fields ที่ใช้งานสำหรับ Product นี้
+	var activeFields []models.LogFieldDefinition
+	if err := db.Where("(product_id = ? OR product_id IS NULL) AND is_active = TRUE", product.ProductID).Find(&activeFields).Error; err != nil {
+		log.Printf("⚠️ ไม่สามารถโหลด Custom Fields: %v", err)
+	}
 
-	// 1. ดึง User คนแรกเพื่อไป Gen Token
+	// ดึง Enum Options เตรียมไว้
+	fieldEnums := make(map[int][]string)
+	for _, field := range activeFields {
+		if field.DataType == "enum" {
+			var opts []models.LogFieldEnumOption
+			if err := db.Where("field_definition_id = ? AND is_active = TRUE", field.FieldDefinitionID).Find(&opts).Error; err == nil {
+				for _, opt := range opts {
+					fieldEnums[field.FieldDefinitionID] = append(fieldEnums[field.FieldDefinitionID], opt.OptionValue)
+				}
+			}
+		}
+	}
+
+	fmt.Printf("🛰️ ข้อมูลเป้าหมาย => Product: %s (ID %d), Env: %s (ID %d), Project: %s (ID %d), Features: %d รายการ, Custom Fields: %d รายการ\n", 
+		product.ProductName, product.ProductID, envItem.EnvironmentName, envItem.EnvironmentID, project.ProjectName, project.ProjectID, len(features), len(activeFields))
+
+	// 5. ดึง User คนแรกเพื่อไป Gen Token
 	var user models.User
 	if err := db.First(&user).Error; err != nil {
 		log.Fatalf("❌ ไม่พบ User: %v", err)
@@ -79,16 +108,49 @@ func main() {
 				featureName = feat.CategoryName
 			}
 
-			// สุ่มสถานะและข้อความให้ตรงกับ NASA Theme
+			// สุ่มสถานะและข้อความให้ตรงกับ NASA Theme หรือทั่วไป
 			level := statuses[rand.Intn(len(statuses))]
 			msg := generateNASAStatusMessage(featureName, level)
 
+			// จำลองข้อมูลสำหรับ Custom Fields
+			customFields := make(map[string]interface{})
+			for _, field := range activeFields {
+				var val interface{}
+				switch field.DataType {
+				case "enum":
+					enums := fieldEnums[field.FieldDefinitionID]
+					if len(enums) > 0 {
+						val = enums[rand.Intn(len(enums))]
+					} else {
+						val = "default_enum_val"
+					}
+				case "string":
+					val = fmt.Sprintf("simulated-%s-%d", field.FieldKey, rand.Intn(100))
+				case "integer", "int":
+					val = rand.Intn(1000)
+				case "number", "float":
+					val = rand.Float64() * 100.0
+				case "boolean", "bool":
+					val = rand.Intn(2) == 1
+				case "datetime", "date":
+					val = time.Now().Add(time.Duration(-rand.Intn(24)) * time.Hour).Format(time.RFC3339)
+				case "json":
+					val = map[string]interface{}{"status": "ok", "value": rand.Intn(100)}
+				case "object":
+					val = map[string]interface{}{"nested_key": "nested_val"}
+				default:
+					val = "simulated-value"
+				}
+				customFields[field.FieldKey] = val
+			}
+
 			// 1. สร้าง JSON ก้อนเล็ก (input_payload)
 			inputPayload := map[string]interface{}{
-				"log_level":  level,
-				"message":    fmt.Sprintf("[Log %03d] %s", workerID, msg),
-				"timestamp":  time.Now().Format(time.RFC3339Nano),
-				"project_id": project.ProjectID,
+				"log_level":     level,
+				"message":       fmt.Sprintf("[Log %03d] %s", workerID, msg),
+				"timestamp":     time.Now().Format(time.RFC3339Nano),
+				"project_id":    project.ProjectID,
+				"custom_fields": customFields,
 			}
 			if categoryID != nil {
 				inputPayload["category_id"] = *categoryID
@@ -99,15 +161,15 @@ func main() {
 			batchReq := map[string]interface{}{
 				"product_id":      product.ProductID,
 				"environment_id":  envItem.EnvironmentID,
-				"queue_key":       "nasa-apollo11-key",
+				"queue_key":       fmt.Sprintf("%s-key", project.ProjectCode),
 				"source_type":     "application",
-				"source_platform": "NASA_SIMULATOR",
+				"source_platform": "SIMULATOR",
 				"priority":        1,
 				"logs": []map[string]interface{}{
 					{
 						"sequence_no":     1,
 						"source_type":     "application",
-						"source_platform": "NASA_SIMULATOR",
+						"source_platform": "SIMULATOR",
 						"input_payload":   json.RawMessage(payloadBytes),
 					},
 				},
@@ -139,7 +201,7 @@ func main() {
 	}
 
 	wg.Wait()
-	fmt.Println("🎉 การทดสอบระบบจัดการคิว NASA (Apollo11) เสร็จสิ้น!")
+	fmt.Println("🎉 การทดสอบระบบจำลองส่ง Logs เสร็จสิ้น!")
 }
 
 // สร้างข้อความจำลองเหตุการณ์

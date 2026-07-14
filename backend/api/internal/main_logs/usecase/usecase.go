@@ -17,6 +17,7 @@ import (
 )
 
 var ErrMainLogNotFound = errors.New("main log not found")
+var ErrInvalidSearchFilter = errors.New("invalid log search filter")
 
 type SearchInput struct {
 	ActorUserID      uint
@@ -87,6 +88,10 @@ func NewUsecase(repo repository.Repository, auditUsecase auditusecase.Usecase, e
 }
 
 func (u *usecase) Search(ctx context.Context, input SearchInput, requestID, traceID, ipAddress, userAgent *string) (*SearchResult, error) {
+	input = normalizeSearchInput(input)
+	if err := validateSearchInput(input); err != nil {
+		return nil, err
+	}
 	if err := u.ensureProductAccess(ctx, input.ActorUserID, input.PlatformAdmin, input.ProductID); err != nil {
 		_ = u.auditUsecase.Record(ctx, auditusecase.RecordAuditInput{
 			ActorUserID:  uintToInt64Ptr(input.ActorUserID),
@@ -122,6 +127,9 @@ func (u *usecase) Search(ctx context.Context, input SearchInput, requestID, trac
 	var payload map[string]any
 	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
 		return nil, err
+	}
+	if timedOut, _ := payload["timed_out"].(bool); timedOut {
+		return nil, context.DeadlineExceeded
 	}
 
 	result := &SearchResult{Items: []MainLogDocument{}}
@@ -293,11 +301,11 @@ func (u *usecase) ensureProductAccess(ctx context.Context, actorUserID uint, pla
 	if platformAdmin {
 		return nil
 	}
-	count, err := u.repo.CountProductMembership(ctx, actorUserID, productID)
+	hasMembership, err := u.repo.HasProductMembership(ctx, actorUserID, productID)
 	if err != nil {
 		return err
 	}
-	if count == 0 {
+	if !hasMembership {
 		return responses.ErrForbidden
 	}
 	return nil
@@ -305,13 +313,18 @@ func (u *usecase) ensureProductAccess(ctx context.Context, actorUserID uint, pla
 
 func (u *usecase) resolveSearchIndices(ctx context.Context, productID int64) []string {
 	indices := []string{fmt.Sprintf("omnilogs-product-%d-*", productID)}
+	seen := map[string]struct{}{indices[0]: {}}
 	if policies, err := u.repo.GetActiveIndexPolicies(ctx, productID); err == nil {
 		for _, policy := range policies {
 			if strings.TrimSpace(policy.IndexPrefix) != "" {
 				prefix := strings.ToLower(strings.TrimSpace(policy.IndexPrefix))
 				prefix = strings.ReplaceAll(prefix, "_", "-")
 				prefix = strings.ReplaceAll(prefix, " ", "-")
-				indices = append(indices, fmt.Sprintf("%s-*", prefix))
+				pattern := fmt.Sprintf("%s-*", prefix)
+				if _, exists := seen[pattern]; !exists {
+					seen[pattern] = struct{}{}
+					indices = append(indices, pattern)
+				}
 			}
 		}
 	}

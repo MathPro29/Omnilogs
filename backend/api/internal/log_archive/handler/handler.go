@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -92,6 +94,15 @@ func (h *Handler) Restore(c *gin.Context) {
 
 	restoredCount, err := archive_utils.RestoreIndex(c.Request.Context(), h.db, h.esClient, *archive.FilePath, targetIndexName)
 	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			c.JSON(http.StatusNotFound, gin.H{
+				"error":       "archive file not found",
+				"file_path":   *archive.FilePath,
+				"archive_id":  archive.ArchiveID,
+				"next_action": "recreate the archive after mounting the shared archive storage",
+			})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to restore archive: %v", err)})
 		return
 	}

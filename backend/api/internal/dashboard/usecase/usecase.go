@@ -26,6 +26,7 @@ func NewUsecase(repo repository.Repository) Usecase {
 }
 
 func (u *usecase) GetLogs(ctx context.Context, query dto.LogQuery) (map[string]any, error) {
+	query = NormalizeLogQuery(query)
 	searchResult, err := u.repo.SearchLogs(ctx, query)
 	if err != nil {
 		return nil, err
@@ -63,11 +64,12 @@ func (u *usecase) GetLogs(ctx context.Context, query dto.LogQuery) (map[string]a
 }
 
 func (u *usecase) GetLogStats(ctx context.Context, query dto.LogQuery) (map[string]any, error) {
+	query = NormalizeLogQuery(query)
 	searchResult, err := u.repo.GetLogStats(ctx, query)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	aggs, _ := searchResult["aggregations"].(map[string]any)
 	return aggs, nil
 }
@@ -77,11 +79,12 @@ func (u *usecase) GetLogDetail(ctx context.Context, indexName, logID string) (ma
 	if err != nil {
 		return nil, err
 	}
-	
+
 	source, _ := doc["_source"].(map[string]any)
 	return source, nil
 }
 
 func (u *usecase) GetAuditLogs(ctx context.Context, query dto.AuditLogQuery) ([]models.SystemAuditLog, int64, error) {
+	query = NormalizeAuditLogQuery(query)
 	return u.repo.GetAuditLogs(ctx, query)
 }

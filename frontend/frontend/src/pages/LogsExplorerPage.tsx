@@ -1,5 +1,5 @@
-import { useEffect, useState, useMemo, useCallback } from 'react';
-import { Card, Space, Typography, Modal, Button, Select, Input, Table, Tag, Form, Row, Col, Spin, Switch, Statistic, Tooltip as AntTooltip } from 'antd';
+import { useEffect, useState, useMemo, useCallback, type ReactNode } from 'react';
+import { Card, Space, Typography, Modal, Button, Select, Input, Table, Tag, Form, Row, Col, Spin, Switch, Statistic, Tooltip as AntTooltip, message } from 'antd';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   SearchOutlined,
@@ -8,6 +8,8 @@ import {
   LineChartOutlined,
   ThunderboltOutlined,
   DatabaseOutlined,
+  StarOutlined,
+  StarFilled,
 } from '@ant-design/icons';
 import {
   XAxis,
@@ -38,17 +40,163 @@ const LEVEL_COLORS: Record<string, string> = {
 
 const LEVEL_OPTIONS = ['DEBUG', 'INFO', 'WARN', 'ERROR'];
 
+const normalizeFavoriteFieldPath = (path: string) => {
+  const normalized = path.replace(/^raw\./, '');
+  if (normalized === 'payload') return '$';
+  return normalized.replace(/^payload\./, '');
+};
+
+const detectRawJSONType = (value: unknown): string => {
+  if (Array.isArray(value)) return 'array';
+  if (value !== null && typeof value === 'object') return 'object';
+  if (typeof value === 'boolean') return 'boolean';
+  if (typeof value === 'number') return 'number';
+  if (typeof value === 'string' && value.includes('-') && !Number.isNaN(Date.parse(value))) return 'datetime';
+  return 'string';
+};
+
+type JSONFavoriteTreeProps = {
+  value: unknown;
+  path?: string;
+  level?: number;
+  favoritePaths: Set<string>;
+  onToggleFavorite: (path: string, value: unknown, dataType: string, isFavorited: boolean) => void;
+};
+
+const JSONFavoriteRow = ({ label, path, canFavorite, isFavorited, onToggle, children }: {
+  label?: ReactNode;
+  path: string;
+  canFavorite: boolean;
+  isFavorited: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) => (
+  <div
+    className="json-fav-row"
+    style={{ display: 'flex', alignItems: 'flex-start', gap: 0, position: 'relative', paddingRight: canFavorite ? 28 : 0 }}
+  >
+    <div style={{ flex: 1, minWidth: 0 }}>
+      {label}{children}
+    </div>
+    {canFavorite && (
+      <AntTooltip title={isFavorited ? 'นำออกจาก Custom Field' : 'เพิ่มไปยัง Custom Field'}>
+        <Button
+          type="text"
+          size="small"
+          icon={isFavorited ? <StarFilled /> : <StarOutlined />}
+          aria-label={isFavorited ? `Remove ${path} from favorite` : `Add ${path} to favorite`}
+          onClick={onToggle}
+          className={isFavorited ? 'json-fav-star json-fav-star' : 'json-fav-star'}
+          style={{
+            color: '#faad14',
+            padding: '0 4px',
+            height: 20,
+            width: 20,
+            position: 'absolute',
+            right: 0,
+            top: 2,
+            opacity: isFavorited ? 1 : 0.4,
+          }}
+        />
+      </AntTooltip>
+    )}
+  </div>
+);
+
+const JSONFavoriteTree = ({ value, path = '', level = 0, favoritePaths, onToggleFavorite }: JSONFavoriteTreeProps) => {
+  const indent = level * 16;
+
+  // Leaf / primitive value
+  if (value === null || typeof value !== 'object') {
+    return (
+      <Text style={{ color: typeof value === 'string' ? '#ce9178' : typeof value === 'number' ? '#b5cea8' : typeof value === 'boolean' ? '#569cd6' : '#d4d4d4' }}>
+        {JSON.stringify(value)}
+      </Text>
+    );
+  }
+
+  // Array
+  if (Array.isArray(value)) {
+    if (value.length === 0) return <Text type="secondary">[]</Text>;
+    return (
+      <>
+        <Text type="secondary">[</Text>
+        {value.map((item, index) => (
+          <div key={`${path}[${index}]`} style={{ marginLeft: indent + 16, lineHeight: 1.7 }}>
+            <JSONFavoriteTree value={item} path={`${path}[]`} level={level + 1} favoritePaths={favoritePaths} onToggleFavorite={onToggleFavorite} />
+            {index < value.length - 1 && <Text type="secondary">,</Text>}
+          </div>
+        ))}
+        <Text type="secondary">]</Text>
+      </>
+    );
+  }
+
+  // Object
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length === 0) return <Text type="secondary">{'{}'}</Text>;
+
+  return (
+    <>
+      <Text type="secondary">{'{'}</Text>
+      {entries.map(([key, child], idx) => {
+        const childPath = path ? `${path}.${key}` : key;
+        const childCanFav = !!childPath;
+        const childIsFav = favoritePaths.has(normalizeFavoriteFieldPath(childPath));
+        const childDataType = detectRawJSONType(child);
+        return (
+          <div key={childPath} style={{ marginLeft: indent + 16, lineHeight: 1.7 }}>
+            <JSONFavoriteRow
+              label={<Text style={{ color: '#9cdcfe' }}>{JSON.stringify(key)}: </Text>}
+              path={childPath}
+              canFavorite={childCanFav}
+              isFavorited={childIsFav}
+              onToggle={() => onToggleFavorite(childPath, child, childDataType, childIsFav)}
+            >
+              <JSONFavoriteTree value={child} path={childPath} level={level + 1} favoritePaths={favoritePaths} onToggleFavorite={onToggleFavorite} />
+              {idx < entries.length - 1 && <Text type="secondary">,</Text>}
+            </JSONFavoriteRow>
+          </div>
+        );
+      })}
+      <Text type="secondary">{'}'}</Text>
+    </>
+  );
+};
+
 const getCustomFieldValue = (record: any, path: string): unknown => {
   if (!record) return undefined;
+  if (normalizeFavoriteFieldPath(path) === '$') {
+    return record.raw?.payload || record.payload || record.raw || record;
+  }
   const normalizedPath = path.replace(/^payload\./, '').replace(/^custom_fields\./, '');
-  const segments = normalizedPath.split('.');
-  const candidates = [record.customFields, record.raw?.payload?.custom_fields, record.raw?.custom_fields];
-  for (const candidate of candidates) {
-    let current = candidate;
-    for (const segment of segments) {
-      if (current && typeof current === 'object' && segment in current) current = current[segment];
-      else { current = undefined; break; }
+  const segments = normalizedPath.split('.').filter(Boolean);
+  const candidates = [
+    record.customFields,
+    record.raw?.payload?.custom_fields,
+    record.raw?.custom_fields,
+    record.raw?.payload,
+    record.raw,
+    record.payload,
+  ];
+
+  const readPath = (value: any, index: number): unknown => {
+    if (index >= segments.length) return value;
+    if (Array.isArray(value)) {
+      const values = value.map((item) => readPath(item, index)).filter((item) => item !== undefined && item !== null);
+      return values.length > 0 ? values : undefined;
     }
+    if (!value || typeof value !== 'object') return undefined;
+    const segment = segments[index];
+    if (segment.endsWith('[]')) {
+      const arrayValue = value[segment.slice(0, -2)];
+      return Array.isArray(arrayValue) ? readPath(arrayValue, index + 1) : undefined;
+    }
+    return segment in value ? readPath(value[segment], index + 1) : undefined;
+  };
+
+  for (const candidate of candidates) {
+    const current = readPath(candidate, 0);
     if (current !== undefined && current !== null) return current;
   }
   return undefined;
@@ -100,52 +248,6 @@ const filterJsonObject = (obj: any, term: string): any => {
   return result;
 };
 
-const pickPathsFromObject = (obj: any, paths: string[]): any => {
-  if (!obj) return obj;
-  const result: any = {};
-  const basicFields = ['batch_id', 'product_id', 'environment_id', '@timestamp', 'received_at', 'log_id', 'level', 'log_type', 'message'];
-  for (const field of basicFields) {
-    if (field in obj) {
-      result[field] = obj[field];
-    }
-  }
-  
-  const payload = obj.payload as any;
-  if (payload) {
-    result.payload = {};
-    const payloadBasics = ['log_level', 'event_type', 'message', 'project_id', 'category_id', 'feature_full_path'];
-    for (const f of payloadBasics) {
-      if (f in payload) {
-        result.payload[f] = payload[f];
-      }
-    }
-    
-    for (const path of paths) {
-      const normalizedPath = path.replace(/^payload\./, '');
-      const segments = normalizedPath.split('.');
-      
-      let currentSrc = payload;
-      let currentDest = result.payload;
-      
-      for (let i = 0; i < segments.length; i++) {
-        const seg = segments[i];
-        if (currentSrc && typeof currentSrc === 'object' && seg in currentSrc) {
-          if (i === segments.length - 1) {
-            currentDest[seg] = currentSrc[seg];
-          } else {
-            if (!currentDest[seg]) {
-              currentDest[seg] = {};
-            }
-            currentDest = currentDest[seg];
-            currentSrc = currentSrc[seg];
-          }
-        }
-      }
-    }
-  }
-  return result;
-};
-
 const getVisibleCustomFieldsForLog = (log: MainLog, allCustomFields: CustomField[]) => {
   const raw = (log.raw || log) as any;
   const projId = raw?.payload?.project_id || raw?.project_id || log.productId;
@@ -154,6 +256,7 @@ const getVisibleCustomFieldsForLog = (log: MainLog, allCustomFields: CustomField
   
   return allCustomFields.filter((field) => 
     field.is_active &&
+    field.is_favorite &&
     field.is_visible &&
     (field.product_id == null || field.product_id === log.productId) &&
     (field.project_id == null || field.project_id === projId) &&
@@ -181,12 +284,10 @@ export function LogsExplorerPage() {
 
   // States for JSON filtering
   const [jsonFilterTerm, setJsonFilterTerm] = useState('');
-  const [showFullRawLog, setShowFullRawLog] = useState(false);
 
   useEffect(() => {
     if (!selectedLog) {
       setJsonFilterTerm('');
-      setShowFullRawLog(false);
     }
   }, [selectedLog]);
 
@@ -221,19 +322,69 @@ export function LogsExplorerPage() {
   const monitorProduct = products.find((p) => p.productId === selectedProductId);
   const monitorEnvironments = monitorProduct?.productEnvironments || [];
 
-  const { data: customFields = [] } = useQuery({
+  const { data: customFields = [], refetch: refetchCustomFields } = useQuery({
     queryKey: ['explorer-custom-fields', selectedProductId],
     queryFn: () => customFieldService.list(selectedProductId || undefined),
     enabled: !!selectedProductId,
   });
   const scopedCustomFields = customFields.filter((field: CustomField) =>
     field.is_active &&
+    field.is_favorite &&
     (field.product_id == null || field.product_id === selectedProductId) &&
     (field.project_id == null || selectedProjectIds.length === 0 || selectedProjectIds.includes(field.project_id)) &&
     (field.category_id == null || selectedCategoryIds.length === 0 || selectedCategoryIds.includes(field.category_id))
   );
   const visibleCustomFields = scopedCustomFields.filter((field) => field.is_visible);
-  const filterableCustomFields = scopedCustomFields.filter((field) => field.is_filterable);
+  const filterableCustomFields = scopedCustomFields.filter((field) =>
+    field.is_filterable &&
+    ![''].includes(field.field_key)
+  );
+
+  const addFavoriteFromLog = async (path: string, sampleValue: unknown, detectedType: string) => {
+    if (!selectedProductId) return;
+    const canonicalPath = normalizeFavoriteFieldPath(path);
+    await customFieldService.favorite({
+      product_id: selectedProductId,
+      field_path: canonicalPath,
+      sample_value: sampleValue,
+      detected_type: detectedType,
+    });
+    await refetchCustomFields();
+    setSelectedCustomFieldPaths((current) => (
+      current.length > 0 && !current.includes(canonicalPath) ? [...current, canonicalPath] : current
+    ));
+  };
+
+  const favoritePaths = useMemo(() => {
+    const paths = new Set<string>();
+    for (const field of customFields) {
+      if (field.is_favorite && field.is_active) {
+        const p = field.field_path || `custom_fields.${field.field_key}`;
+        paths.add(normalizeFavoriteFieldPath(p));
+      }
+    }
+    return paths;
+  }, [customFields]);
+
+  const toggleFavoriteFromRawJSON = async (path: string, sampleValue: unknown, detectedType: string, isFavorited: boolean) => {
+    try {
+      if (isFavorited) {
+        const canonicalPath = normalizeFavoriteFieldPath(path);
+        const field = customFields.find((f) => normalizeFavoriteFieldPath(f.field_path || `custom_fields.${f.field_key}`) === canonicalPath && f.is_favorite);
+        if (field) {
+          await customFieldService.removeFavorite(field.field_definition_id);
+          await refetchCustomFields();
+          message.success(`นำ ${canonicalPath} ออกจาก Favorite แล้ว`);
+        }
+      } else {
+        await addFavoriteFromLog(path, sampleValue, detectedType);
+        message.success(`เพิ่ม ${path} เป็น Favorite แล้ว`);
+      }
+    } catch (error: unknown) {
+      const apiError = error as { response?: { data?: { error?: string } }; message?: string };
+      message.error(apiError.response?.data?.error || apiError.message || 'ดำเนินการไม่สำเร็จ');
+    }
+  };
 
   const { data: monitorProjects = [], isLoading: isLoadingProjects } = useQuery({
     queryKey: ['projects-admin-explorer', selectedProductId],
@@ -552,10 +703,11 @@ export function LogsExplorerPage() {
       },
     ];
 
-    // Add selected custom fields (or all visible custom fields by default)
-    const pathsToRender = selectedCustomFieldPaths.length > 0
-      ? selectedCustomFieldPaths
-      : visibleCustomFields.map((f) => f.field_path || `custom_fields.${f.field_key}`);
+    // Add selected custom fields; an empty selection means all visible fields.
+    const selectedPaths = new Set(selectedCustomFieldPaths);
+    const pathsToRender = visibleCustomFields
+      .map((field) => field.field_path || `custom_fields.${field.field_key}`)
+      .filter((path) => selectedCustomFieldPaths.length > 0 && selectedPaths.has(path));
 
     pathsToRender.forEach((path) => {
       const field = visibleCustomFields.find(
@@ -842,6 +994,31 @@ export function LogsExplorerPage() {
                 );
               })}
 
+              <Col xs={24} sm={12} md={12}>
+                <Form.Item
+                  label="Custom Fields ที่แสดงในตาราง"
+                  style={{ marginBottom: 0 }}
+                >
+                  <Select
+                    mode="multiple"
+                    allowClear
+                    maxTagCount="responsive"
+                    placeholder={visibleCustomFields.length > 0 ? 'เลือก Custom Fields ที่ต้องการแสดง' : 'ไม่มี Custom Fields ที่เปิดเผย'}
+                    value={selectedCustomFieldPaths}
+                    onChange={(paths) => {
+                      setSelectedCustomFieldPaths(paths);
+                      setCurrentPage(1);
+                    }}
+                    disabled={visibleCustomFields.length === 0}
+                    options={visibleCustomFields.map((field) => ({
+                      value: field.field_path || `custom_fields.${field.field_key}`,
+                      label: field.display_name || field.field_key,
+                    }))}
+                    style={{ width: '100%' }}
+                  />
+                </Form.Item>
+              </Col>
+
               <Col xs={12} sm={12} md={6}>
                 <Form.Item
                   label="ระดับ Log Level (เลือกได้หลายรายการ)"
@@ -1110,12 +1287,8 @@ export function LogsExplorerPage() {
         }
         open={!!selectedLog}
         onCancel={() => setSelectedLog(null)}
-        footer={[
-          <Button key="close" type="primary" onClick={() => setSelectedLog(null)}>
-            ปิดหน้าต่าง
-          </Button>,
-        ]}
         width={800}
+        footer={null}
       >
         {selectedLog && (
           <div style={{ marginTop: '15px' }}>
@@ -1161,7 +1334,8 @@ export function LogsExplorerPage() {
             </Row>
 
             {(() => {
-              const visibleFieldsForLog = getVisibleCustomFieldsForLog(selectedLog, customFields);
+              const visibleFieldsForLog = getVisibleCustomFieldsForLog(selectedLog, customFields)
+                .filter((field) => selectedCustomFieldPaths.length === 0 || selectedCustomFieldPaths.includes(field.field_path || `custom_fields.${field.field_key}`));
               if (visibleFieldsForLog.length === 0) return null;
 
               return (
@@ -1169,7 +1343,8 @@ export function LogsExplorerPage() {
                   <Row gutter={[16, 12]}>
                     {visibleFieldsForLog.map((field) => {
                       const value = getCustomFieldValue(selectedLog, field.field_path || `custom_fields.${field.field_key}`);
-                      if (value === undefined || value === null) return null;
+                      const isSelected = selectedCustomFieldPaths.includes(field.field_path || `custom_fields.${field.field_key}`);
+                      if (!isSelected && (value === undefined || value === null)) return null;
                       return (
                         <Col xs={24} sm={12} key={field.field_definition_id}>
                           <Text type="secondary">{field.display_name || field.field_key}</Text>
@@ -1183,28 +1358,21 @@ export function LogsExplorerPage() {
             })()}
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
-              <Title level={5} style={{ margin: 0 }}>Raw JSON Document</Title>
-              <Space size="middle">
-                <Switch
-                  checkedChildren="แสดง Raw Log ทั้งหมด"
-                  unCheckedChildren="แสดงเฉพาะ Custom Fields"
-                  checked={showFullRawLog}
-                  onChange={(checked) => setShowFullRawLog(checked)}
-                />
-                <Input
-                  placeholder="กรองคีย์หรือค่าใน JSON..."
-                  style={{ width: '220px' }}
-                  value={jsonFilterTerm}
-                  onChange={(e) => setJsonFilterTerm(e.target.value)}
-                  allowClear
-                  size="small"
-                />
-              </Space>
+              <Space size="small">
+                <Title level={5} style={{ margin: 0 }}>Raw JSON Document</Title>
+                </Space>
+              <Input
+                placeholder="กรองคีย์หรือค่าใน JSON..."
+                style={{ width: '220px' }}
+                value={jsonFilterTerm}
+                onChange={(e) => setJsonFilterTerm(e.target.value)}
+                allowClear
+                size="small"
+              />
             </div>
-            <pre
+            <div
               style={{
                 background: '#1e1e1e',
-                color: '#d4d4d4',
                 padding: '15px',
                 borderRadius: '8px',
                 overflowX: 'auto',
@@ -1215,20 +1383,12 @@ export function LogsExplorerPage() {
               }}
             >
               {(() => {
-                let jsonDoc = selectedLog.raw || selectedLog;
-                const visibleFieldsForLog = getVisibleCustomFieldsForLog(selectedLog, customFields);
-                
-                if (!showFullRawLog && visibleFieldsForLog.length > 0) {
-                  const paths = visibleFieldsForLog.map(f => f.field_path || `custom_fields.${f.field_key}`);
-                  jsonDoc = pickPathsFromObject(jsonDoc, paths);
-                }
-                
-                if (jsonFilterTerm) {
-                  jsonDoc = filterJsonObject(jsonDoc, jsonFilterTerm);
-                }
-                return JSON.stringify(jsonDoc, null, 2);
+                const jsonDoc = jsonFilterTerm
+                  ? filterJsonObject(selectedLog.raw || selectedLog, jsonFilterTerm)
+                  : selectedLog.raw || selectedLog;
+                return <JSONFavoriteTree value={jsonDoc} favoritePaths={favoritePaths} onToggleFavorite={(path, value, dataType, isFav) => { void toggleFavoriteFromRawJSON(path, value, dataType, isFav); }} />;
               })()}
-            </pre>
+            </div>
           </div>
         )}
       </Modal>

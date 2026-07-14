@@ -46,7 +46,7 @@ func (u *usecase) CreateRequest(ctx context.Context, actor Actor, req dto.Create
 	}
 
 	requestID := newUUID()
-	
+
 	accessReq := &models.SensitiveLogAccessRequest{
 		RequestID:         requestID,
 		UserID:            actor.UserID,
@@ -84,12 +84,12 @@ func (u *usecase) ReviewRequest(ctx context.Context, actor Actor, requestID stri
 	accessReq.ApprovalStatus = req.ApprovalStatus
 	accessReq.ApprovedBy = &actor.UserID
 	accessReq.ApprovedAt = &now
-	
+
 	if req.ExpiresAt != nil {
 		accessReq.ExpiresAt = req.ExpiresAt
 	} else if req.ApprovalStatus == "APPROVED" {
-		// Default to 1 hour expiration
-		exp := now.Add(1 * time.Hour)
+		// [เวลาหมดอายุ ของ Sensitive Request]
+		exp := now.Add(24 * time.Hour)
 		accessReq.ExpiresAt = &exp
 	}
 

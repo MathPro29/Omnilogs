@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"context"
+	"errors"
 	"net/http"
 
 	"omnilogs-api/dto"
@@ -33,9 +35,14 @@ func (h *handler) GetLogs(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	query = usecase.NormalizeLogQuery(query)
 
 	result, err := h.uc.GetLogs(c.Request.Context(), query)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			responses.Error(c, "TIMEOUT", "log query timed out", err)
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -49,9 +56,14 @@ func (h *handler) GetLogStats(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	query = usecase.NormalizeLogQuery(query)
 
 	result, err := h.uc.GetLogStats(c.Request.Context(), query)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			responses.Error(c, "TIMEOUT", "statistics query timed out", err)
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -65,6 +77,10 @@ func (h *handler) GetLogDetail(c *gin.Context) {
 
 	result, err := h.uc.GetLogDetail(c.Request.Context(), indexName, logID)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			responses.Error(c, "TIMEOUT", "log detail query timed out", err)
+			return
+		}
 		if err.Error() == "log not found" {
 			c.JSON(http.StatusNotFound, gin.H{"error": "log not found"})
 			return
@@ -82,9 +98,14 @@ func (h *handler) GetAuditLogs(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	query = usecase.NormalizeAuditLogQuery(query)
 
 	auditLogs, total, err := h.uc.GetAuditLogs(c.Request.Context(), query)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			responses.Error(c, "TIMEOUT", "audit log query timed out", err)
+			return
+		}
 		responses.Error(c, "INTERNAL_SERVER_ERROR", "failed to query audit logs", err)
 		return
 	}

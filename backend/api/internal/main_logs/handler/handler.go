@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -69,6 +70,14 @@ func (h *Handler) Search(c *gin.Context) {
 
 	result, err := h.usecase.Search(c.Request.Context(), input, requestID(c), traceID(c), ipAddress(c), userAgent(c))
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			responses.Error(c, "TIMEOUT", "log search timed out", err)
+			return
+		}
+		if errors.Is(err, usecase.ErrInvalidSearchFilter) {
+			responses.BadRequest(c, err.Error())
+			return
+		}
 		if errors.Is(err, responses.ErrForbidden) {
 			responses.Forbidden(c, "forbidden")
 			return
@@ -96,6 +105,8 @@ func (h *Handler) GetByID(c *gin.Context) {
 	value, err := h.usecase.FindByID(c.Request.Context(), userID, middleware.HasAdminPlatformRole(c), productID, c.Param("logId"), requestID(c), traceID(c), ipAddress(c), userAgent(c))
 	if err != nil {
 		switch {
+		case errors.Is(err, context.DeadlineExceeded):
+			responses.Error(c, "TIMEOUT", "log detail query timed out", err)
 		case errors.Is(err, responses.ErrForbidden):
 			responses.Forbidden(c, "forbidden")
 		case errors.Is(err, usecase.ErrMainLogNotFound):

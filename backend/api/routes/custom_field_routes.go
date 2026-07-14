@@ -1,6 +1,8 @@
 package routes
 
 import (
+	"time"
+
 	"omnilogs-api/configs"
 	"omnilogs-api/internal/custom_fields/handler"
 	"omnilogs-api/middleware"
@@ -14,7 +16,14 @@ func CustomFieldRoutes(router *gin.Engine, db *gorm.DB, env *configs.Env) {
 
 	customFields := router.Group("/api/v1/custom-fields")
 	customFields.Use(middleware.UserAuthMiddleware(env.JWTSecret))
+	customFields.Use(middleware.RequestTimeout(time.Duration(env.APIRequestTimeoutSeconds) * time.Second))
 
+	customFields.POST("/parse-json", handler.ParseJSON)
+	customFields.GET("/favorites", handler.ListFavoriteJSONFields)
+	customFields.POST("/favorites", handler.FavoriteJSONField)
+	customFields.PUT("/favorites/reorder", handler.ReorderFavoriteJSONFields)
+	customFields.DELETE("/favorites/:id", handler.RemoveFavoriteJSONField)
+	customFields.DELETE("/bulk/delete", handler.BulkDeleteCustomFields)
 	customFields.GET("/", handler.GetAllCustomFields)
 	customFields.POST("/", handler.CreateCustomField)
 	customFields.GET("/:id", handler.GetCustomFieldByID)

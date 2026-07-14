@@ -2,7 +2,6 @@ import type { ReactNode } from 'react';
 import {
   HomeIcon,
   UsersIcon,
-  Cog6ToothIcon,
   ClipboardDocumentListIcon,
   BeakerIcon,
   Squares2X2Icon,
@@ -56,7 +55,7 @@ export const menuConfig: MenuItem[] = [
   },
   {
     key: MENU_KEYS.RETENTION_TEST,
-    label: 'ทดสอบ Retention',
+    label: 'Retention',
     icon: <ArchiveBoxIcon className="w-5 h-5" /> as ReactNode,
     path: ROUTES.RETENTION_TEST,
   },
@@ -101,14 +100,5 @@ export const menuConfig: MenuItem[] = [
     label: 'Custom Fields',
     icon: <AdjustmentsHorizontalIcon className="w-5 h-5" /> as ReactNode,
     path: ROUTES.CUSTOM_FIELDS,
-  },
-
-  // ===== ตั้งค่าระบบ =====
-  {
-    key: MENU_KEYS.SETTINGS,
-    label: 'ตั้งค่าระบบ',
-    icon: <Cog6ToothIcon className="w-5 h-5" /> as ReactNode,
-    path: ROUTES.SETTINGS,
-    requiredPermissions: [PERMISSIONS.SETTINGS_VIEW],
-  },
+  }
 ];

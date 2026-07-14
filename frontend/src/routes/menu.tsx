@@ -52,15 +52,6 @@ export const menuConfig: MenuItem[] = [
     ],
   },
 
-  // ===== ตั้งค่าระบบ =====
-  {
-    key: MENU_KEYS.SETTINGS,
-    label: 'ตั้งค่าระบบ',
-    icon: <Cog6ToothIcon className="w-5 h-5" /> as ReactNode,
-    path: ROUTES.SETTINGS,
-    requiredPermissions: [PERMISSIONS.SETTINGS_VIEW],
-  },
-
   // ===== เพิ่ม menu ใหม่ที่นี่ =====
   // {
   //   key: MENU_KEYS.LEAVES,

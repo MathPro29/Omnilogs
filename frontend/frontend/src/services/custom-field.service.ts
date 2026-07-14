@@ -29,7 +29,26 @@ export type CustomField = {
   schema_version?: number;
   field_type?: string | null;
   config_json?: any; // Represents FieldConfigJSON
+  is_favorite: boolean;
+  sample_value?: unknown;
+  detected_type?: string | null;
+  sample_path_found: boolean;
   enum_options: CustomFieldOption[];
+};
+
+export type JSONFieldNode = {
+  field_name: string;
+  json_path: string;
+  sample_value: unknown;
+  data_type: string;
+  is_leaf: boolean;
+  children?: JSONFieldNode[];
+};
+
+export type ParsedJSONFields = {
+  nodes: JSONFieldNode[];
+  field_count: number;
+  max_nodes: number;
 };
 
 export type CustomFieldOption = {
@@ -69,6 +88,28 @@ export const customFieldService = {
     return response.data;
   },
   remove: async (id: number) => { await apiClient.delete(`${endpoint}/${id}`); },
+  bulkDelete: async (ids: number[]): Promise<void> => {
+    await apiClient.delete(`${endpoint}/bulk/delete`, { data: { field_definition_ids: ids } });
+  },
+  parseJSON: async (sampleJSON: string): Promise<ParsedJSONFields> =>
+    (await apiClient.post(`${endpoint}/parse-json`, { sample_json: JSON.parse(sampleJSON) })).data,
+  listFavorites: async (productId: number, projectId?: number, categoryId?: number): Promise<CustomField[]> =>
+    (await apiClient.get(`${endpoint}/favorites`, { params: { product_id: productId, project_id: projectId, category_id: categoryId } })).data,
+  favorite: async (payload: {
+    product_id: number;
+    project_id?: number;
+    category_id?: number;
+    field_path: string;
+    display_name?: string;
+    sample_value?: unknown;
+    detected_type: string;
+  }): Promise<CustomField> => (await apiClient.post(`${endpoint}/favorites`, payload)).data,
+  reorderFavorites: async (productId: number, items: Array<{ field_definition_id: number; display_order: number }>): Promise<void> => {
+    await apiClient.put(`${endpoint}/favorites/reorder`, { product_id: productId, items });
+  },
+  removeFavorite: async (id: number): Promise<void> => {
+    await apiClient.delete(`${endpoint}/favorites/${id}`);
+  },
   listOptions: async (id: number, activeOnly = false): Promise<CustomFieldOption[]> =>
     (await apiClient.get(`${endpoint}/${id}/options`, { params: { active_only: activeOnly || undefined } })).data,
   createOption: async (id: number, payload: Partial<CustomFieldOption>): Promise<CustomFieldOption> =>

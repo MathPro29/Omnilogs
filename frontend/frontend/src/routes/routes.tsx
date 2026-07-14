@@ -4,7 +4,6 @@ import { ROUTES, PERMISSIONS } from '@/constants';
 
 const DashboardPage = lazy(() => import('@/pages/DashboardPage').then(module => ({ default: module.DashboardPage })));
 const UsersPage = lazy(() => import('@/pages/UsersPage').then(module => ({ default: module.UsersPage })));
-const SettingsPage = lazy(() => import('@/pages/SettingsPage').then(module => ({ default: module.SettingsPage })));
 const ForbiddenPage = lazy(() => import('@/pages/ForbiddenPage').then(module => ({ default: module.ForbiddenPage })));
 const AuditsPage = lazy(() => import('@/pages/Audits').then(module => ({ default: module.default })));
 const ProductCatalogPage = lazy(() => import('@/pages/ProductCatalogPage').then(module => ({ default: module.ProductCatalogPage })));
@@ -65,11 +64,6 @@ export const adminRoutes: RouteConfig[] = [
     path: ROUTES.ROLES,
     element: <AccessControlPage />,
     requiredPermissions: [PERMISSIONS.ROLE_VIEW],
-  },
-  {
-    path: ROUTES.SETTINGS,
-    element: <SettingsPage />,
-    requiredPermissions: [PERMISSIONS.SETTINGS_VIEW],
   },
   {
     path: ROUTES.AUDITS,

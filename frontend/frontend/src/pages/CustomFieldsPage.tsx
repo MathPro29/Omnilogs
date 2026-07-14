@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert, Button, Card, Col, Collapse, Empty, Form, Input, InputNumber, Modal, Row, Select,
   Space, Switch, Table, Tag, Typography, message,
 } from 'antd';
 import { PencilIcon, PlusIcon, TrashIcon } from '@heroicons/react/24/outline';
+import { DragOutlined, StarFilled } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { PageTransition } from '@/components';
 import { ROUTES } from '@/constants';
@@ -29,6 +30,13 @@ type CustomFieldFormValue = Partial<CustomField> & {
   enum_options?: EnumOptionFormValue[];
 };
 
+const SYSTEM_LOG_FIELD_NAMES = new Set(['event_type', 'log_level', 'message', 'timestamp']);
+
+const isSystemLogField = (field: CustomField) => {
+  const path = (field.field_path || `custom_fields.${field.field_key}`).replace(/^raw\./, '').replace(/^payload\./, '');
+  return SYSTEM_LOG_FIELD_NAMES.has(path.split('.')[0].replace(/\[\]$/, '').toLowerCase());
+};
+
 export function CustomFieldsPage() {
   const setBreadcrumbs = useAppStore((state) => state.setBreadcrumbs);
   const [productId, setProductId] = useState<number>();
@@ -36,7 +44,9 @@ export function CustomFieldsPage() {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [activeCollapseKeys, setActiveCollapseKeys] = useState<string[]>([]);
+  const [draggingFavoriteId, setDraggingFavoriteId] = useState<number>();
   const [form] = Form.useForm<CustomFieldFormValue>();
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const projectId = Form.useWatch('project_id', form);
   const dataType = Form.useWatch('data_type', form);
 
@@ -60,10 +70,20 @@ export function CustomFieldsPage() {
     () => (productsQuery.data || []).find((item) => item.productId === productId),
     [productsQuery.data, productId],
   );
+  const favoriteFields = useMemo(
+    () => (fieldsQuery.data || [])
+      .filter((field) => field.is_favorite && !isSystemLogField(field))
+      .sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0)),
+    [fieldsQuery.data],
+  );
 
   useEffect(() => {
     setBreadcrumbs([{ title: 'ผลิตภัณฑ์ที่จัดการ', path: ROUTES.PRODUCTS }, { title: 'Custom Fields' }]);
   }, [setBreadcrumbs]);
+
+  useEffect(() => {
+    setSelectedRowKeys([]);
+  }, [productId]);
   
 
   const closeModal = () => {
@@ -79,11 +99,6 @@ export function CustomFieldsPage() {
     form.resetFields();
     form.setFieldsValue({
       data_type: 'string',
-      is_visible: true,
-      is_searchable: true,
-      is_filterable: true,
-      is_sortable: true,
-      is_aggregatable: true,
       is_required: false,
       is_sensitive: false,
       mask_before_index: false,
@@ -113,6 +128,38 @@ export function CustomFieldsPage() {
       setActiveCollapseKeys([]);
     }
     setOpen(true);
+  };
+
+  const reorderFavorites = async (targetId: number) => {
+    if (!draggingFavoriteId || draggingFavoriteId === targetId || !productId) return;
+    const next = [...favoriteFields];
+    const from = next.findIndex((field) => field.field_definition_id === draggingFavoriteId);
+    const to = next.findIndex((field) => field.field_definition_id === targetId);
+    if (from < 0 || to < 0) return;
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    try {
+      await customFieldService.reorderFavorites(productId, next.map((field, index) => ({
+        field_definition_id: field.field_definition_id,
+        display_order: index,
+      })));
+      setDraggingFavoriteId(undefined);
+      await fieldsQuery.refetch();
+    } catch (error: unknown) {
+      const apiError = error as { response?: { data?: { error?: string } }; message?: string };
+      message.error(apiError.response?.data?.error || apiError.message || 'จัดลำดับ Favorite ไม่สำเร็จ');
+    }
+  };
+
+  const removeFavorite = async (field: CustomField) => {
+    try {
+      await customFieldService.removeFavorite(field.field_definition_id);
+      await fieldsQuery.refetch();
+      message.success(`นำ ${field.display_name || field.field_key} ออกจาก Favorite แล้ว`);
+    } catch (error: unknown) {
+      const apiError = error as { response?: { data?: { error?: string } }; message?: string };
+      message.error(apiError.response?.data?.error || apiError.message || 'ลบ Favorite ไม่สำเร็จ');
+    }
   };
 
   const syncOptions = async (fieldId: number, previous: CustomFieldOption[], next: EnumOptionFormValue[]) => {
@@ -172,6 +219,13 @@ export function CustomFieldsPage() {
       const fieldPath = fieldValues.field_path?.trim() || `custom_fields.${fieldValues.field_key}`;
       const payload = {
         ...fieldValues,
+        ...(!editing ? {
+          is_visible: true,
+          is_searchable: true,
+          is_filterable: true,
+          is_sortable: true,
+          is_aggregatable: true,
+        } : {}),
         config_json: parsedConfigJson,
         product_id: productId,
         field_path: fieldPath,
@@ -216,19 +270,6 @@ export function CustomFieldsPage() {
         <Space direction="vertical" size={4}>
           <Tag color="blue">{row.data_type}</Tag>
           {row.data_type === 'enum' && <Space wrap>{(row.enum_options || []).map((option) => <Tag key={option.option_id}>{option.option_label} = {option.option_value}</Tag>)}</Space>}
-        </Space>
-      ),
-    },
-    {
-      title: 'Capabilities',
-      render: (_: unknown, row: CustomField) => (
-        <Space wrap>
-          {row.is_visible && <Tag>แสดงผล</Tag>}
-          {row.is_searchable && <Tag>ค้นหา</Tag>}
-          {row.is_filterable && <Tag>Filter</Tag>}
-          {row.is_sortable && <Tag>Sort</Tag>}
-          {row.is_aggregatable && <Tag>สถิติ</Tag>}
-          {row.is_required && <Tag color="red">จำเป็น</Tag>}
         </Space>
       ),
     },
@@ -280,7 +321,82 @@ export function CustomFieldsPage() {
           </Row>
         </Card>
         {productId && (
-          <Card title={`Fields ของ ${product?.productName || 'Product'}`}>
+          <>
+            {favoriteFields.length > 0 && (
+              <Card title="จัดลำดับการแสดงผล" extra={<Text type="secondary">ลากเพื่อจัดลำดับการแสดงผล</Text>}>
+                <Space direction="vertical" style={{ width: '100%' }}>
+                  {favoriteFields.map((field) => (
+                    <Card
+                      key={field.field_definition_id}
+                      size="small"
+                      draggable
+                      onDragStart={() => setDraggingFavoriteId(field.field_definition_id)}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={() => { void reorderFavorites(field.field_definition_id); }}
+                      onDragEnd={() => setDraggingFavoriteId(undefined)}
+                      style={{ cursor: 'grab', opacity: draggingFavoriteId === field.field_definition_id ? 0.55 : 1 }}
+                    >
+                      <Row align="middle" gutter={[12, 8]}>
+                        <Col flex="none"><DragOutlined /></Col>
+                        <Col flex="auto">
+                          <Space direction="vertical" size={2}>
+                            <Space wrap>
+                              <StarFilled style={{ color: '#faad14' }} />
+                              <Text strong>{field.display_name || field.field_key}</Text>
+                              <Tag color="blue">{field.data_type}</Tag>
+                              {!field.sample_path_found && <Tag color="warning">ไม่พบ Path ล่าสุด</Tag>}
+                            </Space>
+                            <Text code>{field.field_path}</Text>
+                          </Space>
+                        </Col>
+                        <Col>
+                          <Space>
+                            <Button size="small" icon={<PencilIcon className="w-4 h-4" />} onClick={() => openEdit(field)}>ตั้งค่า</Button>
+                            <Button size="small" danger icon={<TrashIcon className="w-4 h-4" />} onClick={() => { void removeFavorite(field); }}>ลบ Favorite</Button>
+                          </Space>
+                        </Col>
+                      </Row>
+                    </Card>
+                  ))}
+                </Space>
+              </Card>
+            )}
+          </>
+        )}
+        {productId && (
+          <Card
+            title={`Fields ของ ${product?.productName || 'Product'}`}
+            extra={
+              selectedRowKeys.length > 0 && (
+                <Button
+                  danger
+                  type="primary"
+                  icon={<TrashIcon className="w-4 h-4" />}
+                  onClick={() => {
+                    Modal.confirm({
+                      title: `ปิดใช้งาน ${selectedRowKeys.length} Custom Field ที่เลือก?`,
+                      content: 'ฟิลด์เหล่านี้จะไม่ถูกแสดงในฟอร์มและตัวกรองอีกต่อไป',
+                      okText: 'ปิดใช้งาน',
+                      cancelText: 'ยกเลิก',
+                      onOk: async () => {
+                        try {
+                          await customFieldService.bulkDelete(selectedRowKeys as number[]);
+                          setSelectedRowKeys([]);
+                          await fieldsQuery.refetch();
+                          message.success('ปิดใช้งาน Custom Fields ที่เลือกเรียบร้อยแล้ว');
+                        } catch (error: unknown) {
+                          const apiError = error as { response?: { data?: { error?: string } }; message?: string };
+                          message.error(apiError.response?.data?.error || apiError.message || 'ดำเนินการไม่สำเร็จ');
+                        }
+                      }
+                    });
+                  }}
+                >
+                  ปิดใช้งานที่เลือก ({selectedRowKeys.length})
+                </Button>
+              )
+            }
+          >
             <Alert
               className="mb-4"
               type="info"
@@ -290,6 +406,10 @@ export function CustomFieldsPage() {
             />
             <Table
               rowKey="field_definition_id"
+              rowSelection={{
+                selectedRowKeys,
+                onChange: (keys) => setSelectedRowKeys(keys),
+              }}
               loading={fieldsQuery.isLoading}
               columns={columns}
               dataSource={fieldsQuery.data || []}
@@ -349,6 +469,29 @@ export function CustomFieldsPage() {
               <Col xs={24} md={12}><Form.Item name="field_path" label="Field Path" extra="เว้นว่างเพื่อใช้ custom_fields.{field_key}"><Input placeholder="custom_fields.customer_tier" /></Form.Item></Col>
               <Col xs={24} md={12}><Form.Item name="elastic_field_name" label="Elasticsearch Field" extra="เว้นว่างเพื่อสร้างอัตโนมัติ"><Input placeholder="payload.custom_fields.customer_tier" /></Form.Item></Col>
             </Row>
+
+            {editing?.is_favorite && (
+              <Alert
+                type="info"
+                showIcon
+                message="สร้างจาก Favorite JSON Field"
+                description={(
+                  <Space direction="vertical" size={2}>
+                    <Text>ระบบสร้าง Field Key, Path, Display Name และ Data Type ให้แล้ว คุณสามารถปรับชื่อ ประเภท และความสามารถด้านล่างได้</Text>
+                    {editing.sample_value !== undefined && <Text code>ตัวอย่างค่า: {JSON.stringify(editing.sample_value)}</Text>}
+                  </Space>
+                )}
+                style={{ marginBottom: 16 }}
+              />
+            )}
+
+            {editing?.is_favorite && editing.sample_value !== undefined && (
+              <Card size="small" title="Preview ค่าในตัวอย่าง JSON" style={{ marginBottom: 16 }}>
+                <pre style={{ margin: 0, whiteSpace: 'pre-wrap', maxHeight: 180, overflow: 'auto' }}>
+                  {JSON.stringify(editing.sample_value, null, 2)}
+                </pre>
+              </Card>
+            )}
 
             <Form.List name="enum_options">
               {(fields, { add, remove }) => dataType === 'enum' ? (

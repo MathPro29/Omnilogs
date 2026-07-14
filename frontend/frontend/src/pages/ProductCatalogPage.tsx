@@ -16,7 +16,6 @@ import {
   Space,
   Statistic,
   Switch,
-  Table,
   Tag,
   Tree,
   Typography,
@@ -32,9 +31,9 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { PageTransition } from '@/components';
 import { ROUTES } from '@/constants';
-import { dashboardService, productAdminService } from '@/services';
+import { productAdminService } from '@/services';
 import { useAppStore, useAuthStore } from '@/store';
-import type { LogQueueItem, Project, ProjectFeature } from '@/types';
+import type { Project, ProjectFeature } from '@/types';
 
 const { Title, Text } = Typography;
 const ROOT_PARENT_VALUE = '__root__';
@@ -149,22 +148,6 @@ function getScopeLabel(selectedProductId: number | null, selectedProject: Projec
   return 'No scope selected';
 }
 
-function getQueueStatusMeta(items: LogQueueItem[]) {
-  if (!items.length) {
-    return { label: 'Queued', color: 'default' as const, description: 'Waiting for queue items.' };
-  }
-  if (items.some((item) => item.status === 'FAILED')) {
-    return { label: 'Failed', color: 'error' as const, description: 'Some items failed during processing.' };
-  }
-  if (items.some((item) => item.status === 'PROCESSING')) {
-    return { label: 'Processing', color: 'warning' as const, description: 'Queue is processing items.' };
-  }
-  if (items.every((item) => item.status === 'PROCESSED')) {
-    return { label: 'Success', color: 'success' as const, description: 'All items were processed successfully.' };
-  }
-  return { label: 'Queued', color: 'processing' as const, description: 'Queue items are waiting to be processed.' };
-}
-
 export function ProductCatalogPage() {
   const queryClient = useQueryClient();
   const setBreadcrumbs = useAppStore((state) => state.setBreadcrumbs);
@@ -177,10 +160,6 @@ export function ProductCatalogPage() {
   const [selectedFeatureId, setSelectedFeatureId] = useState<number | null>(null);
   const [featureSearch, setFeatureSearch] = useState('');
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
-  const [logKeyword, setLogKeyword] = useState('');
-  const [logLevel, setLogLevel] = useState<string | undefined>(undefined);
-  const [importEnvironmentId, setImportEnvironmentId] = useState<number | undefined>(undefined);
-  const [lastImportedBatchId, setLastImportedBatchId] = useState<string | null>(null);
   const [productModalOpen, setProductModalOpen] = useState(false);
   const [projectModalOpen, setProjectModalOpen] = useState(false);
   const [featureModalOpen, setFeatureModalOpen] = useState(false);
@@ -193,7 +172,6 @@ export function ProductCatalogPage() {
   const [productForm] = Form.useForm();
   const [projectForm] = Form.useForm();
   const [featureForm] = Form.useForm();
-  const [importForm] = Form.useForm();
 
   useEffect(() => {
     setBreadcrumbs([{ title: 'Product Catalog', path: ROUTES.PRODUCTS }]);
@@ -258,14 +236,6 @@ export function ProductCatalogPage() {
     setExpandedKeys(getExpandedKeysForSearch(features, featureSearch));
   }, [features, featureSearch]);
 
-  useEffect(() => {
-    const firstEnvironmentId = selectedProduct?.productEnvironments?.[0]?.environmentId;
-    if (firstEnvironmentId) {
-      setImportEnvironmentId(firstEnvironmentId);
-      importForm.setFieldValue('environmentId', firstEnvironmentId);
-    }
-  }, [selectedProduct, importForm]);
-
   const featureTree = useMemo(
     () => buildFeatureTree(features, selectedFeatureId, featureSearch),
     [features, selectedFeatureId, featureSearch]
@@ -274,65 +244,6 @@ export function ProductCatalogPage() {
     () => getSelectableParentOptions(features, editingFeature),
     [features, editingFeature]
   );
-
-  const logsQuery = useQuery({
-    queryKey: ['hierarchy-logs', selectedProductId, selectedProjectId, selectedFeatureId, logKeyword, logLevel],
-    queryFn: () =>
-      productAdminService.searchLogs({
-        productId: selectedProductId!,
-        projectId: selectedProjectId || undefined,
-        categoryId: selectedFeatureId || undefined,
-        level: logLevel,
-        keyword: logKeyword || undefined,
-        perPage: 10,
-        page: 1,
-      }),
-    enabled: !!selectedProductId,
-  });
-
-  const batchItemsQuery = useQuery({
-    queryKey: ['import-batch-items', lastImportedBatchId],
-    queryFn: () => productAdminService.getBatchItems(lastImportedBatchId!),
-    enabled: !!lastImportedBatchId,
-    refetchInterval: (query) => {
-      const items = query.state.data || [];
-      if (!items.length) {
-        return 3000;
-      }
-      const hasActiveWork = items.some((item) => item.status === 'PENDING' || item.status === 'PROCESSING');
-      return hasActiveWork ? 3000 : false;
-    },
-  });
-
-  const queueStatusMeta = useMemo(
-    () => getQueueStatusMeta(batchItemsQuery.data || []),
-    [batchItemsQuery.data]
-  );
-
-  useEffect(() => {
-    const items = batchItemsQuery.data || [];
-    if (!items.length) {
-      return;
-    }
-    const allProcessed = items.every((item) => item.status === 'PROCESSED');
-    if (allProcessed) {
-      queryClient.invalidateQueries({ queryKey: ['hierarchy-logs'] });
-      queryClient.invalidateQueries({ queryKey: ['hierarchy-audits'] });
-    }
-  }, [batchItemsQuery.data, queryClient]);
-
-  const auditsQuery = useQuery({
-    queryKey: ['hierarchy-audits', selectedProductId, selectedProjectId, selectedFeatureId],
-    queryFn: () =>
-      dashboardService.getAuditLogs({
-        product_id: selectedProductId || undefined,
-        project_id: selectedProjectId || undefined,
-        feature_id: selectedFeatureId || undefined,
-        limit: 5,
-        offset: 0,
-      }),
-    enabled: !!selectedProductId,
-  });
 
   const createProductMutation = useMutation({
     mutationFn: (values: { productName: string; productCode?: string }) => productAdminService.createProduct(values),
@@ -446,29 +357,6 @@ export function ProductCatalogPage() {
     },
   });
 
-  const importLogsMutation = useMutation({
-    mutationFn: (values: { environmentId: number; logLevel: string; message: string; eventType?: string }) =>
-      productAdminService.importLogs({
-        productId: selectedProductId!,
-        environmentId: values.environmentId,
-        projectId: selectedProjectId || undefined,
-        categoryId: selectedFeatureId || undefined,
-        featureFullPath: selectedFeature?.fullPath || null,
-        featurePathIds: selectedFeature?.pathIds || null,
-        logLevel: values.logLevel,
-        message: values.message,
-        eventType: values.eventType,
-      }),
-    onSuccess: () => {
-      message.success('Log imported and consume triggered');
-      setLastImportedBatchId(importLogsMutation.data?.batchId ?? null);
-      importForm.resetFields(['message', 'eventType']);
-    },
-    onError: () => {
-      message.error('Import failed');
-    },
-  });
-
   const handleOpenProjectCreate = () => {
     setEditingProject(null);
     projectForm.resetFields();
@@ -516,13 +404,6 @@ export function ProductCatalogPage() {
         message.error('Unable to change feature status');
       });
   };
-
-  useEffect(() => {
-    const batchId = importLogsMutation.data?.batchId;
-    if (batchId) {
-      setLastImportedBatchId(batchId);
-    }
-  }, [importLogsMutation.data]);
 
   return (
     <PageTransition>
@@ -825,186 +706,7 @@ export function ProductCatalogPage() {
                   <Empty description="Select a product first" />
                 )}
               </Card>
-
-              <Card title="Import Logs">
-                {selectedProductId ? (
-                  <div className="space-y-4">
-                    <Form
-                      form={importForm}
-                      layout="vertical"
-                      onFinish={(values) => importLogsMutation.mutate(values)}
-                      initialValues={{ logLevel: 'INFO', environmentId: importEnvironmentId }}
-                    >
-                      <Form.Item name="environmentId" label="Environment" rules={[{ required: true }]}>
-                        <Select
-                          disabled={!canImportLogs}
-                          options={(selectedProduct?.productEnvironments || []).map((env) => ({
-                            value: env.environmentId,
-                            label: `${env.environmentCode} - ${env.environmentName}`,
-                          }))}
-                          onChange={(value) => setImportEnvironmentId(value)}
-                        />
-                      </Form.Item>
-                      <Form.Item name="logLevel" label="Level" rules={[{ required: true }]}>
-                        <Select
-                          disabled={!canImportLogs}
-                          options={['INFO', 'WARN', 'ERROR', 'DEBUG'].map((value) => ({ value, label: value }))}
-                        />
-                      </Form.Item>
-                      <Form.Item name="eventType" label="Event Type">
-                        <Input disabled={!canImportLogs} placeholder="MANUAL_IMPORT" />
-                      </Form.Item>
-                      <Form.Item name="message" label="Message" rules={[{ required: true }]}>
-                        <Input.TextArea
-                          disabled={!canImportLogs}
-                          rows={3}
-                          placeholder="Log message to import into the selected scope"
-                        />
-                      </Form.Item>
-                      <Button type="primary" htmlType="submit" block loading={importLogsMutation.isPending} disabled={!canImportLogs || !importEnvironmentId}>
-                        Import To Current Scope
-                      </Button>
-                    </Form>
-
-                    {lastImportedBatchId && (
-                      <Card
-                        size="small"
-                        title="Latest Import Status"
-                        extra={<Tag color={queueStatusMeta.color}>{queueStatusMeta.label}</Tag>}
-                      >
-                        <Space direction="vertical" className="w-full" size="middle">
-                          <Alert
-                            type={queueStatusMeta.color === 'error' ? 'error' : queueStatusMeta.color === 'warning' ? 'warning' : 'info'}
-                            showIcon
-                            message={`Batch: ${lastImportedBatchId}`}
-                            description={queueStatusMeta.description}
-                          />
-
-                          <List
-                            loading={batchItemsQuery.isLoading}
-                            dataSource={batchItemsQuery.data || []}
-                            locale={{ emptyText: <Empty description="No queue items yet" /> }}
-                            renderItem={(item) => (
-                              <List.Item>
-                                <div className="w-full space-y-1">
-                                  <div className="flex items-center justify-between gap-3">
-                                    <Text strong>{`Item #${item.sequenceNo}`}</Text>
-                                    <Tag color={item.status === 'FAILED' ? 'error' : item.status === 'PROCESSED' ? 'success' : 'processing'}>
-                                      {item.status}
-                                    </Tag>
-                                  </div>
-                                  <Text type="secondary">
-                                    {item.processedAt
-                                      ? `Processed at ${item.processedAt}`
-                                      : 'Waiting for processing result'}
-                                  </Text>
-                                  {item.errorMessage && (
-                                    <Text type="danger">{item.errorMessage}</Text>
-                                  )}
-                                </div>
-                              </List.Item>
-                            )}
-                          />
-                        </Space>
-                      </Card>
-                    )}
-                  </div>
-                ) : (
-                  <Empty description="Select a product first" />
-                )}
-              </Card>
             </div>
-          </Col>
-        </Row>
-
-        <Row gutter={[16, 16]}>
-          <Col xs={24} lg={16}>
-            <Card
-              title="Main Logs"
-              extra={
-                <Space wrap>
-                  <Input.Search
-                    allowClear
-                    placeholder="Search message, path, error"
-                    value={logKeyword}
-                    onChange={(event) => setLogKeyword(event.target.value)}
-                    style={{ width: 240 }}
-                  />
-                  <Select
-                    allowClear
-                    placeholder="Level"
-                    value={logLevel}
-                    onChange={setLogLevel}
-                    style={{ width: 120 }}
-                    options={['INFO', 'WARN', 'ERROR', 'DEBUG'].map((value) => ({ value, label: value }))}
-                  />
-                </Space>
-              }
-            >
-              {logsQuery.isError && (
-                <Alert
-                  type="error"
-                  showIcon
-                  style={{ marginBottom: 16 }}
-                  message="Unable to load logs"
-                  description={logsQuery.error instanceof Error ? logsQuery.error.message : 'The log query failed.'}
-                />
-              )}
-              <Table
-                rowKey="logId"
-                loading={logsQuery.isLoading}
-                dataSource={logsQuery.data?.data || []}
-                pagination={false}
-                locale={{ emptyText: 'No logs found in this scope' }}
-                columns={[
-                  {
-                    title: 'Time',
-                    dataIndex: 'timestamp',
-                    width: 190,
-                    render: (value: string | null | undefined) => value || '-',
-                  },
-                  {
-                    title: 'Level',
-                    dataIndex: 'level',
-                    width: 90,
-                    render: (value: string | null | undefined) => (value ? <Tag color={value === 'ERROR' ? 'error' : value === 'WARN' ? 'warning' : 'blue'}>{value}</Tag> : '-'),
-                  },
-                  {
-                    title: 'Message',
-                    dataIndex: 'message',
-                    render: (value: string | null | undefined, record: any) => (
-                      <div>
-                        <div>{value || '-'}</div>
-                        <Text type="secondary">{record.path || record.url || record.logType || ''}</Text>
-                      </div>
-                    ),
-                  },
-                ]}
-              />
-            </Card>
-          </Col>
-
-          <Col xs={24} lg={8}>
-            <Card title="Recent Audit Logs">
-              <List
-                loading={auditsQuery.isLoading}
-                dataSource={auditsQuery.data?.data || []}
-                locale={{ emptyText: <Empty description="No audit logs in this scope" /> }}
-                renderItem={(item: any) => (
-                  <List.Item>
-                    <div className="w-full">
-                      <div className="flex items-center justify-between gap-3">
-                        <Text strong>{item.action || item.resource_type || 'AUDIT'}</Text>
-                        <Tag>{item.result || 'N/A'}</Tag>
-                      </div>
-                      <Text type="secondary">
-                        {item.path || item.resource_id || '-'}
-                      </Text>
-                    </div>
-                  </List.Item>
-                )}
-              />
-            </Card>
           </Col>
         </Row>
 

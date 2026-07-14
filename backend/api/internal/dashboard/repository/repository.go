@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"omnilogs-api/dto"
 	"omnilogs-api/models"
@@ -18,13 +19,23 @@ type Repository interface {
 }
 
 type repository struct {
-	db       *gorm.DB
-	esClient *elasticsearch.Client
+	db                 *gorm.DB
+	esClient           *elasticsearch.Client
+	queryTimeout       time.Duration
+	slowQueryThreshold time.Duration
 }
 
-func NewRepository(db *gorm.DB, esClient *elasticsearch.Client) Repository {
+func NewRepository(db *gorm.DB, esClient *elasticsearch.Client, queryTimeout, slowQueryThreshold time.Duration) Repository {
+	if queryTimeout <= 0 {
+		queryTimeout = 10 * time.Second
+	}
+	if slowQueryThreshold <= 0 {
+		slowQueryThreshold = time.Second
+	}
 	return &repository{
-		db:       db,
-		esClient: esClient,
+		db:                 db,
+		esClient:           esClient,
+		queryTimeout:       queryTimeout,
+		slowQueryThreshold: slowQueryThreshold,
 	}
 }

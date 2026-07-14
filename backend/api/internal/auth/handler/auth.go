@@ -87,6 +87,10 @@ func (h *Handler) Login(c *gin.Context) {
 		responses.Unauthorized(c, "invalid username/email or password")
 		return
 	}
+	if errors.Is(err, responses.ErrorUserCode["USER_INACTIVE"]) {
+		responses.Unauthorized(c, "You are inactive")
+		return
+	}
 	if err != nil {
 		responses.InternalError(c)
 		return
@@ -115,6 +119,10 @@ func (h *Handler) RefreshToken(c *gin.Context) {
 	tokens, err := h.usecase.RefreshToken(req.RefreshToken)
 	if errors.Is(err, responses.ErrorUserCode["INVALID_REFRESH_TOKEN"]) {
 		responses.Unauthorized(c, "invalid refresh token")
+		return
+	}
+	if errors.Is(err, responses.ErrorUserCode["USER_INACTIVE"]) {
+		responses.Unauthorized(c, "You are inactive")
 		return
 	}
 	if err != nil {
