@@ -24,8 +24,9 @@ func TestEnvValidate(t *testing.T) {
 		NATSStream:                        "OMNILOGS_LOGS",
 		NATSSubject:                       "omnilogs.logs.ingest",
 		NATSConsumer:                      "omnilogs-worker",
-		NATSFetchBatchSize:                500,
-		NATSFetchMaxWaitMS:                2000,
+		NATSFetchBatchSize:                100,
+		NATSFetchMaxWaitMS:                250,
+		NATSMaxAckPending:                 200,
 		DataEncryptionKey:                 "abcdefghijklmnopqrstuvwxyz123456",
 	}
 

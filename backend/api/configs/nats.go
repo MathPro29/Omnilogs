@@ -16,6 +16,7 @@ type NATSQueue struct {
 	Consumer       string
 	FetchBatchSize int
 	FetchMaxWait   time.Duration
+	MaxAckPending  int
 }
 
 func ConnectNATS(env *Env) (*NATSQueue, error) {
@@ -35,7 +36,7 @@ func ConnectNATS(env *Env) (*NATSQueue, error) {
 		return nil, err
 	}
 
-	if err := ensureConsumer(js, env.NATSStream, env.NATSConsumer, env.NATSSubject); err != nil {
+	if err := ensureConsumer(js, env.NATSStream, env.NATSConsumer, env.NATSSubject, env.NATSMaxAckPending); err != nil {
 		nc.Close()
 		return nil, err
 	}
@@ -48,6 +49,7 @@ func ConnectNATS(env *Env) (*NATSQueue, error) {
 		Consumer:       env.NATSConsumer,
 		FetchBatchSize: env.NATSFetchBatchSize,
 		FetchMaxWait:   time.Duration(env.NATSFetchMaxWaitMS) * time.Millisecond,
+		MaxAckPending:  env.NATSMaxAckPending,
 	}, nil
 }
 
@@ -98,17 +100,25 @@ func ensureStream(js nats.JetStreamContext, streamName string, subject string) e
 	return err
 }
 
-func ensureConsumer(js nats.JetStreamContext, streamName string, consumerName string, subject string) error {
-	if _, err := js.ConsumerInfo(streamName, consumerName); err == nil {
-		return nil
-	}
-
-	_, err := js.AddConsumer(streamName, &nats.ConsumerConfig{
+func ensureConsumer(js nats.JetStreamContext, streamName string, consumerName string, subject string, maxAckPending int) error {
+	config := &nats.ConsumerConfig{
 		Durable:       consumerName,
 		AckPolicy:     nats.AckExplicitPolicy,
 		AckWait:       5 * time.Minute,
+		MaxAckPending: maxAckPending,
 		FilterSubject: subject,
 		ReplayPolicy:  nats.ReplayInstantPolicy,
-	})
+	}
+
+	// Update the mutable flow-control setting as well as creating a new
+	// consumer. Without this, changing an environment variable would have no
+	// effect after the durable consumer had been created once.
+	if existing, err := js.ConsumerInfo(streamName, consumerName); err == nil {
+		existing.Config.MaxAckPending = maxAckPending
+		_, err = js.UpdateConsumer(streamName, &existing.Config)
+		return err
+	}
+
+	_, err := js.AddConsumer(streamName, config)
 	return err
 }

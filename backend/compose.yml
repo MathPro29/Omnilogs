@@ -14,8 +14,9 @@ x-common-env: &common-env
   NATS_STREAM: OMNILOGS_LOGS
   NATS_SUBJECT: omnilogs.logs.ingest
   NATS_CONSUMER: omnilogs-worker
-  NATS_FETCH_BATCH_SIZE: 500
-  NATS_FETCH_MAX_WAIT_MS: 2000
+  NATS_FETCH_BATCH_SIZE: 100
+  NATS_FETCH_MAX_WAIT_MS: 250
+  NATS_MAX_ACK_PENDING: 200
 
 services:
   migrate:
