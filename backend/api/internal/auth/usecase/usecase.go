@@ -85,6 +85,7 @@ func toUserResponse(user *models.User) *dto.UserResponse {
 		PhoneNumber: user.PhoneNumber,
 		IsActive:    user.IsActive,
 		Role:        getUserRoleName(user),
+		Permissions: user.Permissions,
 		CreatedAt:   user.CreatedAt,
 		UpdatedAt:   user.UpdatedAt,
 	}

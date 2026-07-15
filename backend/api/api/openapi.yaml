@@ -136,7 +136,7 @@ paths:
   /api/v1/auth/forgot-password:
     post:
       tags: [Auth]
-      summary: Issue a password reset token
+      summary: Start password reset
       requestBody:
         required: true
         content:
@@ -145,7 +145,7 @@ paths:
               $ref: '#/components/schemas/ForgotPasswordRequest'
       responses:
         '200':
-          description: Reset token created
+          description: Password reset started
           content:
             application/json:
               schema:
@@ -153,7 +153,7 @@ paths:
   /api/v1/auth/reset-password:
     post:
       tags: [Auth]
-      summary: Reset password using a reset token
+      summary: Reset password using email
       requestBody:
         required: true
         content:
@@ -168,7 +168,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/SuccessEnvelope'
         '400':
-          description: Invalid reset token
+          description: User not found
           content:
             application/json:
               schema:
@@ -848,6 +848,53 @@ paths:
                 $ref: '#/components/schemas/ErrorEnvelope'
         '409':
           description: One or more memberships already exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/products/{productId}/access-overview:
+    get:
+      tags: [Authorization]
+      summary: Get centralized product access, roles, effective permissions, and scopes
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      responses:
+        '200':
+          description: Product access overview
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+  /api/v1/products/{productId}/access/members/{userId}:
+    put:
+      tags: [Authorization]
+      summary: Create or overwrite a user's product role and scopes
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertProductAccessRequest'
+      responses:
+        '200':
+          description: Existing access overwritten or new access created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          description: Invalid role or scope relationship
           content:
             application/json:
               schema:
@@ -1637,10 +1684,11 @@ components:
           format: email
     ResetPasswordRequest:
       type: object
-      required: [token, new_password, confirm_password]
+      required: [email, new_password, confirm_password]
       properties:
-        token:
+        email:
           type: string
+          format: email
         new_password:
           type: string
           format: password
@@ -1819,6 +1867,36 @@ components:
           minItems: 1
           items:
             $ref: '#/components/schemas/CreateProductMembershipRequest'
+    ProductAccessScopeInput:
+      type: object
+      required: [scope_level]
+      properties:
+        project_id:
+          type: integer
+          nullable: true
+        category_id:
+          type: integer
+          nullable: true
+        scope_level:
+          type: string
+          enum: [PRODUCT, PROJECT, CATEGORY]
+    UpsertProductAccessRequest:
+      type: object
+      required: [role_id, scopes]
+      properties:
+        role_id:
+          type: integer
+        scopes:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/ProductAccessScopeInput'
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        is_active:
+          type: boolean
     UpdateProductMembershipRequest:
       type: object
       properties:

@@ -265,10 +265,15 @@ export function CustomFieldsPage() {
     { title: 'Scope', render: (_: unknown, row: CustomField) => <Text>Project {row.project_id ? `#${row.project_id}` : 'ทั้งหมด'} / Category {row.category_id ? `#${row.category_id}` : 'ทั้งหมด'}</Text> },
     { title: 'Field Path', dataIndex: 'field_path', render: (value: string | null) => <Text code>{value || '—'}</Text> },
     {
-      title: 'Type / Options',
+      title: 'Type / Options / Security',
       render: (_: unknown, row: CustomField) => (
         <Space direction="vertical" size={4}>
-          <Tag color="blue">{row.data_type}</Tag>
+          <Space wrap>
+            <Tag color="blue">{row.data_type}</Tag>
+            {row.is_sensitive && <Tag color="red">Sensitive</Tag>}
+            {row.mask_before_index && <Tag color="gold">Mask</Tag>}
+            {row.encrypt_before_archive && <Tag color="purple">Encrypt</Tag>}
+          </Space>
           {row.data_type === 'enum' && <Space wrap>{(row.enum_options || []).map((option) => <Tag key={option.option_id}>{option.option_label} = {option.option_value}</Tag>)}</Space>}
         </Space>
       ),
@@ -282,15 +287,15 @@ export function CustomFieldsPage() {
             danger
             icon={<TrashIcon className="w-4 h-4" />}
             onClick={() => Modal.confirm({
-              title: 'ปิดใช้งาน Custom Field?',
-              content: `${row.display_name || row.field_key} จะไม่แสดงในฟอร์มและตัวกรองใหม่`,
+              title: 'ลบ Custom Field นี้หรือไม่?',
+              content: `${row.display_name || row.field_key} จะถูกลบไปอย่างถาวร`,
               onOk: async () => {
                 await customFieldService.remove(row.field_definition_id);
                 await fieldsQuery.refetch();
               },
             })}
           >
-            ปิดใช้
+            ลบ
           </Button>
         </Space>
       ),
@@ -466,8 +471,26 @@ export function CustomFieldsPage() {
               <Col xs={24} md={12}><Form.Item name="display_name" label="ชื่อที่แสดง" rules={[{ required: true }]}><Input placeholder="Customer Tier" /></Form.Item></Col>
               <Col xs={24} md={12}><Form.Item name="data_type" label="Data type" rules={[{ required: true }]}><Select options={['string', 'number', 'boolean', 'datetime', 'json', 'array', 'object', 'enum'].map((value) => ({ value, label: value.toUpperCase() }))} /></Form.Item></Col>
               <Col xs={24} md={12}><Form.Item name="display_order" label="ลำดับแสดงผล"><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
-              <Col xs={24} md={12}><Form.Item name="field_path" label="Field Path" extra="เว้นว่างเพื่อใช้ custom_fields.{field_key}"><Input placeholder="custom_fields.customer_tier" /></Form.Item></Col>
-              <Col xs={24} md={12}><Form.Item name="elastic_field_name" label="Elasticsearch Field" extra="เว้นว่างเพื่อสร้างอัตโนมัติ"><Input placeholder="payload.custom_fields.customer_tier" /></Form.Item></Col>
+              <Col xs={24} md={12}><Form.Item name="field_path" label="Field Path"><Input placeholder="custom_fields.customer_tier" disabled={true} /></Form.Item></Col>
+              <Col xs={24} md={12}><Form.Item name="elastic_field_name" label="Elasticsearch Field"><Input placeholder="payload.custom_fields.customer_tier" disabled={true} /></Form.Item></Col>
+            </Row>
+
+            <Row gutter={16} style={{ marginTop: 8, marginBottom: 16 }}>
+              <Col xs={24} sm={8}>
+                <Form.Item name="is_sensitive" label="ข้อมูลสำคัญ (Is Sensitive)" valuePropName="checked">
+                  <Switch />
+                </Form.Item>
+              </Col>
+              <Col xs={24} sm={8}>
+                <Form.Item name="mask_before_index" label="ทำ Mask ก่อน Index" valuePropName="checked">
+                  <Switch />
+                </Form.Item>
+              </Col>
+              <Col xs={24} sm={8}>
+                <Form.Item name="encrypt_before_archive" label="เข้ารหัสก่อน Archive" valuePropName="checked">
+                  <Switch />
+                </Form.Item>
+              </Col>
             </Row>
 
             {editing?.is_favorite && (

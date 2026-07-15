@@ -23,7 +23,7 @@ func actor(c *gin.Context) (usecase.Actor, bool) {
 	role, _ := c.Get("role")
 	roleStr, _ := role.(string)
 	isAdmin := roleStr == "god" || roleStr == "owner" || roleStr == "superadmin"
-	
+
 	val, _ := id.(uint)
 	return usecase.Actor{UserID: int(val), PlatformAdmin: isAdmin}, ok
 }
@@ -48,7 +48,7 @@ func (h *Handler) CreateAccessRequest(c *gin.Context) {
 		responses.ValidationError(c, err)
 		return
 	}
-	
+
 	res, err := h.usecase.CreateRequest(c.Request.Context(), act, req)
 	if err != nil {
 		responses.Error(c, "INVALID_REQUEST", err.Error(), err)
@@ -78,7 +78,7 @@ func (h *Handler) ReviewAccessRequest(c *gin.Context) {
 		responses.ValidationError(c, err)
 		return
 	}
-	
+
 	res, err := h.usecase.ReviewRequest(c.Request.Context(), act, requestID, req)
 	if err != nil {
 		if errors.Is(err, responses.ErrForbidden) {
@@ -102,7 +102,7 @@ func (h *Handler) ListAccessRequests(c *gin.Context) {
 	if !ok {
 		return
 	}
-	
+
 	res, err := h.usecase.ListRequests(c.Request.Context(), act, productID)
 	if err != nil {
 		responses.Error(c, "INVALID_REQUEST", err.Error(), err)
@@ -141,7 +141,7 @@ func (h *Handler) RevealSensitiveValue(c *gin.Context) {
 		responses.ValidationError(c, err)
 		return
 	}
-	
+
 	res, err := h.usecase.RevealValue(c.Request.Context(), act, req)
 	if err != nil {
 		if errors.Is(err, responses.ErrForbidden) {
@@ -155,6 +155,32 @@ func (h *Handler) RevealSensitiveValue(c *gin.Context) {
 	utils.Success(c, http.StatusOK, res)
 }
 
+func (h *Handler) RevealRawMainLog(c *gin.Context) {
+	act, ok := actor(c)
+	if !ok {
+		responses.Unauthorized(c, "unauthorized")
+		return
+	}
+	productID, ok := idParam(c, "productId")
+	if !ok {
+		return
+	}
+	value, err := h.usecase.RevealMainLog(c.Request.Context(), act, productID, c.Param("logId"))
+	if err != nil {
+		if errors.Is(err, responses.ErrForbidden) {
+			responses.Forbidden(c, "permission denied")
+			return
+		}
+		if errors.Is(err, responses.ErrNotFound) {
+			responses.NotFound(c, "main log not found")
+			return
+		}
+		responses.Error(c, "INTERNAL_ERROR", "failed to reveal main log", err)
+		return
+	}
+	c.Set("audit_reason", fmt.Sprintf("Revealed raw main log %s", c.Param("logId")))
+	utils.Success(c, http.StatusOK, value)
+}
 func (h *Handler) ListAccessHistory(c *gin.Context) {
 	act, ok := actor(c)
 	if !ok {
@@ -165,7 +191,7 @@ func (h *Handler) ListAccessHistory(c *gin.Context) {
 	if !ok {
 		return
 	}
-	
+
 	res, err := h.usecase.ListHistory(c.Request.Context(), act, productID)
 	if err != nil {
 		if errors.Is(err, responses.ErrForbidden) {

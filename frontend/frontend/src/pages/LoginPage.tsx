@@ -126,6 +126,14 @@ export function LoginPage() {
               </span>
             </Button>
           </Form.Item>
+          <div className="flex justify-between items-center pt-3 text-sm">
+            <a href={ROUTES.FORGOT_PASSWORD} className="text-gray-500 hover:text-indigo-600 transition-colors">
+              ลืมรหัสผ่าน ?
+            </a>
+            <a href={ROUTES.REGISTER} className="text-indigo-600 hover:underline font-medium">
+              สมัครสมาชิกใหม่
+            </a>
+          </div>
         </Form>
 
         {/* Demo credentials */}

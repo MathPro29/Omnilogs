@@ -57,6 +57,7 @@ type SensitiveLogSecretResponse struct {
 }
 
 type RevealedSensitiveLogResponse struct {
+	LogID     *string    `json:"log_id,omitempty"`
 	SecretID  string     `json:"secret_id"`
 	FieldKey  string     `json:"field_key"`
 	FieldPath string     `json:"field_path"`

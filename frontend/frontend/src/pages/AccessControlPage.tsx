@@ -1,767 +1,1085 @@
-import { useEffect, useState, useCallback } from 'react';
+import { Component, useCallback, useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import {
-  Card,
-  Form,
-  Select,
+  Alert,
+  Badge,
   Button,
-  DatePicker,
-  Typography,
-  Table,
-  Tag,
-  Modal,
-  message,
-  Divider,
-  Row,
+  Card,
+  Checkbox,
   Col,
+  DatePicker,
   Empty,
+  Form,
+  Input,
+  Modal,
+  Popconfirm,
+  Row,
+  Select,
+  Space,
+  Spin,
+  Switch,
+  Table,
+  Tabs,
+  Tag,
   Tooltip,
-} from 'antd';
+  Typography,
+  message,
+} from "antd";
 import {
+  ArrowPathIcon,
+  PencilSquareIcon,
+  PlusIcon,
   ShieldCheckIcon,
-  UserPlusIcon,
   TrashIcon,
-  LockClosedIcon,
-} from '@heroicons/react/24/outline';
-import { Navigate } from 'react-router-dom';
-import { useAuthStore, useAppStore } from '@/store';
-import { ROUTES, PERMISSIONS } from '@/constants';
-import { productAdminService, userService } from '@/services';
-import { PageTransition } from '@/components';
+  UsersIcon,
+} from "@heroicons/react/24/outline";
+import dayjs from "dayjs";
+import { Navigate } from "react-router-dom";
+import { PageTransition } from "@/components";
+import { PERMISSIONS, ROUTES } from "@/constants";
+import { productAdminService } from "@/services/product-admin.service";
+import { userService } from "@/services/user.service";
+import { customFieldService, type CustomField } from "@/services/custom-field.service";
+import { useAuthStore } from "@/store";
 import type {
   Product,
+  ProductAccessMember,
+  ProductAccessOverview,
+  ProductAccessRole,
   Project,
   ProjectFeature,
-  ProductRoleDefinition,
   User,
-} from '@/types';
-import dayjs from 'dayjs';
+} from "@/types";
 
 const { Title, Text } = Typography;
-const { confirm } = Modal;
 
-interface GrantFormValues {
-  productId: number;
-  projectId?: number;
-  categoryIds?: number[];
-  userIds: number[];
-  roleId: number;
-  expiresAt?: dayjs.Dayjs;
-}
+const RESOURCE_ACTIONS = [
+  { resource: "PRODUCT", actions: ["READ", "UPDATE", "DELETE"] },
+  { resource: "PROJECT", actions: ["CREATE", "READ", "UPDATE", "DELETE"] },
+  { resource: "FEATURE", actions: ["CREATE", "READ", "UPDATE", "DELETE"] },
+  { resource: "CATEGORY", actions: ["CREATE", "READ", "UPDATE", "DELETE"] },
+  { resource: "ROLE", actions: ["CREATE", "READ", "UPDATE", "DELETE"] },
+  { resource: "ACCESS", actions: ["READ", "GRANT", "REVOKE"] },
+  { resource: "USER", actions: ["CREATE", "READ", "UPDATE", "DELETE"] },
+  { resource: "API_KEY", actions: ["CREATE", "READ", "UPDATE", "DELETE"] },
+  { resource: "ENVIRONMENT", actions: ["CREATE", "READ", "UPDATE", "DELETE"] },
+  { resource: "LOG", actions: ["READ", "EXPORT", "VIEW_SENSITIVE"] },
+  { resource: "ELASTIC_INDEX_POLICY", actions: ["CREATE", "READ", "UPDATE", "DELETE"] },
+];
 
-interface ScopeTableRow {
-  key: string;
-  scopeId: number;
-  membershipId: number;
+const CUSTOM_FIELD_ACTIONS = ["VISIBLE", "SEARCH", "FILTER", "SORT", "AGGREGATE"];
+
+type MemberForm = {
   userId: number;
-  userFullName: string;
-  userEmail: string;
-  roleName: string;
-  scopeLevel: 'PRODUCT' | 'PROJECT' | 'CATEGORY';
-  projectName?: string;
-  featureName?: string;
+  roleId: number;
+  scopes: string[];
+  expiresAt?: dayjs.Dayjs;
   isActive: boolean;
-  expiresAt?: string | null;
-}
+};
+type RoleForm = {
+  roleCode: string;
+  roleName: string;
+  isActive: boolean;
+};
 
-interface ScopePayloadPreview {
-  scopeLevel: 'PRODUCT' | 'PROJECT' | 'CATEGORY';
+const levelColor: Record<string, string> = {
+  FULL_ACCESS: "purple",
+  ADMIN: "red",
+  EDITOR: "blue",
+  READ_ONLY: "green",
+};
+const scopeKey = (scope: {
+  scopeLevel: string;
   projectId?: number | null;
   categoryId?: number | null;
-}
+}) =>
+  scope.scopeLevel === "PRODUCT"
+    ? "PRODUCT"
+    : scope.scopeLevel === "PROJECT"
+      ? `PROJECT:${scope.projectId}`
+      : `CATEGORY:${scope.projectId}:${scope.categoryId}`;
 
-function scopePayloadKey(value: ScopePayloadPreview): string {
-  return `${value.scopeLevel}:${value.projectId ?? 'null'}:${value.categoryId ?? 'null'}`;
-}
+function AccessControlContent() {
+  const authPermissions = useAuthStore((state) => state.permissions);
+  const platformRoles = useAuthStore((state) => state.roles);
+  const isAdmin = platformRoles.some((role) =>
+    ["god", "owner", "superadmin", "super_admin"].includes(role.toLowerCase()),
+  );
+  const canView = isAdmin || authPermissions.includes(PERMISSIONS.ROLE_VIEW);
+  const canEdit = isAdmin || authPermissions.includes(PERMISSIONS.ROLE_EDIT);
 
-function scopeTableRowKey(value: {
-  membershipId: number;
-  scopeLevel: 'PRODUCT' | 'PROJECT' | 'CATEGORY';
-  projectId?: number | null;
-  categoryId?: number | null;
-}): string {
-  return `${value.membershipId}:${value.scopeLevel}:${value.projectId ?? 'null'}:${value.categoryId ?? 'null'}`;
-}
-
-export function AccessControlPage() {
-  const setBreadcrumbs = useAppStore((state) => state.setBreadcrumbs);
-  const permissions = useAuthStore((state) => state.permissions);
-  const roles = useAuthStore((state) => state.roles);
-  
-  // ตรวจสอบบทบาทของ platform user ว่าเป็น god, owner, หรือ superadmin หรือไม่
-  const isGodOrOwner = roles.includes('god') || roles.includes('owner') || roles.includes('superadmin') || roles.includes('super_admin');
-
-  if (!permissions.includes(PERMISSIONS.ROLE_VIEW) && !isGodOrOwner) {
-    return <Navigate to={ROUTES.FORBIDDEN} replace />;
-  }
-
-  const [form] = Form.useForm<GrantFormValues>();
-  const watchedFormValues = Form.useWatch([], form) as GrantFormValues | undefined;
-  
-  // Data lists
   const [products, setProducts] = useState<Product[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [features, setFeatures] = useState<ProjectFeature[]>([]);
-  const [productRoles, setProductRoles] = useState<ProductRoleDefinition[]>([]);
-  const [systemUsers, setSystemUsers] = useState<User[]>([]);
-  
-  // Selection states
-  const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
-  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
-  
-  // Table state
-  const [tableData, setTableData] = useState<ScopeTableRow[]>([]);
-  
-  // Loading states
-  const [loadingInitial, setLoadingInitial] = useState(true);
-  const [loadingData, setLoadingData] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const [customFields, setCustomFields] = useState<CustomField[]>([]);
+  const [selectedPermissions, setSelectedPermissions] = useState<Record<string, boolean>>({});
+  const [productId, setProductId] = useState<number>();
+  const [overview, setOverview] = useState<ProductAccessOverview>();
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [search, setSearch] = useState("");
+  const [memberOpen, setMemberOpen] = useState(false);
+  const [roleOpen, setRoleOpen] = useState(false);
+  const [editingMember, setEditingMember] = useState<ProductAccessMember>();
+  const [editingRole, setEditingRole] = useState<ProductAccessRole>();
+  const [saving, setSaving] = useState(false);
+  const [memberForm] = Form.useForm<MemberForm>();
+  const [roleForm] = Form.useForm<RoleForm>();
 
-  const buildScopePayloads = (values: GrantFormValues): ScopePayloadPreview[] => {
-    if (values.projectId && values.categoryIds && values.categoryIds.length > 0) {
-      return values.categoryIds.map((categoryId) => ({
-        scopeLevel: 'CATEGORY',
-        projectId: values.projectId,
-        categoryId,
-      }));
-    }
-
-    if (values.projectId) {
-      return [
-        {
-          scopeLevel: 'PROJECT',
-          projectId: values.projectId,
-          categoryId: null,
-        },
-      ];
-    }
-
-    return [
-      {
-        scopeLevel: 'PRODUCT',
-        projectId: null,
-        categoryId: null,
-      },
-    ];
-  };
-
-  // Set breadcrumbs
-  useEffect(() => {
-    setBreadcrumbs([
-      { title: 'จัดการผู้ใช้' },
-      { title: 'บทบาทและสิทธิ์ (จัดการสิทธิ์เข้าถึง)', path: ROUTES.ROLES },
-    ]);
-  }, [setBreadcrumbs]);
-
-  // Load initial products and users
-  const loadInitialData = useCallback(async () => {
+  const loadOverview = useCallback(async (id: number, quiet = false) => {
+    if (!quiet) setRefreshing(true);
     try {
-      setLoadingInitial(true);
-      const [productsData, usersData] = await Promise.all([
-        productAdminService.listProducts(),
-        userService.getUsers({ page: 1, pageSize: 1000 }),
-      ]);
-      setProducts(productsData);
-      setSystemUsers(usersData.data);
-    } catch {
-      message.error('เกิดข้อผิดพลาดในการโหลดข้อมูลเริ่มต้น');
-    } finally {
-      setLoadingInitial(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (isGodOrOwner) {
-      loadInitialData();
-    }
-  }, [isGodOrOwner, loadInitialData]);
-
-  // Load projects, features, roles, and current scopes when product changes
-  const loadProductDependentData = useCallback(async (productId: number) => {
-    try {
-      setLoadingData(true);
-      const [projectsData, rolesData, membershipsData] = await Promise.all([
-        productAdminService.listProjects(productId),
-        productAdminService.listRoles(productId),
-        productAdminService.listMemberships(productId),
-      ]);
-
-      setProjects(projectsData);
-      setProductRoles(rolesData);
-      
-      // Load scopes for each membership
-      const rows: ScopeTableRow[] = [];
-      await Promise.all(
-        membershipsData.map(async (membership) => {
-          try {
-            const scopes = await productAdminService.listScopes(productId, membership.membershipId);
-            
-            // Map member user details
-            const matchedUser = systemUsers.find((u) => String(u.id) === String(membership.userId));
-            const userFullName = matchedUser?.fullName || `User ID: ${membership.userId}`;
-            const userEmail = matchedUser?.email || 'N/A';
-            
-            // Map role details
-            const matchedRole = rolesData.find((r) => r.roleId === membership.roleId);
-            const roleName = matchedRole?.roleName || `Role ID: ${membership.roleId}`;
-
-            scopes.forEach((scope) => {
-              // Get project name if scoped to project or category
-              let projectName = '';
-              if (scope.projectId) {
-                const proj = projectsData.find((p) => p.projectId === scope.projectId);
-                projectName = proj?.projectName || `Project ID: ${scope.projectId}`;
-              }
-
-              // Load features if category is scoped
-              rows.push({
-                key: `${membership.membershipId}-${scope.scopeId}`,
-                scopeId: scope.scopeId,
-                membershipId: membership.membershipId,
-                userId: membership.userId,
-                userFullName,
-                userEmail,
-                roleName,
-                scopeLevel: scope.scopeLevel,
-                projectName: scope.projectId ? projectName : undefined,
-                featureName: scope.categoryId ? `Feature ID: ${scope.categoryId}` : undefined,
-                isActive: scope.isActive,
-                expiresAt: membership.expiresAt,
-              });
-            });
-          } catch (err) {
-            console.error('Failed to load scopes for membership', membership.membershipId, err);
-          }
-        })
-      );
-
-      // Now query category details for category level scopes to resolve category/feature names
-      // (Do this sequentially or parallel after rows are gathered)
-      for (const row of rows) {
-        if (row.scopeLevel === 'CATEGORY' && row.projectName) {
-          const membership = membershipsData.find((m) => m.membershipId === row.membershipId);
-          if (membership && row.projectName) {
-            const proj = projectsData.find((p) => p.projectName === row.projectName);
-            if (proj) {
-              try {
-                const projFeatures = await productAdminService.listFeatures(productId, proj.projectId);
-                // Try finding matching category
-                const scopeItem = rows.find((r) => r.key === row.key);
-                if (scopeItem) {
-                  // Find the target scope detail from our mocked/raw DB
-                  const scopesForMem = await productAdminService.listScopes(productId, row.membershipId);
-                  const thisScope = scopesForMem.find((s) => s.scopeId === row.scopeId);
-                  if (thisScope && thisScope.categoryId) {
-                    const feat = projFeatures.find((f) => f.categoryId === thisScope.categoryId);
-                    scopeItem.featureName = feat?.categoryName || `Feature ID: ${thisScope.categoryId}`;
-                  }
-                }
-              } catch (e) {
-                console.error(e);
-              }
-            }
-          }
-        }
-      }
-
-      setTableData(rows);
-    } catch {
-      message.error('เกิดข้อผิดพลาดในการโหลดข้อมูลโครงสร้างระบบ');
-    } finally {
-      setLoadingData(false);
-    }
-  }, [systemUsers]);
-
-  // Load features when project changes
-  const loadProjectFeatures = useCallback(async (productId: number, projectId: number) => {
-    try {
-      const featuresData = await productAdminService.listFeatures(productId, projectId);
-      setFeatures(featuresData);
-    } catch {
-      message.error('เกิดข้อผิดพลาดในการโหลดข้อมูล Feature');
-    }
-  }, []);
-
-  // Handle Product selection change
-  const handleProductChange = (productId: number) => {
-    setSelectedProductId(productId);
-    setSelectedProjectId(null);
-    setFeatures([]);
-    setProjects([]);
-    setProductRoles([]);
-    setTableData([]);
-    form.setFieldsValue({ projectId: undefined, categoryIds: undefined });
-    loadProductDependentData(productId);
-  };
-
-  // Handle Project selection change
-  const handleProjectChange = (projectId: number) => {
-    setSelectedProjectId(projectId);
-    setFeatures([]);
-    form.setFieldsValue({ categoryIds: undefined });
-    if (selectedProductId) {
-      loadProjectFeatures(selectedProductId, projectId);
-    }
-  };
-
-  // Handle Revoke Scope Access
-  const handleRevokeScope = (record: ScopeTableRow) => {
-    confirm({
-      title: 'ยืนยันการเพิกถอนสิทธิ์',
-      content: `ต้องการเพิกถอนสิทธิ์เข้าถึงของ "${record.userFullName}" สำหรับ ${
-        record.scopeLevel === 'PRODUCT'
-          ? 'ทั้ง Product'
-          : record.scopeLevel === 'PROJECT'
-          ? `โปรเจกต์: ${record.projectName}`
-          : `ฟีเจอร์: ${record.featureName} (${record.projectName})`
-      } หรือไม่?`,
-      okText: 'เพิกถอนสิทธิ์',
-      okType: 'danger',
-      cancelText: 'ยกเลิก',
-      onOk: async () => {
-        try {
-          if (selectedProductId) {
-            await productAdminService.deleteScope(selectedProductId, record.membershipId, record.scopeId);
-            message.success('เพิกถอนสิทธิ์เข้าถึงสำเร็จ');
-            loadProductDependentData(selectedProductId);
-          }
-        } catch {
-          message.error('เกิดข้อผิดพลาดในการเพิกถอนสิทธิ์');
-        }
-      },
-    });
-  };
-
-  // Handle Submit Form
-  const handleFinish = async (values: GrantFormValues) => {
-    setSubmitting(true);
-    try {
-      const { productId, userIds, roleId, expiresAt } = values;
-      const formattedExpiresAt = expiresAt ? expiresAt.toISOString() : null;
-      const scopePayloads = buildScopePayloads(values);
-      const rolesById = new Map(productRoles.map((role) => [role.roleId, role]));
-      const projectsById = new Map(projects.map((project) => [project.projectId, project]));
-      const featuresById = new Map(features.map((feature) => [feature.categoryId, feature]));
-      const affectedRows: ScopeTableRow[] = [];
-      const memberships = await productAdminService.listMemberships(productId);
-
-      // Loop through all selected users and grant access
-      for (const userId of userIds) {
-        // 1. Check if user already has membership
-        let membership = memberships.find((m) => String(m.userId) === String(userId));
-
-        if (!membership) {
-          // Create new membership
-          try {
-            membership = await productAdminService.createMembership(productId, {
-              userId,
-              roleId,
-              expiresAt: formattedExpiresAt,
-            });
-            memberships.push(membership);
-          } catch (err: any) {
-            throw new Error(err?.response?.data?.error?.message || `Create membership failed for user ${userId}`);
-          }
-        } else if (membership.roleId !== roleId) {
-          // If membership role has changed, update it
-          try {
-            membership = await productAdminService.updateMembership(productId, membership.membershipId, {
-              roleId,
-              expiresAt: formattedExpiresAt,
-            });
-          } catch (err: any) {
-            throw new Error(err?.response?.data?.error?.message || `Update membership failed for user ${userId}`);
-          }
-        }
-
-        const matchedUser = systemUsers.find((u) => String(u.id) === String(userId));
-        const roleName = rolesById.get(membership.roleId)?.roleName || `Role ID: ${membership.roleId}`;
-
-        // 2. Create target scope(s) for this membership
-        const existingScopes = await productAdminService.listScopes(productId, membership.membershipId);
-        const existingScopeKeys = new Set(
-          existingScopes.map((scope) =>
-            scopePayloadKey({
-              scopeLevel: scope.scopeLevel,
-              projectId: scope.projectId ?? null,
-              categoryId: scope.categoryId ?? null,
-            })
-          )
+      setOverview(await productAdminService.getAccessOverview(id));
+    } catch (error: any) {
+      if (!quiet)
+        message.error(
+          error?.response?.data?.error?.message ||
+            error?.message ||
+            "Failed to load product access.",
         );
-
-        for (const scopePayload of scopePayloads) {
-          const existingScope = existingScopes.find(
-            (scope) =>
-              scope.scopeLevel === scopePayload.scopeLevel &&
-              (scope.projectId ?? null) === (scopePayload.projectId ?? null) &&
-              (scope.categoryId ?? null) === (scopePayload.categoryId ?? null)
-          );
-
-          if (existingScopeKeys.has(scopePayloadKey(scopePayload)) && existingScope) {
-            affectedRows.push({
-              key: scopeTableRowKey({
-                membershipId: membership.membershipId,
-                scopeLevel: existingScope.scopeLevel,
-                projectId: existingScope.projectId ?? null,
-                categoryId: existingScope.categoryId ?? null,
-              }),
-              scopeId: existingScope.scopeId,
-              membershipId: membership.membershipId,
-              userId,
-              userFullName: matchedUser?.fullName || `User ID: ${userId}`,
-              userEmail: matchedUser?.email || 'N/A',
-              roleName,
-              scopeLevel: existingScope.scopeLevel,
-              projectName: existingScope.projectId
-                ? projectsById.get(existingScope.projectId)?.projectName || `Project ID: ${existingScope.projectId}`
-                : undefined,
-              featureName: existingScope.categoryId
-                ? featuresById.get(existingScope.categoryId)?.categoryName || `Feature ID: ${existingScope.categoryId}`
-                : undefined,
-              isActive: existingScope.isActive,
-              expiresAt: membership.expiresAt,
-            });
-            continue;
-          }
-          try {
-            const createdScope = await productAdminService.createScope(productId, membership.membershipId, scopePayload);
-            affectedRows.push({
-              key: scopeTableRowKey({
-                membershipId: membership.membershipId,
-                scopeLevel: createdScope.scopeLevel,
-                projectId: createdScope.projectId ?? null,
-                categoryId: createdScope.categoryId ?? null,
-              }),
-              scopeId: createdScope.scopeId,
-              membershipId: membership.membershipId,
-              userId,
-              userFullName: matchedUser?.fullName || `User ID: ${userId}`,
-              userEmail: matchedUser?.email || 'N/A',
-              roleName,
-              scopeLevel: createdScope.scopeLevel,
-              projectName: createdScope.projectId
-                ? projectsById.get(createdScope.projectId)?.projectName || `Project ID: ${createdScope.projectId}`
-                : undefined,
-              featureName: createdScope.categoryId
-                ? featuresById.get(createdScope.categoryId)?.categoryName || `Feature ID: ${createdScope.categoryId}`
-                : undefined,
-              isActive: createdScope.isActive,
-              expiresAt: membership.expiresAt,
-            });
-          } catch (err: any) {
-            throw new Error(
-              err?.response?.data?.error?.message ||
-                `Create scope failed for user ${userId}: ${JSON.stringify(scopePayload)}`
-            );
-          }
-        }
-      }
-
-      message.success(`มอบสิทธิ์การเข้าถึงให้ ${userIds.length} ผู้ใช้งานสำเร็จ`);
-      form.setFieldsValue({ userIds: [], expiresAt: undefined, categoryIds: [] });
-      setTableData((current) => {
-        const deduped = new Map<string, ScopeTableRow>();
-        const nextRoleName = rolesById.get(roleId)?.roleName;
-        current
-          .map((row) =>
-            userIds.includes(row.userId)
-              ? {
-                  ...row,
-                  roleName: nextRoleName || row.roleName,
-                  expiresAt: formattedExpiresAt,
-                }
-              : row
-          )
-          .forEach((row) => deduped.set(row.key, row));
-        affectedRows.forEach((row) => deduped.set(row.key, row));
-        return Array.from(deduped.values());
-      });
-    } catch (err: any) {
-      console.error(err);
-      message.error(err.message || 'เกิดข้อผิดพลาดในการมอบสิทธิ์');
     } finally {
-      setSubmitting(false);
+      if (!quiet) setRefreshing(false);
+    }
+  }, []);
+
+  const loadProductContext = useCallback(async (id: number) => {
+    setLoading(true);
+    try {
+      const [nextOverview, nextProjects, nextCustomFields] = await Promise.all([
+        productAdminService.getAccessOverview(id),
+        productAdminService.listProjects(id),
+        customFieldService.list(id),
+      ]);
+      const featureGroups = await Promise.all(
+        nextProjects.map((project) =>
+          productAdminService.listFeatures(id, project.projectId),
+        ),
+      );
+      setOverview(nextOverview);
+      setProjects(nextProjects);
+      setFeatures(featureGroups.flat());
+      setCustomFields(nextCustomFields);
+    } catch (error: any) {
+      message.error(
+        error?.response?.data?.error?.message ||
+          error?.message ||
+          "Failed to load access configuration.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [ps, us] = await Promise.all([
+          productAdminService.listProducts(),
+          userService.getUsers({ page: 1, pageSize: 1000 }),
+        ]);
+        setProducts(ps);
+        setUsers(us.data);
+        if (ps[0]) setProductId(ps[0].productId);
+      } catch {
+        message.error("Failed to initialize access management.");
+      }
+    })();
+  }, []);
+  useEffect(() => {
+    if (productId) void loadProductContext(productId);
+  }, [productId, loadProductContext]);
+
+
+  const scopeOptions = useMemo(
+    () => [
+      { value: "PRODUCT", label: "Entire Product" },
+      ...projects.map((p) => ({
+        value: `PROJECT:${p.projectId}`,
+        label: `Project / ${p.projectName}`,
+      })),
+      ...features.map((f) => ({
+        value: `CATEGORY:${f.projectId}:${f.categoryId}`,
+        label: `Feature / ${projects.find((p) => p.projectId === f.projectId)?.projectName || f.projectId} / ${f.categoryName}`,
+      })),
+    ],
+    [projects, features],
+  );
+  const filteredMembers = useMemo(
+    () =>
+      (overview?.members || []).filter((member) =>
+        `${member.fullName} ${member.email} ${member.roleName}`
+          .toLowerCase()
+          .includes(search.toLowerCase()),
+      ),
+    [overview, search],
+  );
+  const watchedRoleId = Form.useWatch("roleId", memberForm);
+  const selectedRole = useMemo(
+    () => overview?.roles.find((role) => role.roleId === watchedRoleId),
+    [overview?.roles, watchedRoleId]
+  );
+
+  if (!canView) return <Navigate to={ROUTES.FORBIDDEN} replace />;
+
+  const openMember = (member?: ProductAccessMember) => {
+    setEditingMember(member);
+    setMemberOpen(true);
+    memberForm.setFieldsValue(
+      member
+        ? {
+            userId: member.userId,
+            roleId: member.roleId,
+            scopes: member.scopes.map(scopeKey),
+            expiresAt: member.expiresAt ? dayjs(member.expiresAt) : undefined,
+            isActive: member.isActive,
+          }
+        : {
+            userId: undefined as unknown as number,
+            roleId: undefined as unknown as number,
+            scopes: ["PRODUCT"],
+            expiresAt: undefined,
+            isActive: true,
+          },
+    );
+  };
+  const autoCompleteExistingAccess = (userId: number) => {
+    const member = overview?.members.find((item) => item.userId === userId);
+    setEditingMember(member);
+    if (member)
+      memberForm.setFieldsValue({
+        roleId: member.roleId,
+        scopes: member.scopes.map(scopeKey),
+        expiresAt: member.expiresAt ? dayjs(member.expiresAt) : undefined,
+        isActive: member.isActive,
+      });
+  };
+  const saveMember = async (values: MemberForm) => {
+    if (!productId) return;
+    setSaving(true);
+    try {
+      const scopes = values.scopes.map((key) => {
+        const [scopeLevel, project, category] = key.split(":");
+        return {
+          scopeLevel: scopeLevel as "PRODUCT" | "PROJECT" | "CATEGORY",
+          projectId: project ? Number(project) : null,
+          categoryId: category ? Number(category) : null,
+        };
+      });
+      await productAdminService.upsertProductAccess(productId, values.userId, {
+        roleId: values.roleId,
+        scopes,
+        expiresAt: values.expiresAt?.endOf("day").toISOString() || null,
+        isActive: values.isActive,
+      });
+      message.success(
+        editingMember
+          ? "Existing access was updated."
+          : "Member access was added.",
+      );
+      setMemberOpen(false);
+      await loadOverview(productId);
+    } catch (error: any) {
+      message.error(
+        error?.response?.data?.error?.message ||
+          error?.message ||
+          "Failed to save access.",
+      );
+    } finally {
+      setSaving(false);
     }
   };
+  const removeMember = async (member: ProductAccessMember) => {
+    if (!productId) return;
+    await productAdminService.deleteMembership(productId, member.membershipId);
+    message.success("Member removed.");
+    await loadOverview(productId);
+  };
 
-  // Route protection redirect
-  if (!isGodOrOwner) {
-    return <Navigate to={ROUTES.FORBIDDEN} replace />;
-  }
+  const openRole = (role?: ProductAccessRole) => {
+    setEditingRole(role);
+    setRoleOpen(true);
+    const mapped: Record<string, boolean> = {};
+    if (role) {
+      role.permissions.forEach((p) => {
+        mapped[`${p.resourceType}:${p.action}`] = true;
+      });
+    } else {
+      mapped["PRODUCT:READ"] = true;
+    }
+    setSelectedPermissions(mapped);
+    roleForm.setFieldsValue(
+      role
+        ? {
+            roleCode: role.roleCode,
+            roleName: role.roleName,
+            isActive: role.isActive,
+          }
+        : {
+            roleCode: "",
+            roleName: "",
+            isActive: true,
+          },
+    );
+  };
+  const saveRole = async (values: RoleForm) => {
+    if (!productId) return;
+    setSaving(true);
 
-  // Table Columns
-  const columns = [
+    const finalPermissions: { resourceType: string; action: string }[] = [];
+    Object.entries(selectedPermissions).forEach(([key, enabled]) => {
+      if (enabled) {
+        const separator = key.lastIndexOf(":");
+        const resourceType = separator >= 0 ? key.slice(0, separator) : key;
+        const action = separator >= 0 ? key.slice(separator + 1) : "";
+        finalPermissions.push({ resourceType, action });
+      }
+    });
+
+    // Handle custom fields default values (just like ProductRoleConsolePage does)
+    const existingKeys = new Set(finalPermissions.map(p => `${p.resourceType}:${p.action}`));
+    customFields.forEach((field) => {
+      const resource = `CUSTOM_FIELD:${field.field_definition_id}`;
+      const defaults: Record<string, boolean> = {
+        VISIBLE: field.is_visible,
+        SEARCH: field.is_searchable,
+        FILTER: field.is_filterable,
+        SORT: field.is_sortable,
+        AGGREGATE: field.is_aggregatable,
+      };
+      CUSTOM_FIELD_ACTIONS.forEach((action) => {
+        const key = `${resource}:${action}`;
+        if (!Object.prototype.hasOwnProperty.call(selectedPermissions, key) && defaults[action]) {
+          finalPermissions.push({ resourceType: resource, action });
+          existingKeys.add(key);
+        }
+      });
+    });
+
+    try {
+      if (editingRole)
+        await productAdminService.updateRole(productId, editingRole.roleId, {
+          roleName: values.roleName,
+          permissions: finalPermissions,
+          isActive: values.isActive,
+        });
+      else
+        await productAdminService.createRole(productId, {
+          roleCode: values.roleCode.trim().toLowerCase().replace(/\s+/g, "_"),
+          roleName: values.roleName,
+          permissions: finalPermissions,
+        });
+      message.success(
+        editingRole
+          ? "Role updated; effective permissions refreshed."
+          : "Role created.",
+      );
+      setRoleOpen(false);
+      await loadOverview(productId);
+    } catch (error: any) {
+      message.error(
+        error?.response?.data?.error?.message ||
+          error?.message ||
+          "Failed to save role.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+  const removeRole = async (role: ProductAccessRole) => {
+    if (!productId) return;
+    await productAdminService.deleteRole(productId, role.roleId);
+    message.success("Role removed.");
+    await loadOverview(productId);
+  };
+
+  const memberColumns = [
     {
-      title: 'ผู้ใช้งาน',
-      key: 'user',
-      render: (_: any, record: ScopeTableRow) => (
+      title: "Member",
+      key: "member",
+      render: (_: unknown, member: ProductAccessMember) => (
         <div>
-          <div className="font-semibold text-gray-800 dark:text-gray-200">{record.userFullName}</div>
-          <div className="text-xs text-gray-500">{record.userEmail}</div>
+          <div className="font-semibold">{member.fullName}</div>
+          <Text type="secondary" className="text-xs">
+            {member.email}
+          </Text>
         </div>
       ),
     },
     {
-      title: 'บทบาท (Product Role)',
-      dataIndex: 'roleName',
-      key: 'roleName',
-      render: (roleName: string) => <Tag color="blue">{roleName}</Tag>,
+      title: "Role",
+      key: "role",
+      render: (_: unknown, member: ProductAccessMember) => (
+        <div>
+          <Tag color="blue">{member.roleName}</Tag>
+          <Text type="secondary" className="block text-xs mt-1">
+            {member.accessLevel.replace("_", " ")}
+          </Text>
+        </div>
+      ),
     },
     {
-      title: 'ระดับการเข้าถึง (Scope Level)',
-      dataIndex: 'scopeLevel',
-      key: 'scopeLevel',
-      render: (level: string) => {
-        const colors = {
-          PRODUCT: 'purple',
-          PROJECT: 'cyan',
-          CATEGORY: 'orange',
-        };
-        const labels = {
-          PRODUCT: 'Product (ทั้งหมด)',
-          PROJECT: 'Project (โปรเจกต์)',
-          CATEGORY: 'Feature (ฟีเจอร์)',
-        };
-        return <Tag color={colors[level as keyof typeof colors]}>{labels[level as keyof typeof labels] || level}</Tag>;
-      },
+      title: "Scope",
+      key: "scope",
+      render: (_: unknown, member: ProductAccessMember) => (
+        <Space wrap>
+          {member.scopes.map((scope) => (
+            <Tag key={scope.scopeId}>
+              {scopeKey(scope).replaceAll(":", " / ")}
+            </Tag>
+          ))}
+        </Space>
+      ),
     },
     {
-      title: 'เป้าหมายสิทธิ์ (Target Scope)',
-      key: 'target',
-      render: (_: any, record: ScopeTableRow) => {
-        if (record.scopeLevel === 'PRODUCT') {
-          return <span className="text-gray-400">—</span>;
-        }
-        if (record.scopeLevel === 'PROJECT') {
-          return (
-            <div>
-              <span className="text-xs text-gray-400">โปรเจกต์:</span>{' '}
-              <span className="font-medium text-gray-700 dark:text-gray-300">{record.projectName}</span>
-            </div>
-          );
-        }
-        return (
-          <div>
-            <div>
-              <span className="text-xs text-gray-400">โปรเจกต์:</span>{' '}
-              <span className="text-gray-600 dark:text-gray-400 text-xs">{record.projectName}</span>
-            </div>
-            <div>
-              <span className="text-xs text-gray-400">ฟีเจอร์:</span>{' '}
-              <span className="font-medium text-gray-800 dark:text-gray-200">{record.featureName}</span>
-            </div>
-          </div>
-        );
-      },
-    },
-    {
-      title: 'วันหมดอายุสิทธิ์',
-      dataIndex: 'expiresAt',
-      key: 'expiresAt',
-      render: (date: string | null) =>
-        date ? <span className="text-xs">{dayjs(date).format('DD/MM/YYYY')}</span> : <Tag color="default">ถาวร</Tag>,
-    },
-    {
-      title: 'การจัดการ',
-      key: 'action',
-      render: (_: any, record: ScopeTableRow) => (
-        <Tooltip title="เพิกถอนสิทธิ์การเข้าถึง">
-          <Button
-            type="text"
-            danger
-            icon={<TrashIcon className="w-4 h-4" />}
-            onClick={() => handleRevokeScope(record)}
+      title: "Effective Permissions",
+      key: "permissions",
+      render: (_: unknown, member: ProductAccessMember) => (
+        <Tooltip
+          title={member.effectivePermissions
+            .map((p) => `${p.resourceType}.${p.action} (${p.source})`)
+            .join(", ")}
+        >
+          <Badge
+            count={member.effectivePermissions.length}
+            showZero
+            color="#6366f1"
           />
+          <Text className="ml-2">permissions</Text>
         </Tooltip>
       ),
     },
+    {
+      title: "Status",
+      key: "status",
+      render: (_: unknown, member: ProductAccessMember) => (
+        <Badge
+          status={member.isActive ? "success" : "default"}
+          text={member.isActive ? "Active" : "Inactive"}
+        />
+      ),
+    },
+    {
+      title: "",
+      key: "actions",
+      render: (_: unknown, member: ProductAccessMember) =>
+        canEdit && (
+          <Space>
+            <Button
+              type="text"
+              icon={<PencilSquareIcon className="w-4 h-4" />}
+              onClick={() => openMember(member)}
+            />
+            <Popconfirm
+              title="Remove this member from the product?"
+              onConfirm={() => void removeMember(member)}
+            >
+              <Button
+                type="text"
+                danger
+                icon={<TrashIcon className="w-4 h-4" />}
+              />
+            </Popconfirm>
+          </Space>
+        ),
+    },
   ];
-  const scopePreview = buildScopePayloads(
-    watchedFormValues ?? ({ productId: 0, roleId: 0, userIds: [] } as GrantFormValues)
-  );
 
   return (
     <PageTransition>
-      <div className="space-y-6 max-w-6xl mx-auto">
-        
-        {/* Page Header */}
-        <div className="flex items-center justify-between">
+      <div className="space-y-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <Title level={3} className="flex items-center gap-2 mb-1">
-              <ShieldCheckIcon className="w-7 h-7 text-indigo-600" />
-              การจัดการสิทธิ์การเข้าถึงสมาชิก (Grant Access Panel)
+            <Title level={3} className="mb-1!">
+              <ShieldCheckIcon className="inline w-7 h-7 mr-2 text-indigo-600" />
+              Product Access & Role Management
             </Title>
             <Text type="secondary">
-              มอบสิทธิ์การเข้าถึงในระดับ Product, Project หรือ Feature (Category) ให้แก่ผู้ใช้งานครั้งละหลายคน
+              Centralized RBAC, effective permissions, and scope management.
             </Text>
           </div>
-          <Tag color="gold" icon={<LockClosedIcon className="w-3.5 h-3.5 inline mr-1" />} className="py-1 px-3">
-            เฉพาะระดับ Owner / Superadmin / GOD
-          </Tag>
+          <Space>
+            <Button
+              icon={<ArrowPathIcon className="w-4 h-4" />}
+              loading={refreshing}
+              onClick={() => productId && void loadOverview(productId)}
+            >
+              Refresh
+            </Button>
+          </Space>
         </div>
-
-        <Row gutter={[24, 24]}>
-          {/* Form Card */}
-          <Col xs={24} lg={10}>
-            <Card
-              title={
-                <span className="flex items-center gap-2">
-                  <UserPlusIcon className="w-5 h-5 text-indigo-600" />
-                  ฟอร์มกำหนดสิทธิ์การเข้าใช้งาน
-                </span>
-              }
-              bordered={false}
-              className="shadow-sm rounded-lg"
-            >
-              <Form
-                form={form}
-                layout="vertical"
-                onFinish={handleFinish}
-                initialValues={{ userIds: [] }}
-              >
-                
-                {/* 1. Select Product */}
-                <Form.Item
-                  label="1. เลือก Product"
-                  name="productId"
-                  rules={[{ required: true, message: 'กรุณาเลือก Product' }]}
-                >
-                  <Select
-                    placeholder="กรุณาเลือก Product"
-                    options={products.map((p) => ({ value: p.productId, label: `${p.productName} (${p.productCode})` }))}
-                    onChange={handleProductChange}
-                    loading={loadingInitial}
-                  />
-                </Form.Item>
-
-                {/* 2. Select Project */}
-                <Form.Item
-                  label="2. เลือก Project (ไม่จำเป็น — เว้นไว้ถ้าต้องการให้สิทธิ์ทั้ง Product)"
-                  name="projectId"
-                >
-                  <Select
-                    placeholder={selectedProductId ? "เลือกโปรเจกต์เป้าหมาย" : "กรุณาเลือก Product ก่อน"}
-                    disabled={!selectedProductId}
-                    options={projects.map((p) => ({ value: p.projectId, label: p.projectName }))}
-                    onChange={handleProjectChange}
-                    allowClear
-                  />
-                </Form.Item>
-
-                {/* 3. Select Feature */}
-                <Form.Item
-                  label="3. เลือก Feature/Category (ไม่จำเป็น — เลือกได้มากกว่า 1 ฟีเจอร์ หรือเว้นไว้หากต้องการสิทธิ์ทั้ง Project)"
-                  name="categoryIds"
-                >
-                  <Select
-                    mode="multiple"
-                    placeholder={selectedProjectId ? "เลือกฟีเจอร์เป้าหมาย" : "กรุณาเลือก Project ก่อน"}
-                    disabled={!selectedProjectId}
-                    options={features.map((f) => ({ value: f.categoryId, label: f.categoryName }))}
-                    allowClear
-                  />
-                </Form.Item>
-
-                <Divider className="my-4" />
-
-                {/* 4. Select Users */}
-                <Form.Item
-                  label="4. เลือกผู้ใช้งานที่ต้องการมอบสิทธิ์ (เลือกได้มากกว่า 1 คน)"
-                  name="userIds"
-                  rules={[{ required: true, type: 'array', min: 1, message: 'กรุณาเลือกผู้ใช้อย่างน้อย 1 คน' }]}
-                >
-                  <Select
-                    mode="multiple"
-                    placeholder="ค้นหาและเลือกผู้ใช้"
-                    style={{ width: '100%' }}
-                    optionFilterProp="label"
-                    options={systemUsers.map((u) => ({
-                      value: Number(u.id),
-                      label: `${u.fullName} (${u.email})`,
-                    }))}
-                    allowClear
-                  />
-                </Form.Item>
-
-                {/* 5. Select Role */}
-                <Form.Item
-                  label="5. กำหนดบทบาทสิทธิ์ (Product Role)"
-                  name="roleId"
-                  rules={[{ required: true, message: 'กรุณาเลือกบทบาท' }]}
-                >
-                  <Select
-                    placeholder={selectedProductId ? "เลือกบทบาทสิทธิ์" : "กรุณาเลือก Product ก่อน"}
-                    disabled={!selectedProductId}
-                    options={productRoles.map((r) => ({ value: r.roleId, label: r.roleName }))}
-                  />
-                </Form.Item>
-
-                {/* 6. Expiry Date */}
-                <Form.Item
-                  label="6. วันสิ้นสุดการได้รับสิทธิ์ (หากกำหนดสิทธิ์ถาวร ไม่ต้องระบุ)"
-                  name="expiresAt"
-                >
-                  <DatePicker style={{ width: '100%' }} placeholder="เลือกวันสิ้นสุดสิทธิ์" format="DD/MM/YYYY" />
-                </Form.Item>
-
-                <Form.Item className="mb-0">
-                  <Button
-                    type="primary"
-                    htmlType="submit"
-                    block
-                    loading={submitting}
-                    disabled={!selectedProductId}
-                    className="bg-indigo-600 hover:bg-indigo-500"
-                  >
-                    มอบสิทธิ์เข้าใช้งาน
-                  </Button>
-                </Form.Item>
-                <div className="mt-3 rounded border border-gray-200 bg-gray-50 p-3">
-                  <div className="mb-2 text-xs font-semibold text-gray-700">Scope payload preview</div>
-                  <pre className="overflow-x-auto text-xs text-gray-700">{JSON.stringify(scopePreview, null, 2)}</pre>
+        <Card>
+          <Row gutter={[16, 16]} align="middle">
+            <Col xs={24} md={12}>
+              <Text strong>Product</Text>
+              <Select
+                className="w-full mt-2"
+                showSearch
+                optionFilterProp="label"
+                value={productId}
+                onChange={setProductId}
+                options={products.map((p) => ({
+                  value: p.productId,
+                  label: `${p.productName} (${p.productCode})`,
+                }))}
+              />
+            </Col>
+            <Col xs={24} md={12}>
+              {overview && (
+                <div className="flex justify-end gap-6">
+                  <div>
+                    <Text type="secondary">Members</Text>
+                    <div className="text-2xl font-semibold">
+                      {overview.members.length}
+                    </div>
+                  </div>
+                  <div>
+                    <Text type="secondary">Roles</Text>
+                    <div className="text-2xl font-semibold">
+                      {overview.roles.length}
+                    </div>
+                  </div>
+                  <div>
+                    <Text type="secondary">Last sync</Text>
+                    <div>{dayjs(overview.updatedAt).format("HH:mm:ss")}</div>
+                  </div>
                 </div>
-              </Form>
-            </Card>
-          </Col>
-
-          {/* Current Grants list Table */}
-          <Col xs={24} lg={14}>
-            <Card
-              title={
-                <div className="flex items-center justify-between">
-                  <span>ตารางสิทธิ์การใช้งานปัจจุบัน</span>
-                  {selectedProductId && (
-                    <Text type="secondary" className="text-xs">
-                      (Product ID: {selectedProductId})
-                    </Text>
-                  )}
-                </div>
-              }
-              bordered={false}
-              className="shadow-sm rounded-lg"
-            >
-              {!selectedProductId ? (
-                <Empty
-                  image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  description={
-                    <span className="text-gray-400">
-                      กรุณาเลือก Product ในฟอร์มเพื่อดูตารางสิทธิ์การใช้งาน
-                    </span>
-                  }
-                />
-              ) : (
-                <Table
-                  dataSource={tableData}
-                  columns={columns}
-                  loading={loadingData}
-                  pagination={{ pageSize: 6 }}
-                  scroll={{ x: true }}
-                  size="middle"
-                />
               )}
-            </Card>
-          </Col>
-        </Row>
+            </Col>
+          </Row>
+        </Card>
+        {loading ? (
+          <Card>
+            <div className="py-20 text-center">
+              <Spin size="large" />
+            </div>
+          </Card>
+        ) : !overview ? (
+          <Empty />
+        ) : (
+          <Tabs
+            items={[
+              {
+                key: "members",
+                label: (
+                  <span>
+                    <UsersIcon className="inline w-4 h-4 mr-1" />
+                    Members
+                  </span>
+                ),
+                children: (
+                  <Card
+                    title="Product members"
+                    extra={
+                      canEdit && (
+                        <Button
+                          type="primary"
+                          icon={<PlusIcon className="w-4 h-4" />}
+                          onClick={() => openMember()}
+                        >
+                          Add member
+                        </Button>
+                      )
+                    }
+                  >
+                    <Input.Search
+                      className="mb-4 max-w-md"
+                      placeholder="Search member, email, or role"
+                      allowClear
+                      onChange={(event) => setSearch(event.target.value)}
+                    />
+                    <Table
+                      rowKey="membershipId"
+                      dataSource={filteredMembers}
+                      columns={memberColumns}
+                      pagination={{ pageSize: 10 }}
+                      expandable={{
+                        expandedRowRender: (member) => {
+                          const grouped = member.effectivePermissions.reduce((acc, p) => {
+                            let categoryName = p.resourceType;
+                            if (p.resourceType.startsWith("CUSTOM_FIELD:")) {
+                              const fieldId = p.resourceType.split(":")[1];
+                              const field = customFields.find((f) => String(f.field_definition_id) === fieldId);
+                              categoryName = field ? `Custom Field: ${field.display_name || field.field_key}` : `Custom Field (${fieldId})`;
+                            } else if (p.resourceType === "CUSTOM_FIELD") {
+                              categoryName = "Custom Fields (Global)";
+                            }
+                            
+                            if (!acc[categoryName]) {
+                              acc[categoryName] = [];
+                            }
+                            acc[categoryName].push(p);
+                            return acc;
+                          }, {} as Record<string, typeof member.effectivePermissions>);
+
+                          return (
+                            <div className="p-2 bg-gray-50/50 rounded-lg">
+                              <div className="mb-3 font-semibold text-gray-700 flex items-center gap-2">
+                                <ShieldCheckIcon className="w-5 h-5 text-indigo-500" />
+                                <span>Effective Permission Details</span>
+                              </div>
+                              {Object.keys(grouped).length === 0 ? (
+                                <Text type="secondary" className="italic text-xs">No permissions assigned.</Text>
+                              ) : (
+                                <Row gutter={[12, 12]}>
+                                  {Object.entries(grouped).map(([category, perms]) => (
+                                    <Col xs={24} sm={12} md={8} lg={6} key={category}>
+                                      <Card
+                                        size="small"
+                                        title={<Text strong className="text-xs text-indigo-900">{category}</Text>}
+                                        className="h-full border-indigo-100 hover:border-indigo-300 transition-colors shadow-sm bg-white"
+                                        bodyStyle={{ padding: "8px 12px" }}
+                                      >
+                                        <Space wrap size={[4, 4]}>
+                                          {perms.map((p) => (
+                                            <Tag
+                                              color={p.source === "ROLE" ? "blue" : "gold"}
+                                              key={`${p.resourceType}:${p.action}`}
+                                              className="m-0 text-[11px]"
+                                            >
+                                              {p.action} <span className="text-[9px] opacity-75">({p.source})</span>
+                                            </Tag>
+                                          ))}
+                                        </Space>
+                                      </Card>
+                                    </Col>
+                                  ))}
+                                </Row>
+                              )}
+                            </div>
+                          );
+                        }
+                      }}
+                    />
+                  </Card>
+                ),
+              },
+              {
+                key: "roles",
+                label: "Roles & Permission Matrix",
+                children: (
+                  <Card
+                    title="Roles are the source of user configuration"
+                    extra={
+                      canEdit && (
+                        <Button
+                          type="primary"
+                          icon={<PlusIcon className="w-4 h-4" />}
+                          onClick={() => openRole()}
+                        >
+                          Create role
+                        </Button>
+                      )
+                    }
+                  >
+                    <Alert
+                      className="mb-4"
+                      type="info"
+                      showIcon
+                      title="Changing a role automatically updates effective permissions for every member assigned to it."
+                    />
+                    <Row gutter={[16, 16]}>
+                      {overview.roles.map((role) => {
+                        // Group the role's permissions by resource type/custom field
+                        const groupedPerms = role.permissions.reduce((acc, p) => {
+                          let categoryName = p.resourceType;
+                          if (p.resourceType.startsWith("CUSTOM_FIELD:")) {
+                            const fieldId = p.resourceType.split(":")[1];
+                            const field = customFields.find((f) => String(f.field_definition_id) === fieldId);
+                            categoryName = field ? `Custom Field: ${field.display_name || field.field_key}` : `Custom Field (${fieldId})`;
+                          } else if (p.resourceType === "CUSTOM_FIELD") {
+                            categoryName = "Custom Fields (Global)";
+                          }
+                          
+                          if (!acc[categoryName]) {
+                            acc[categoryName] = [];
+                          }
+                          acc[categoryName].push(p);
+                          return acc;
+                        }, {} as Record<string, typeof role.permissions>);
+
+                        return (
+                          <Col xs={24} lg={12} key={role.roleId}>
+                            <Card
+                              size="small"
+                              title={
+                                <Space>
+                                  <Tag color={levelColor[role.accessLevel]}>
+                                    {role.accessLevel}
+                                  </Tag>
+                                  <Text strong>{role.roleName}</Text>
+                                </Space>
+                              }
+                              className="hover:shadow-md transition-shadow border-indigo-100/60 shadow-sm"
+                              extra={
+                                canEdit && (
+                                  <Space>
+                                    <Button
+                                      type="text"
+                                      icon={
+                                        <PencilSquareIcon className="w-4 h-4 text-indigo-600" />
+                                      }
+                                      onClick={() => openRole(role)}
+                                    />
+                                    <Popconfirm
+                                      title="Delete role?"
+                                      disabled={role.memberCount > 0}
+                                      onConfirm={() => void removeRole(role)}
+                                    >
+                                      <Tooltip
+                                        title={
+                                          role.memberCount
+                                            ? "Move members to another role first."
+                                            : "Delete role"
+                                        }
+                                      >
+                                        <Button
+                                          type="text"
+                                          danger
+                                          disabled={role.memberCount > 0}
+                                          icon={<TrashIcon className="w-4 h-4" />}
+                                        />
+                                      </Tooltip>
+                                    </Popconfirm>
+                                  </Space>
+                                )
+                              }
+                            >
+                              <div className="mb-3 flex justify-between items-center bg-gray-50 p-2 rounded">
+                                <Text type="secondary" className="text-xs">
+                                  Code: <code className="bg-white px-1.5 py-0.5 rounded border text-indigo-600 font-mono text-[11px]">{role.roleCode}</code>
+                                </Text>
+                                <Space>
+                                  <Badge status={role.isActive ? "success" : "default"} text={role.isActive ? "Active" : "Inactive"} className="text-xs" />
+                                  <Tag color="cyan" className="m-0 text-[11px]">{role.memberCount} member(s)</Tag>
+                                </Space>
+                              </div>
+
+                              <div className="space-y-3 mt-3">
+                                <Text strong className="text-[10px] text-gray-400 block uppercase tracking-wider">Granted Permissions</Text>
+                                {Object.keys(groupedPerms).length === 0 ? (
+                                  <Text type="secondary" className="italic text-xs block">No permissions assigned.</Text>
+                                ) : (
+                                  <Row gutter={[8, 8]}>
+                                    {Object.entries(groupedPerms).map(([category, perms]) => (
+                                      <Col xs={24} sm={12} key={category}>
+                                        <div className="bg-indigo-50/20 p-2 rounded border border-indigo-50 h-full">
+                                          <div className="text-[10px] font-bold text-indigo-900 mb-1 leading-tight">{category}</div>
+                                          <Space wrap size={[2, 2]}>
+                                            {perms.map((p) => (
+                                              <Tag key={`${p.resourceType}:${p.action}`} className="m-0 text-[10px] bg-white border-indigo-100/50 text-indigo-955">
+                                                {p.action}
+                                              </Tag>
+                                            ))}
+                                          </Space>
+                                        </div>
+                                      </Col>
+                                    ))}
+                                  </Row>
+                                )}
+                              </div>
+                            </Card>
+                          </Col>
+                        );
+                      })}
+                    </Row>
+                  </Card>
+                ),
+              },
+            ]}
+          />
+        )}
+
+        <Modal
+          title={editingMember ? "Update Product Access" : "Add Product Member"}
+          open={memberOpen}
+          onCancel={() => setMemberOpen(false)}
+          onOk={() => memberForm.submit()}
+          confirmLoading={saving}
+          width={720}
+        >
+          <Alert
+            className="mb-4"
+            type="info"
+            showIcon
+            message="One user has one role per product"
+            description="Saving replaces the current role and scopes; it never adds a second role."
+          />
+          <Form form={memberForm} layout="vertical" onFinish={saveMember}>
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item
+                  name="userId"
+                  label="User"
+                  rules={[{ required: true }]}
+                >
+                  <Select
+                    showSearch
+                    optionFilterProp="label"
+                    disabled={Boolean(editingMember)}
+                    onChange={autoCompleteExistingAccess}
+                    options={users.map((user) => {
+                      const existing = overview?.members.find(
+                        (m) => m.userId === Number(user.id),
+                      );
+                      return {
+                        value: Number(user.id),
+                        label: `${user.fullName} (${user.email})${existing ? ` — current: ${existing.roleName}` : ""}`,
+                      };
+                    })}
+                  />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  name="roleId"
+                  label="Role"
+                  rules={[{ required: true }]}
+                >
+                  <Select
+                    showSearch
+                    optionFilterProp="label"
+                    options={(overview?.roles || [])
+                      .filter((r) => r.isActive)
+                      .map((role) => ({
+                        value: role.roleId,
+                        label: `${role.roleName} — ${role.accessLevel}${editingMember?.roleId === role.roleId ? " (current)" : ""}`,
+                      }))}
+                  />
+                </Form.Item>
+              </Col>
+            </Row>
+            {selectedRole && (
+              <Alert
+                className="mb-4"
+                type="info"
+                title={`${selectedRole.roleName}: ${selectedRole.accessLevel}`}
+                description={`${selectedRole.permissions.length} role permissions will be used to calculate effective access.`}
+              />
+            )}
+            <Form.Item
+              name="scopes"
+              label="Access Scope (Product / Project / Feature / Category)"
+              rules={[{ required: true, type: "array", min: 1 }]}
+            >
+              <Select
+                mode="multiple"
+                showSearch
+                optionFilterProp="label"
+                options={scopeOptions}
+              />
+            </Form.Item>
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item name="expiresAt" label="Expires at">
+                  <DatePicker className="w-full" />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  name="isActive"
+                  label="Active"
+                  valuePropName="checked"
+                >
+                  <Switch />
+                </Form.Item>
+              </Col>
+            </Row>
+          </Form>
+        </Modal>
+        <Modal
+          title={
+            editingRole ? "Edit Role & Permissions" : "Create Product Role"
+          }
+          open={roleOpen}
+          onCancel={() => setRoleOpen(false)}
+          onOk={() => roleForm.submit()}
+          confirmLoading={saving}
+          width={800}
+        >
+          <Form form={roleForm} layout="vertical" onFinish={saveRole}>
+            <Row gutter={16}>
+              <Col span={10}>
+                <Form.Item
+                  name="roleCode"
+                  label="Role code"
+                  rules={[{ required: true }]}
+                >
+                  <Input
+                    disabled={Boolean(editingRole)}
+                    placeholder="e.g. support_engineer"
+                  />
+                </Form.Item>
+              </Col>
+              <Col span={10}>
+                <Form.Item
+                  name="roleName"
+                  label="Role name"
+                  rules={[{ required: true }]}
+                >
+                  <Input />
+                </Form.Item>
+              </Col>
+              <Col span={4}>
+                <Form.Item
+                  name="isActive"
+                  label="Active"
+                  valuePropName="checked"
+                >
+                  <Switch />
+                </Form.Item>
+              </Col>
+            </Row>
+
+            <div className="mt-4">
+              <Text strong className="block mb-2">Resource Permissions</Text>
+              <div className="max-h-[300px] overflow-y-auto border border-gray-200 rounded">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 sticky top-0">
+                    <tr>
+                      <th className="px-3 py-2 text-left border-b w-1/3">Resource</th>
+                      <th className="px-3 py-2 text-left border-b w-2/3">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {RESOURCE_ACTIONS.map((item) => (
+                      <tr key={item.resource}>
+                        <td className="px-3 py-2 font-medium align-top">{item.resource}</td>
+                        <td className="px-3 py-2">
+                          <Space wrap size={[16, 8]}>
+                            {item.actions.map((action) => {
+                              const key = `${item.resource}:${action}`;
+                              return (
+                                <Checkbox
+                                  key={action}
+                                  checked={Boolean(selectedPermissions[key])}
+                                  onChange={(e) => {
+                                    setSelectedPermissions((prev) => ({
+                                      ...prev,
+                                      [key]: e.target.checked,
+                                    }));
+                                  }}
+                                >
+                                  {action}
+                                </Checkbox>
+                              );
+                            })}
+                          </Space>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="mt-6 mb-4">
+              <Text strong className="block mb-1">Custom Field Capabilities</Text>
+              <Text type="secondary" className="block text-xs mb-2">
+                Configure direct visibility and capabilities for custom fields.
+              </Text>
+              {customFields.length === 0 ? (
+                <div className="p-3 text-center text-gray-500 border border-dashed rounded">
+                  No custom fields configured for this product.
+                </div>
+              ) : (
+                <div className="max-h-[250px] overflow-y-auto border border-gray-200 rounded">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-gray-50 sticky top-0">
+                      <tr>
+                        <th className="px-3 py-2 border-b">Field</th>
+                        {CUSTOM_FIELD_ACTIONS.map((action) => (
+                          <th key={action} className="px-2 py-2 text-center border-b font-medium">{action}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {customFields.map((field) => {
+                        const resource = `CUSTOM_FIELD:${field.field_definition_id}`;
+                        const defaultValues: Record<string, boolean> = {
+                          VISIBLE: field.is_visible,
+                          SEARCH: field.is_searchable,
+                          FILTER: field.is_filterable,
+                          SORT: field.is_sortable,
+                          AGGREGATE: field.is_aggregatable,
+                        };
+                        return (
+                          <tr key={field.field_definition_id}>
+                            <td className="px-3 py-2">
+                              <div className="font-medium text-gray-800">{field.display_name || field.field_key}</div>
+                              <div className="text-xs text-gray-400">{field.field_path || field.field_key}</div>
+                            </td>
+                            {CUSTOM_FIELD_ACTIONS.map((action) => {
+                              const key = `${resource}:${action}`;
+                              const checked = Object.prototype.hasOwnProperty.call(selectedPermissions, key)
+                                ? Boolean(selectedPermissions[key])
+                                : defaultValues[action];
+                              return (
+                                <td key={action} className="px-2 py-2 text-center">
+                                  <Checkbox
+                                    checked={checked}
+                                    onChange={(e) => {
+                                      setSelectedPermissions((prev) => ({
+                                        ...prev,
+                                        [key]: e.target.checked,
+                                      }));
+                                    }}
+                                  />
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <Space className="mt-4">
+              <Button
+                size="small"
+                onClick={() => {
+                  const next = { ...selectedPermissions };
+                  RESOURCE_ACTIONS.forEach((item) => {
+                    item.actions.forEach((action) => {
+                      next[`${item.resource}:${action}`] = true;
+                    });
+                  });
+                  setSelectedPermissions(next);
+                }}
+              >
+                Full standard access
+              </Button>
+              <Button
+                size="small"
+                type="text"
+                onClick={() => setSelectedPermissions({})}
+              >
+                Clear
+              </Button>
+            </Space>
+          </Form>
+        </Modal>
       </div>
     </PageTransition>
   );
+}
+
+export default AccessControlPage;
+
+
+class AccessControlErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  state = { hasError: false };
+  static getDerivedStateFromError() { return { hasError: true }; }
+  componentDidCatch(error: unknown) { console.error('AccessControlPage render error:', error); }
+  render() {
+    if (this.state.hasError) return <Card className="m-6"><Alert type="error" showIcon title="Access Control could not be displayed" description="Please refresh the page. If the problem continues, check the API response for this product." /></Card>;
+    return this.props.children;
+  }
+}
+
+export function AccessControlPage() {
+  return <AccessControlErrorBoundary><AccessControlContent /></AccessControlErrorBoundary>;
 }

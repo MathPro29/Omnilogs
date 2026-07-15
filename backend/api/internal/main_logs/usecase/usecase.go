@@ -301,7 +301,7 @@ func (u *usecase) ensureProductAccess(ctx context.Context, actorUserID uint, pla
 	if platformAdmin {
 		return nil
 	}
-	hasMembership, err := u.repo.HasProductMembership(ctx, actorUserID, productID)
+	hasMembership, err := u.repo.HasMainLogAccess(ctx, actorUserID, productID)
 	if err != nil {
 		return err
 	}

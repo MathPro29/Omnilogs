@@ -13,6 +13,7 @@ const LogsExplorerPage = lazy(() => import('@/pages/LogsExplorerPage').then(modu
 const RetentionTestPage = lazy(() => import('@/pages/RetentionTestPage').then(module => ({ default: module.RetentionTestPage })));
 const SensitiveAccessPage = lazy(() => import('@/pages/SensitiveAccessPage').then(module => ({ default: module.SensitiveAccessPage })));
 const CustomFieldsPage = lazy(() => import('@/pages/CustomFieldsPage').then(module => ({ default: module.CustomFieldsPage })));
+const ProductRoleConsolePage = lazy(() => import('@/pages/ProductRoleConsolePage').then(module => ({ default: module.ProductRoleConsolePage })));
 
 /**
  * Route item config
@@ -41,40 +42,58 @@ export const adminRoutes: RouteConfig[] = [
   {
     path: ROUTES.API_TEST,
     element: <ApiTestPage />,
+    requiredPermissions: [PERMISSIONS.FEATURE_API_TEST],
   },
   {
     path: ROUTES.DASHBOARD,
     element: <DashboardPage />,
-    requiredPermissions: [PERMISSIONS.DASHBOARD_VIEW],
+    requiredPermissions: [PERMISSIONS.FEATURE_DASHBOARD],
   },
   {
     path: ROUTES.PRODUCTS,
     element: <ProductCatalogPage />,
+    requiredPermissions: [PERMISSIONS.FEATURE_PRODUCTS],
   },
   {
     path: ROUTES.RETENTION_TEST,
     element: <RetentionTestPage />,
+    requiredPermissions: [PERMISSIONS.FEATURE_RETENTION_TEST],
   },
   {
     path: ROUTES.USERS,
     element: <UsersPage />,
-    requiredPermissions: [PERMISSIONS.USER_VIEW],
+    requiredPermissions: [PERMISSIONS.FEATURE_USERS],
   },
   {
     path: ROUTES.ROLES,
     element: <AccessControlPage />,
-    requiredPermissions: [PERMISSIONS.ROLE_VIEW],
+    requiredPermissions: [PERMISSIONS.FEATURE_ROLES],
   },
   {
     path: ROUTES.AUDITS,
     element: <AuditsPage />,
+    requiredPermissions: [PERMISSIONS.FEATURE_AUDITS],
   },
   {
     path: ROUTES.LOGS_EXPLORER,
     element: <LogsExplorerPage />,
+    requiredPermissions: [PERMISSIONS.FEATURE_LOGS_EXPLORER],
   },
-  { path: ROUTES.SENSITIVE_ACCESS, element: <SensitiveAccessPage /> },
-  { path: ROUTES.CUSTOM_FIELDS, element: <CustomFieldsPage /> },
+  {
+    path: ROUTES.SENSITIVE_ACCESS,
+    element: <SensitiveAccessPage />,
+    requiredPermissions: [PERMISSIONS.FEATURE_SENSITIVE_ACCESS],
+  },
+  {
+    path: ROUTES.CUSTOM_FIELDS,
+    element: <CustomFieldsPage />,
+    requiredPermissions: [PERMISSIONS.FEATURE_CUSTOM_FIELDS],
+  },
+  {
+    path: ROUTES.PRODUCT_ROLES,
+    element: <ProductRoleConsolePage />,
+    requiredPermissions: [PERMISSIONS.FEATURE_PRODUCT_ROLES],
+  },
   {
     path: ROUTES.FORBIDDEN,
     element: <ForbiddenPage />,

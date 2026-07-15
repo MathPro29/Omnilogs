@@ -31,6 +31,8 @@ type Usecase interface {
 	ListPermissionRules(Actor, int) ([]models.UserRolePermissionRule, error)
 	UpdatePermissionRule(Actor, int, dto.UpdatePermissionRuleRequest) (*models.UserRolePermissionRule, error)
 	CheckPermission(Actor, dto.PermissionCheckRequest) (*dto.PermissionCheckResponse, error)
+	GetProductAccessOverview(Actor, int) (*dto.ProductAccessOverviewResponse, error)
+	UpsertProductAccess(Actor, int, int, dto.UpsertProductAccessRequest) (*dto.ProductAccessMemberResponse, error)
 }
 
 type usecase struct{ repository repository.Repository }

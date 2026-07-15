@@ -1,6 +1,7 @@
 package usecase
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 
@@ -245,6 +246,7 @@ func (u *usecase) CreateUser(req dto.CreateUserRequest) (*dto.UserResponse, erro
 		PhoneNumber:  req.PhoneNumber,
 		PasswordHash: passwordHash,
 		IsActive:     true,
+		Permissions:  req.Permissions,
 	}
 
 	if err := u.repo.Create(user); err != nil {
@@ -333,6 +335,17 @@ func (u *usecase) UpdateUser(userID uint, req dto.UpdateUserAdminRequest) (*dto.
 			if err := u.repo.UpdatePlatformRole(userID, uint(pRole.PlatformRoleID)); err != nil {
 				return nil, err
 			}
+		}
+	}
+
+	// 6. Update Permissions
+	if req.Permissions != nil {
+		permBytes, err := json.Marshal(req.Permissions)
+		if err != nil {
+			return nil, err
+		}
+		if err := u.repo.UpdateUserField(userID, "permissions", string(permBytes)); err != nil {
+			return nil, err
 		}
 	}
 

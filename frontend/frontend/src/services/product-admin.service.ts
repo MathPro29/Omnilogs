@@ -15,6 +15,8 @@ import type {
   ProductRoleDefinition,
   Project,
   ProjectFeature,
+  ProductAccessOverview,
+  ProductAccessMember,
 } from '@/types';
 
 interface CreateProductPayload {
@@ -646,6 +648,46 @@ export const productAdminService = {
     await apiClient.delete(`/products/${productId}/projects/${projectId}/features/${featureId}`);
   },
 
+  getAccessOverview: async (productId: number): Promise<ProductAccessOverview> => {
+    const response = await apiClient.get<ApiResponse<any>>(`/products/${productId}/access-overview`);
+    const value = response.data.data || {};
+    return {
+      productId: Number(value.product_id || productId),
+      updatedAt: value.updated_at || new Date().toISOString(),
+      roles: (Array.isArray(value.roles) ? value.roles : []).map((role: any) => ({
+        roleId: Number(role.role_id), roleCode: role.role_code, roleName: role.role_name,
+        permissions: (role.permissions || []).map((permission: any) => ({ resourceType: permission.resource_type, action: permission.action })),
+        accessLevel: role.access_level, memberCount: Number(role.member_count || 0), isActive: Boolean(role.is_active),
+      })),
+      members: (Array.isArray(value.members) ? value.members : []).map((member: any) => ({
+        membershipId: Number(member.membership_id), userId: Number(member.user_id), username: member.username,
+        fullName: member.full_name, email: member.email, roleId: Number(member.role_id), roleCode: member.role_code,
+        roleName: member.role_name, accessLevel: member.access_level, expiresAt: member.expires_at,
+        isActive: Boolean(member.is_active),
+        effectivePermissions: (member.effective_permissions || []).map((permission: any) => ({ resourceType: permission.resource_type, action: permission.action, source: permission.source })),
+        scopes: (member.scopes || []).map(normalizeScope),
+      })),
+    };
+  },
+
+  upsertProductAccess: async (productId: number, userId: number, payload: { roleId: number; scopes: CreateScopePayload[]; expiresAt?: string | null; isActive?: boolean }): Promise<ProductAccessMember> => {
+    const response = await apiClient.put<ApiResponse<any>>(`/products/${productId}/access/members/${userId}`, {
+      role_id: payload.roleId,
+      scopes: payload.scopes.map((scope) => ({ project_id: scope.projectId ?? undefined, category_id: scope.categoryId ?? undefined, scope_level: scope.scopeLevel })),
+      expires_at: payload.expiresAt ?? null,
+      is_active: payload.isActive ?? true,
+    });
+    const member = response.data.data;
+    return {
+      membershipId: Number(member.membership_id), userId: Number(member.user_id), username: member.username,
+      fullName: member.full_name, email: member.email, roleId: Number(member.role_id), roleCode: member.role_code,
+      roleName: member.role_name, accessLevel: member.access_level, expiresAt: member.expires_at,
+      isActive: Boolean(member.is_active),
+      effectivePermissions: (member.effective_permissions || []).map((permission: any) => ({ resourceType: permission.resource_type, action: permission.action, source: permission.source })),
+      scopes: (member.scopes || []).map(normalizeScope),
+    };
+  },
+
   listRoles: async (productId: number): Promise<ProductRoleDefinition[]> => {
     if (shouldUseMock()) {
       await delay();
@@ -768,6 +810,15 @@ export const productAdminService = {
       expires_at: payload.expiresAt ?? undefined,
     });
     return normalizeMembership(response.data.data);
+  },
+
+  deleteMembership: async (productId: number, membershipId: number): Promise<void> => {
+    if (shouldUseMock()) {
+      mockMemberships = mockMemberships.filter((item) => item.membershipId !== membershipId);
+      mockScopes = mockScopes.filter((item) => item.membershipId !== membershipId);
+      return;
+    }
+    await apiClient.delete(`/products/${productId}/memberships/${membershipId}`);
   },
 
   listScopes: async (productId: number, membershipId: number): Promise<MembershipScope[]> => {

@@ -332,6 +332,42 @@ export function DashboardPage() {
     refetchLogs();
   };
 
+
+  const sendStructuredTestLog = async (inputPayload: Record<string, unknown>) => {
+    const values = generatorForm.getFieldsValue();
+    if (!values.productId || !values.environmentId) {
+      message.warning('Select Product and Environment first');
+      return;
+    }
+    try {
+      await apiClient.post('/queues', {
+        product_id: values.productId,
+        environment_id: values.environmentId,
+        queue_key: 'dashboard-sensitive-test-' + Date.now(),
+        source_type: 'application',
+        source_platform: 'dashboard-test',
+        priority: 1,
+        logs: [{
+          sequence_no: 1,
+          source_type: 'application',
+          source_platform: 'dashboard-test',
+          input_payload: {
+            ...inputPayload,
+            ...(values.projectId ? { project_id: values.projectId } : {}),
+            ...(values.categoryId ? { category_id: values.categoryId } : {}),
+            timestamp: new Date().toISOString(),
+          },
+        }],
+      });
+      try { await apiClient.post('/queues/consume', {}); } catch { /* worker will consume asynchronously */ }
+      message.success('Structured test log sent; check Logs and log_failures');
+      refetchLogs();
+      refetchFailedBatches();
+    } catch (err: any) {
+      message.error('Test log failed: ' + (err?.response?.data?.message || err?.message || err));
+    }
+  };
+
   const getLevelColor = (level: string | null | undefined) => {
     if (!level) return 'default';
     switch (level.toUpperCase()) {
@@ -537,6 +573,29 @@ export function DashboardPage() {
                 <CustomFieldInputs fields={generatorCustomFields} />
 
                 <Form.Item style={{ marginBottom: '12px' }}>
+
+                   <Button block onClick={() => sendStructuredTestLog({
+                     log_level: 'INFO',
+                     event_type: 'sensitive-data-storage-test',
+                     message: 'Raw customer and contact data should be masked in Main Logs',
+                     customer_name: 'Somchai Jaidee',
+                     customer_address: '99 Sukhumvit Road, Bangkok 10110',
+                     customer_email: 'customer.test@example.com',
+                     callback_url: 'https://example.com/orders/OMNI-1001',
+                   })}>
+                    Case 8: Raw data - REDACTED + URL + Email (valid)
+                   </Button>
+                   <Button danger block onClick={() => sendStructuredTestLog({
+                     log_level: 'WARN',
+                     event_type: 'validation-failure-test',
+                     message: 'Invalid URL and Email should be written to log_failures',
+                     customer_name: 'Somsri Saelim',
+                     customer_address: '88 Silom Road, Bangkok 10500',
+                     customer_email: 'not-an-email',
+                     callback_url: 'not-a-url',
+                   })}>
+                     Case 9: Invalid URL/Email (log_failures)
+                   </Button>
                   <Button
                     danger={isAutoSending}
                     type={isAutoSending ? 'primary' : 'default'}
@@ -557,7 +616,9 @@ export function DashboardPage() {
                   >
                     ส่งข้อความ Log เข้าสู่ระบบ
                   </Button>
+      
                 </Form.Item>
+    
               </Form>
 
               <div style={{ marginTop: '24px', borderTop: '1px solid #f0f0f0', paddingTop: '16px' }}>

@@ -26,14 +26,12 @@ func (u *usecase) CreateMembership(actor Actor, productID int, req dto.CreatePro
 			if !u.exists(&models.ProductRole{}, "role_id = ? AND product_id = ?", req.RoleID, productID) {
 				return nil, responses.ErrInvalid
 			}
-			if pm.RoleID == req.RoleID {
-				return nil, responses.ErrConflict
-			}
 			pm.RoleID = req.RoleID
 		}
 		if req.ExpiresAt != nil {
 			pm.ExpiresAt = req.ExpiresAt
 		}
+		pm.IsActive = true
 		if err := u.repository.DB().Save(&pm).Error; err != nil {
 			return nil, classifyDBError(err)
 		}
@@ -87,14 +85,12 @@ func (u *usecase) CreateMemberships(actor Actor, productID int, req dto.CreateBu
 					if !existsDB(tx, &models.ProductRole{}, "role_id = ? AND product_id = ?", item.RoleID, productID) {
 						return responses.ErrInvalid
 					}
-					if pm.RoleID == item.RoleID {
-						return responses.ErrConflict
-					}
 					pm.RoleID = item.RoleID
 				}
 				if item.ExpiresAt != nil {
 					pm.ExpiresAt = item.ExpiresAt
 				}
+				pm.IsActive = true
 				if err := tx.Save(&pm).Error; err != nil {
 					return classifyDBError(err)
 				}

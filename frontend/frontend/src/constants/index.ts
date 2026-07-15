@@ -1,6 +1,7 @@
 // ===== Route Paths =====
 export const ROUTES = {
   LOGIN: '/login',
+  REGISTER: '/register',
   API_TEST: '/api-test',
   DASHBOARD: '/dashboard',
   PRODUCTS: '/products',
@@ -15,8 +16,10 @@ export const ROUTES = {
   RETENTION_TEST: '/retention-test',
   SENSITIVE_ACCESS: '/sensitive-access',
   CUSTOM_FIELDS: '/custom-fields',
+  PRODUCT_ROLES: '/product-roles',
   FORBIDDEN: '/403',
   NOT_FOUND: '/404',
+  FORGOT_PASSWORD: '/forgot-password',
 } as const;
 
 // ===== Permission Keys =====
@@ -43,6 +46,19 @@ export const PERMISSIONS = {
 
   // Approvals
   APPROVE_USER: 'approve:user',
+
+  // Features / Pages Access (for custom user permissions)
+  FEATURE_API_TEST: 'feature:api_test',
+  FEATURE_DASHBOARD: 'feature:dashboard',
+  FEATURE_PRODUCTS: 'feature:products',
+  FEATURE_RETENTION_TEST: 'feature:retention_test',
+  FEATURE_USERS: 'feature:users',
+  FEATURE_ROLES: 'feature:roles',
+  FEATURE_AUDITS: 'feature:audits',
+  FEATURE_LOGS_EXPLORER: 'feature:logs_explorer',
+  FEATURE_SENSITIVE_ACCESS: 'feature:sensitive_access',
+  FEATURE_CUSTOM_FIELDS: 'feature:custom_fields',
+  FEATURE_PRODUCT_ROLES: 'feature:product_roles',
 } as const;
 
 // ===== All Permissions (สำหรับ Super Admin) =====
@@ -94,12 +110,14 @@ export const MENU_KEYS = {
   RETENTION_TEST: 'retention-test',
   SENSITIVE_ACCESS: 'sensitive-access',
   CUSTOM_FIELDS: 'custom-fields',
+  PRODUCT_ROLES: 'product-roles',
 } as const;
 
 // ===== API Endpoints =====
 export const API_ENDPOINTS = {
   AUTH: {
     LOGIN: '/auth/login',
+    REGISTER: '/auth/register',
     LOGOUT: '/auth/logout',
     REFRESH: '/auth/refresh',
     ME: '/auth/me',

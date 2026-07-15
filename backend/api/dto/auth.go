@@ -30,7 +30,7 @@ type ForgotPasswordRequest struct {
 }
 
 type ResetPasswordRequest struct {
-	Token           string `json:"token" binding:"required"`
+	Email           string `json:"email" binding:"required,email"`
 	NewPassword     string `json:"new_password" binding:"required,min=8"`
 	ConfirmPassword string `json:"confirm_password" binding:"required,eqfield=NewPassword"`
 }
@@ -96,6 +96,7 @@ type UserResponse struct {
 	PhoneNumber *string    `json:"phone_number,omitempty"`
 	IsActive    bool       `json:"is_active"`
 	Role        string     `json:"role,omitempty"`
+	Permissions []string   `json:"permissions,omitempty"`
 	CreatedAt   *time.Time `json:"created_at,omitempty"`
 	UpdatedAt   *time.Time `json:"updated_at,omitempty"`
 }
@@ -111,8 +112,7 @@ type AuthTokenResponse struct {
 }
 
 type ForgotPasswordResponse struct {
-	Message    string `json:"message"`
-	ResetToken string `json:"reset_token,omitempty"`
+	Message string `json:"message"`
 }
 
 type EditUserRoleRequest struct {
@@ -128,18 +128,20 @@ type EditUserRoleRequest struct {
 }
 
 type CreateUserRequest struct {
-	Username    *string `json:"username,omitempty"`
-	FullName    string  `json:"fullName" binding:"required"`
-	Email       string  `json:"email" binding:"required,email"`
-	PhoneNumber *string `json:"phone,omitempty"`
-	Password    string  `json:"password" binding:"required,min=8"`
-	Role        string  `json:"role" binding:"required"`
+	Username    *string  `json:"username,omitempty"`
+	FullName    string   `json:"fullName" binding:"required"`
+	Email       string   `json:"email" binding:"required,email"`
+	PhoneNumber *string  `json:"phone,omitempty"`
+	Password    string   `json:"password" binding:"required,min=8"`
+	Role        string   `json:"role" binding:"required"`
+	Permissions []string `json:"permissions"`
 }
 
 type UpdateUserAdminRequest struct {
-	FullName    string  `json:"fullName"`
-	Email       string  `json:"email" binding:"email"`
-	PhoneNumber *string `json:"phone,omitempty"`
-	Role        string  `json:"role"`
-	Status      string  `json:"status"` // 'active' | 'inactive'
+	FullName    string   `json:"fullName"`
+	Email       string   `json:"email" binding:"email"`
+	PhoneNumber *string  `json:"phone,omitempty"`
+	Role        string   `json:"role"`
+	Status      string   `json:"status"` // 'active' | 'inactive'
+	Permissions []string `json:"permissions"`
 }

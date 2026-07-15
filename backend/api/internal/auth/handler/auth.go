@@ -176,9 +176,8 @@ func (h *Handler) ForgotPassword(c *gin.Context) {
 	}
 	c.Set("audit_reason", fmt.Sprintf("Password reset requested for email '%s'", req.Email))
 	c.Set("audit_payload", gin.H{
-		"email":       req.Email,
-		"activity":    "FORGOT_PASSWORD",
-		"reset_token": result.ResetToken,
+		"email":    req.Email,
+		"activity": "FORGOT_PASSWORD",
 	})
 	responses.Success(c, http.StatusOK, "USER_UPDATE", result)
 }
@@ -190,8 +189,8 @@ func (h *Handler) ResetPassword(c *gin.Context) {
 		return
 	}
 	if err := h.usecase.ResetPassword(req); err != nil {
-		if errors.Is(err, responses.ErrorUserCode["INVALID_RESET_TOKEN"]) {
-			responses.BadRequest(c, "invalid or expired reset token")
+		if errors.Is(err, responses.ErrorUserCode["USER_NOT_FOUND"]) {
+			responses.BadRequest(c, "user not found")
 			return
 		}
 		responses.InternalError(c)

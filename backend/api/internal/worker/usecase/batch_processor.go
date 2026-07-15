@@ -277,19 +277,11 @@ func (u *usecase) prepareLog(ctx context.Context, msg *nats.Msg, cache *batchCac
 			}
 
 			if err := PipelineValidator(ctx, field, transformed); err != nil {
-				if errs, ok := payload["_validation_errors"].([]string); ok {
-					payload["_validation_errors"] = append(errs, err.Error())
-				} else {
-					payload["_validation_errors"] = []string{err.Error()}
-				}
+				return nil, u.failMessage(ctx, msg, envelope, "VALIDATION", "INVALID_FIELD_VALUE", err.Error(), false)
 			}
 		} else {
 			if err := PipelineValidator(ctx, field, nil); err != nil {
-				if errs, ok := payload["_validation_errors"].([]string); ok {
-					payload["_validation_errors"] = append(errs, err.Error())
-				} else {
-					payload["_validation_errors"] = []string{err.Error()}
-				}
+				return nil, u.failMessage(ctx, msg, envelope, "VALIDATION", "INVALID_FIELD_VALUE", err.Error(), false)
 			}
 		}
 	}

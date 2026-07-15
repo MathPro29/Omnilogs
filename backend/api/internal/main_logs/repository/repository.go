@@ -18,7 +18,7 @@ type Repository interface {
 	GetLogIndexRef(ctx context.Context, productID int64, logID string) (*models.LogIndexRef, error)
 	GetMainLogFromES(ctx context.Context, index, docID string) (*esapi.Response, error)
 	GetPostgresPayload(ctx context.Context, logID string) (*models.LogObjectStorageRef, error)
-	HasProductMembership(ctx context.Context, userID uint, productID int64) (bool, error)
+	HasMainLogAccess(ctx context.Context, userID uint, productID int64) (bool, error)
 	GetActiveIndexPolicies(ctx context.Context, productID int64) ([]models.ElasticIndexPolicy, error)
 }
 
@@ -85,15 +85,50 @@ func (r *repository) GetPostgresPayload(ctx context.Context, logID string) (*mod
 	return &objectRef, err
 }
 
-func (r *repository) HasProductMembership(ctx context.Context, userID uint, productID int64) (bool, error) {
-	var membershipID int
-	err := r.db.WithContext(ctx).
-		Model(&models.ProductMembership{}).
-		Select("membership_id").
-		Where("user_id = ? AND product_id = ? AND is_active = TRUE", userID, productID).
-		Limit(1).
-		Scan(&membershipID).Error
-	return membershipID != 0, err
+func (r *repository) HasMainLogAccess(ctx context.Context, userID uint, productID int64) (bool, error) {
+	var denied int64
+	if err := r.db.WithContext(ctx).Model(&models.UserRolePermissionRule{}).
+		Where("user_id = ? AND product_id = ? AND resource_type = 'LOG' AND action IN ('READ', 'VIEW_SENSITIVE') AND effect = 'DENY' AND is_active = TRUE AND (expires_at IS NULL OR expires_at > NOW())", userID, productID).
+		Count(&denied).Error; err != nil {
+		return false, err
+	}
+	if denied > 0 {
+		return false, nil
+	}
+
+	var allowedByRule int64
+	if err := r.db.WithContext(ctx).Model(&models.UserRolePermissionRule{}).
+		Where("user_id = ? AND product_id = ? AND resource_type = 'LOG' AND action IN ('READ', 'VIEW_SENSITIVE') AND effect = 'ALLOW' AND is_active = TRUE AND (expires_at IS NULL OR expires_at > NOW())", userID, productID).
+		Count(&allowedByRule).Error; err != nil {
+		return false, err
+	}
+	if allowedByRule > 0 {
+		return true, nil
+	}
+
+	var allowed int64
+	if err := r.db.WithContext(ctx).Raw(`
+		SELECT COUNT(*)
+		FROM product_memberships pm
+		JOIN product_roles pr ON pr.role_id = pm.role_id AND pr.product_id = pm.product_id AND pr.is_active = TRUE
+		JOIN product_role_permissions pp ON pp.role_id = pm.role_id
+		WHERE pm.user_id = ? AND pm.product_id = ? AND pm.is_active = TRUE
+		  AND (pm.expires_at IS NULL OR pm.expires_at > NOW())
+		  AND pp.resource_type = 'LOG' AND pp.action IN ('READ', 'VIEW_SENSITIVE')
+	`, userID, productID).Scan(&allowed).Error; err != nil {
+		return false, err
+	}
+	if allowed > 0 {
+		return true, nil
+	}
+
+	var temporaryAccess int64
+	if err := r.db.WithContext(ctx).Model(&models.SensitiveLogAccessRequest{}).
+		Where("user_id = ? AND product_id = ? AND field_path = ? AND approval_status = 'APPROVED' AND (expires_at IS NULL OR expires_at > NOW())", userID, productID, "$main_logs").
+		Count(&temporaryAccess).Error; err != nil {
+		return false, err
+	}
+	return temporaryAccess > 0, nil
 }
 
 func (r *repository) GetActiveIndexPolicies(ctx context.Context, productID int64) ([]models.ElasticIndexPolicy, error) {

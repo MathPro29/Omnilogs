@@ -267,6 +267,7 @@ const getVisibleCustomFieldsForLog = (log: MainLog, allCustomFields: CustomField
 export function LogsExplorerPage() {
   const setBreadcrumbs = useAppStore((state) => state.setBreadcrumbs);
   const accessToken = useAuthStore((state) => state.accessToken);
+  const currentUser = useAuthStore((state) => state.currentUser);
 
   // Filter States
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
@@ -281,6 +282,14 @@ export function LogsExplorerPage() {
   const [pageSize, setPageSize] = useState(20);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [selectedLog, setSelectedLog] = useState<MainLog | null>(null);
+
+  const handleCustomFieldPathsChange = (paths: string[]) => {
+    setSelectedCustomFieldPaths(paths);
+    if (selectedProductId) {
+      const key = `omnilogs_custom_fields_${currentUser?.id || "default"}_${selectedProductId}`;
+      localStorage.setItem(key, JSON.stringify(paths));
+    }
+  };
 
   // States for JSON filtering
   const [jsonFilterTerm, setJsonFilterTerm] = useState('');
@@ -350,9 +359,12 @@ export function LogsExplorerPage() {
       detected_type: detectedType,
     });
     await refetchCustomFields();
-    setSelectedCustomFieldPaths((current) => (
-      current.length > 0 && !current.includes(canonicalPath) ? [...current, canonicalPath] : current
-    ));
+    setSelectedCustomFieldPaths((current) => {
+      const next = current.length > 0 && !current.includes(canonicalPath) ? [...current, canonicalPath] : current;
+      const key = `omnilogs_custom_fields_${currentUser?.id || "default"}_${selectedProductId}`;
+      localStorage.setItem(key, JSON.stringify(next));
+      return next;
+    });
   };
 
   const favoritePaths = useMemo(() => {
@@ -578,19 +590,33 @@ export function LogsExplorerPage() {
   useEffect(() => {
     setSelectedProjectIds([]);
     setSelectedCategoryIds([]);
-    setSelectedCustomFieldPaths([]);
     setCustomFieldFilterPath(undefined);
     setCustomFieldFilterValue(undefined);
     setSelectedEnvironmentId(null);
     setCurrentPage(1);
-  }, [selectedProductId]);
+
+    if (selectedProductId) {
+      const key = `omnilogs_custom_fields_${currentUser?.id || "default"}_${selectedProductId}`;
+      const saved = localStorage.getItem(key);
+      if (saved) {
+        try {
+          setSelectedCustomFieldPaths(JSON.parse(saved));
+        } catch {
+          setSelectedCustomFieldPaths([]);
+        }
+      } else {
+        setSelectedCustomFieldPaths([]);
+      }
+    } else {
+      setSelectedCustomFieldPaths([]);
+    }
+  }, [selectedProductId, currentUser?.id]);
 
   useEffect(() => {
     setSelectedCategoryIds([]);
   }, [selectedProjectIds]);
 
   useEffect(() => {
-    setSelectedCustomFieldPaths([]);
     setCustomFieldFilterPath(undefined);
     setCustomFieldFilterValue(undefined);
   }, [selectedProjectIds, selectedCategoryIds]);
@@ -707,7 +733,7 @@ export function LogsExplorerPage() {
     const selectedPaths = new Set(selectedCustomFieldPaths);
     const pathsToRender = visibleCustomFields
       .map((field) => field.field_path || `custom_fields.${field.field_key}`)
-      .filter((path) => selectedCustomFieldPaths.length > 0 && selectedPaths.has(path));
+      .filter((path) => selectedCustomFieldPaths.length === 0 || selectedPaths.has(path));
 
     pathsToRender.forEach((path) => {
       const field = visibleCustomFields.find(
@@ -1006,7 +1032,7 @@ export function LogsExplorerPage() {
                     placeholder={visibleCustomFields.length > 0 ? 'เลือก Custom Fields ที่ต้องการแสดง' : 'ไม่มี Custom Fields ที่เปิดเผย'}
                     value={selectedCustomFieldPaths}
                     onChange={(paths) => {
-                      setSelectedCustomFieldPaths(paths);
+                      handleCustomFieldPathsChange(paths);
                       setCurrentPage(1);
                     }}
                     disabled={visibleCustomFields.length === 0}

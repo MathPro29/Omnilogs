@@ -12,4 +12,6 @@ export { LogsExplorerPage } from './LogsExplorerPage';
 export { RetentionTestPage } from './RetentionTestPage';
 export { SensitiveAccessPage } from './SensitiveAccessPage';
 export { CustomFieldsPage } from './CustomFieldsPage';
+export { default as ForgotPasswordPage } from './ForgotPassword';
+export { RegisterPage } from './RegisterPage';
 

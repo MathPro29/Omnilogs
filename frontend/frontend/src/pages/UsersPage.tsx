@@ -44,6 +44,20 @@ import type { User, UserFilterParams } from "@/types";
 const { Title, Text } = Typography;
 const { confirm } = Modal;
 
+const FEATURE_OPTIONS = [
+  { label: "แดชบอร์ด (Dashboard)", value: PERMISSIONS.FEATURE_DASHBOARD },
+  { label: "Logs Explorer", value: PERMISSIONS.FEATURE_LOGS_EXPLORER },
+  { label: "จัดการผลิตภัณฑ์ (Products)", value: PERMISSIONS.FEATURE_PRODUCTS },
+  { label: "Retention", value: PERMISSIONS.FEATURE_RETENTION_TEST },
+  { label: "จัดการผู้ใช้งาน (Users)", value: PERMISSIONS.FEATURE_USERS },
+  { label: "จัดการบทบาทและสิทธิ์ (Roles)", value: PERMISSIONS.FEATURE_ROLES },
+  { label: "บันทึกกิจกรรม (Audit Logs)", value: PERMISSIONS.FEATURE_AUDITS },
+  { label: "Sensitive Log Access", value: PERMISSIONS.FEATURE_SENSITIVE_ACCESS },
+  { label: "Custom Fields", value: PERMISSIONS.FEATURE_CUSTOM_FIELDS },
+  { label: "Product Roles", value: PERMISSIONS.FEATURE_PRODUCT_ROLES },
+  { label: "API Test Page", value: PERMISSIONS.FEATURE_API_TEST },
+];
+
 export function UsersPage() {
   const queryClient = useQueryClient();
   const setBreadcrumbs = useAppStore((state) => state.setBreadcrumbs);
@@ -158,6 +172,10 @@ export function UsersPage() {
   }, []);
 
   const handleFormSubmit = (values: any) => {
+    const role = values.role;
+    const isAdminRole = ["god", "owner", "superadmin", "admin"].includes(role);
+    const permissions = isAdminRole ? [] : (values.permissions || []);
+
     if (editingUser) {
       updateMutation.mutate({
         id: editingUser.id,
@@ -167,6 +185,7 @@ export function UsersPage() {
           phone: values.phone,
           status: values.status,
           role: values.role,
+          permissions,
         },
       });
     } else {
@@ -177,6 +196,7 @@ export function UsersPage() {
         phone: values.phone,
         password: values.password,
         role: values.role,
+        permissions,
       });
     }
   };
@@ -236,6 +256,32 @@ export function UsersPage() {
       ),
     },
     {
+      title: "สิทธิ์การเข้าถึงฟีเจอร์",
+      key: "permissions",
+      render: (_, record) => {
+        const role = record.roles?.[0]?.name || "user";
+        const isAdminRole = ["god", "owner", "superadmin", "admin"].includes(role);
+        if (isAdminRole) {
+          return <Tag color="gold">ทั้งหมด (All)</Tag>;
+        }
+        if (!record.permissions || record.permissions.length === 0) {
+          return <span className="text-gray-400 font-normal">—</span>;
+        }
+        return (
+          <div className="flex gap-1 flex-wrap max-w-xs">
+            {record.permissions.map((perm) => {
+              const opt = FEATURE_OPTIONS.find((o) => o.value === perm);
+              return (
+                <Tag key={perm} color="blue" bordered={false}>
+                  {opt ? opt.label.split(" (")[0] : perm}
+                </Tag>
+              );
+            })}
+          </div>
+        );
+      },
+    },
+    {
       title: "สถานะ",
       dataIndex: "status",
       key: "status",
@@ -269,6 +315,7 @@ export function UsersPage() {
                     phone: record.phone,
                     role: record.roles?.[0]?.name || "user",
                     status: record.status,
+                    permissions: record.permissions || [],
                   });
                   setIsModalOpen(true);
                 }}
@@ -526,6 +573,30 @@ export function UsersPage() {
                 { label: "User", value: "user" },
               ]}
             />
+          </Form.Item>
+          <Form.Item
+            noStyle
+            shouldUpdate={(prevValues, currentValues) => prevValues.role !== currentValues.role}
+          >
+            {({ getFieldValue }) => {
+              const role = getFieldValue("role");
+              const isAdminRole = ["god", "owner", "superadmin", "admin"].includes(role);
+              return (
+                <Form.Item
+                  name="permissions"
+                  label="ฟังก์ชันที่สามารถเข้าถึงได้ (Feature Access)"
+                  extra="สิทธิ์ของกลุ่มผู้ดูแลระบบ (Admin/GOD/Superadmin) จะเข้าถึงได้ทุกหน้าโดยอัตโนมัติ"
+                >
+                  <Select
+                    mode="multiple"
+                    placeholder={isAdminRole ? "มีสิทธิ์เข้าถึงทุกฟังก์ชันโดยอัตโนมัติ" : "เลือกฟังก์ชันที่อนุญาตให้เข้าถึง"}
+                    disabled={isAdminRole}
+                    options={FEATURE_OPTIONS}
+                    style={{ width: "100%" }}
+                  />
+                </Form.Item>
+              );
+            }}
           </Form.Item>
           {editingUser && (
             <Form.Item

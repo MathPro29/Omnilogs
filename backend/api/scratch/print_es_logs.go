@@ -20,13 +20,16 @@ func main() {
 		log.Fatalf("failed to connect es: %v", err)
 	}
 
-	// Search for any documents in test-dev-logs-2026.07.14
+	// Search for any documents in omnilogs-product-1-dev-2026.07.15
 	var buf bytes.Buffer
 	query := map[string]interface{}{
 		"query": map[string]interface{}{
 			"match_all": map[string]interface{}{},
 		},
-		"size": 2,
+		"sort": []map[string]interface{}{
+			{"@timestamp": map[string]interface{}{"order": "desc"}},
+		},
+		"size": 5,
 	}
 	if err := json.NewEncoder(&buf).Encode(query); err != nil {
 		log.Fatalf("Error encoding query: %s", err)
@@ -34,7 +37,7 @@ func main() {
 
 	res, err := es.Search(
 		es.Search.WithContext(context.Background()),
-		es.Search.WithIndex("test-dev-logs-2026.07.14"),
+		es.Search.WithIndex("test-dev-logs-2026.07.15"),
 		es.Search.WithBody(&buf),
 		es.Search.WithPretty(),
 	)

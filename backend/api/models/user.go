@@ -18,8 +18,9 @@ type User struct {
 	LastLoginAt  *time.Time `gorm:"type:timestamptz" json:"last_login_at,omitempty"`
 	Timestamps
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at,omitempty"`
-	RoleID    uint           `gorm:"-" json:"role_id,omitempty"`
-	Role      *UserRole      `gorm:"-" json:"role,omitempty"`
+	RoleID       uint           `gorm:"-" json:"role_id,omitempty"`
+	Role         *UserRole      `gorm:"-" json:"role,omitempty"`
+	Permissions  []string       `gorm:"serializer:json;type:jsonb" json:"permissions,omitempty"`
 }
 
 type UserRole struct {
