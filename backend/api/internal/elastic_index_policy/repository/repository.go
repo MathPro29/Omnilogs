@@ -102,10 +102,16 @@ func (r *repository) PushToArchives(req dto.PushToArchivesRequest) (*dto.PushToA
 	targets := []string{prefix + "-*"}
 	defaultPrefix := fmt.Sprintf("omnilogs-product-%d", policy.ProductID)
 	if policy.EnvironmentID != nil {
-		defaultPrefix = fmt.Sprintf("%s-env-%d", defaultPrefix, *policy.EnvironmentID)
-	}
-	if prefix != defaultPrefix {
+		defaultEnvPrefix := fmt.Sprintf("%s-env-%d", defaultPrefix, *policy.EnvironmentID)
+		if prefix != defaultEnvPrefix {
+			targets = append(targets, defaultEnvPrefix+"-*")
+		}
+		// Also include product-wide fallback index to scan for environment logs stored there
 		targets = append(targets, defaultPrefix+"-*")
+	} else {
+		if prefix != defaultPrefix {
+			targets = append(targets, defaultPrefix+"-*")
+		}
 	}
 
 	res, err := r.esClient.Indices.Get(targets, r.esClient.Indices.Get.WithContext(context.Background()))
