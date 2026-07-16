@@ -13,14 +13,9 @@ import (
 )
 
 func AuditRoutes(router *gin.Engine, db *gorm.DB, esClient *elasticsearch.Client, env *configs.Env) {
-	natsQueue, err := configs.ConnectNATS(env)
-	if err != nil {
-		panic(err)
-	}
-
 	auditHandler := auditmodule.NewHandler(db)
 	auditSecretHandler := auditsecretmodule.NewHandler(db, env.DataEncryptionKey)
-	mainLogHandler := mainlogmodule.NewHandler(db, esClient, env.DataEncryptionKey, natsQueue)
+	mainLogHandler := mainlogmodule.NewHandler(db, esClient, env.DataEncryptionKey, nil)
 
 	group := router.Group("/api/v1/audit-logs")
 	group.Use(middleware.UserAuthMiddleware(env.JWTSecret))

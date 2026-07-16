@@ -256,6 +256,13 @@ func (r *repository) PushToArchives(req dto.PushToArchivesRequest) (*dto.PushToA
 			result.FailedCount++
 			continue
 		}
+		if err := archive_utils.DeleteArchivedAuditLogs(context.Background(), r.db, indexName, policy.ProductID, policy.EnvironmentID, archiveFormat); err != nil {
+			unlockIndex(r.esClient, indexName)
+			result.FailedCount++
+			failed := "FAILED"
+			_ = r.db.Model(archive).Updates(map[string]any{"status": &failed}).Error
+			continue
+		}
 		if policy.EnvironmentID != nil {
 			if err := unlockIndex(r.esClient, indexName); err != nil {
 				result.FailedCount++

@@ -28,8 +28,13 @@ func RunAPIServer(env *configs.Env, db *gorm.DB) error {
 	if err != nil {
 		return err
 	}
+	natsQueue, err := configs.ConnectNATS(env)
+	if err != nil {
+		return err
+	}
+	defer natsQueue.Close()
 
-	router := NewRouter(env, db, esClient)
+	router := NewRouter(env, db, esClient, natsQueue)
 	server := &http.Server{
 		Addr:              ":" + env.AppPort,
 		Handler:           router,
@@ -60,7 +65,7 @@ func RunAPIServer(env *configs.Env, db *gorm.DB) error {
 	return nil
 }
 
-func NewRouter(env *configs.Env, db *gorm.DB, esClient *elasticsearch.Client) *gin.Engine {
+func NewRouter(env *configs.Env, db *gorm.DB, esClient *elasticsearch.Client, natsQueue *configs.NATSQueue) *gin.Engine {
 	router := gin.New()
 	router.Use(gin.Logger())
 	router.Use(middleware.Recovery())
@@ -86,9 +91,9 @@ func NewRouter(env *configs.Env, db *gorm.DB, esClient *elasticsearch.Client) *g
 	routes.SwaggerRoutes(router, env)
 	routes.RegisterAuthRoutes(router, db, env)
 	routes.DashboardRoutes(router, db, esClient, env)
-	routes.MainLogRoutes(router, db, esClient, env)
+	routes.MainLogRoutes(router, db, esClient, env, natsQueue)
 	routes.AuditRoutes(router, db, esClient, env)
-	routes.LogQueueRoutes(router, db, env)
+	routes.LogQueueRoutes(router, db, env, esClient, natsQueue)
 
 	return router
 }

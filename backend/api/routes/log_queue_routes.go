@@ -8,22 +8,14 @@ import (
 	workerprocessor "omnilogs-api/internal/worker"
 	"omnilogs-api/middleware"
 
+	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
-func LogQueueRoutes(router *gin.Engine, db *gorm.DB, env *configs.Env) {
+func LogQueueRoutes(router *gin.Engine, db *gorm.DB, env *configs.Env, esClient *elasticsearch.Client, natsQueue *configs.NATSQueue) {
 	repo := logqueuesrepo.NewRepository(db)
-	natsQueue, err := configs.ConnectNATS(env)
-	if err != nil {
-		panic(err)
-	}
 	use := logqueuesusecase.NewUsecase(repo, natsQueue)
-
-	esClient, err := configs.ConnectElasticsearch(env)
-	if err != nil {
-		panic(err)
-	}
 
 	processor := workerprocessor.NewProcessor(db, esClient, env.DataEncryptionKey, natsQueue)
 	handler := logqueueshandler.NewHandler(use, processor)

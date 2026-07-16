@@ -305,6 +305,10 @@ func (u *usecase) runRetentionCheck(ctx context.Context) error {
 						}
 						continue
 					}
+					if err := archive_utils.DeleteArchivedAuditLogs(ctx, u.repo.DB(), indexName, policy.ProductID, policy.EnvironmentID, archiveFormat); err != nil {
+						slog.Error("failed to delete archived audit logs", "index", indexName, "error", err)
+						continue
+					}
 				}
 				if policy.EnvironmentID != nil {
 					unlockRes, unlockErr := u.esClient.Indices.PutSettings(

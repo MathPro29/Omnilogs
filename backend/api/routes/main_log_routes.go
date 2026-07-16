@@ -10,12 +10,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func MainLogRoutes(router *gin.Engine, db *gorm.DB, esClient *elasticsearch.Client, env *configs.Env) {
-	natsQueue, err := configs.ConnectNATS(env)
-	if err != nil {
-		panic(err)
-	}
-
+func MainLogRoutes(router *gin.Engine, db *gorm.DB, esClient *elasticsearch.Client, env *configs.Env, natsQueue *configs.NATSQueue) {
 	handler := mainlogmodule.NewHandler(db, esClient, env.DataEncryptionKey, natsQueue)
 
 	group := router.Group("/api/v1/logs")

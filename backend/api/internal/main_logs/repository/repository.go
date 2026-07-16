@@ -15,7 +15,7 @@ type Repository interface {
 	GetLogIndexRef(ctx context.Context, productID int64, logID string) (*models.LogIndexRef, error)
 	GetMainLogFromES(ctx context.Context, index, docID string) (*esapi.Response, error)
 	GetPostgresPayload(ctx context.Context, logID string) (*models.LogObjectStorageRef, error)
-	CountProductMembership(ctx context.Context, userID uint, productID int64) (int64, error)
+	HasActiveProductMembership(ctx context.Context, userID uint, productID int64) (bool, error)
 	GetActiveIndexPolicies(ctx context.Context, productID int64) ([]models.ElasticIndexPolicy, error)
 }
 
@@ -56,13 +56,18 @@ func (r *repository) GetPostgresPayload(ctx context.Context, logID string) (*mod
 	return &objectRef, err
 }
 
-func (r *repository) CountProductMembership(ctx context.Context, userID uint, productID int64) (int64, error) {
-	var count int64
-	err := r.db.WithContext(ctx).
-		Model(&models.ProductMembership{}).
-		Where("user_id = ? AND product_id = ? AND is_active = TRUE", userID, productID).
-		Count(&count).Error
-	return count, err
+func (r *repository) HasActiveProductMembership(ctx context.Context, userID uint, productID int64) (bool, error) {
+	var exists bool
+	err := r.db.WithContext(ctx).Raw(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM product_memberships
+			WHERE user_id = ?
+			  AND product_id = ?
+			  AND is_active = TRUE
+			  AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+		)`, userID, productID).Scan(&exists).Error
+	return exists, err
 }
 
 func (r *repository) GetActiveIndexPolicies(ctx context.Context, productID int64) ([]models.ElasticIndexPolicy, error) {

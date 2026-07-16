@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+	"strings"
 
 	"github.com/elastic/go-elasticsearch/v8"
 	"gorm.io/gorm"
@@ -27,8 +30,8 @@ func RestoreIndex(ctx context.Context, db *gorm.DB, esClient *elasticsearch.Clie
 	}
 	defer gzipReader.Close()
 
-	var archiveData ArchiveData
-	if err := json.NewDecoder(gzipReader).Decode(&archiveData); err != nil {
+	archiveData, err := decodeArchiveData(gzipReader, filePath)
+	if err != nil {
 		return 0, err
 	}
 
@@ -122,4 +125,35 @@ func RestoreIndex(ctx context.Context, db *gorm.DB, esClient *elasticsearch.Clie
 	}
 
 	return len(archiveData.Logs), nil
+}
+
+func decodeArchiveData(reader io.Reader, filePath string) (ArchiveData, error) {
+	if !strings.HasSuffix(strings.ToLower(filePath), ".csv.gz") {
+		var data ArchiveData
+		err := json.NewDecoder(reader).Decode(&data)
+		return data, err
+	}
+
+	records, err := csv.NewReader(reader).ReadAll()
+	if err != nil {
+		return ArchiveData{}, err
+	}
+	if len(records) == 0 {
+		return ArchiveData{Logs: []map[string]any{}}, nil
+	}
+	if len(records[0]) != 4 || records[0][0] != "log_id" || records[0][3] != "raw_payload" {
+		return ArchiveData{}, fmt.Errorf("invalid CSV archive header")
+	}
+	logs := make([]map[string]any, 0, len(records)-1)
+	for rowNumber, record := range records[1:] {
+		if len(record) != 4 {
+			return ArchiveData{}, fmt.Errorf("invalid CSV archive row %d", rowNumber+2)
+		}
+		var source map[string]any
+		if err := json.Unmarshal([]byte(record[3]), &source); err != nil {
+			return ArchiveData{}, fmt.Errorf("invalid raw payload at CSV archive row %d: %w", rowNumber+2, err)
+		}
+		logs = append(logs, map[string]any{"_id": record[0], "_source": source})
+	}
+	return ArchiveData{Logs: logs}, nil
 }
