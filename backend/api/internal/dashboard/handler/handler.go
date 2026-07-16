@@ -7,6 +7,7 @@ import (
 
 	"omnilogs-api/dto"
 	"omnilogs-api/internal/dashboard/usecase"
+	"omnilogs-api/middleware"
 	"omnilogs-api/responses"
 
 	"github.com/gin-gonic/gin"
@@ -99,6 +100,10 @@ func (h *handler) GetAuditLogs(c *gin.Context) {
 		return
 	}
 	query = usecase.NormalizeAuditLogQuery(query)
+	global, productIDs := middleware.AuditScope(c)
+	if !global {
+		query.AllowedProductIDs = productIDs
+	}
 
 	auditLogs, total, err := h.uc.GetAuditLogs(c.Request.Context(), query)
 	if err != nil {

@@ -14,7 +14,7 @@ type Repository interface {
 	UpsertIndexRef(ctx context.Context, indexRef *models.LogIndexRef) error
 	CreateFailure(ctx context.Context, failure *models.LogFailure) error
 	FindIndexPolicy(ctx context.Context, productID int, environmentID *int) (*models.ElasticIndexPolicy, error)
-	GetSensitiveFieldDefinitions(ctx context.Context, productID int) ([]models.LogFieldDefinition, error)
+	GetActiveFieldDefinitions(ctx context.Context, productID int) ([]models.LogFieldDefinition, error)
 	GetLogMaskingRules(ctx context.Context, productID int) ([]models.LogMaskingRule, error)
 	GetActiveIndexPolicies(ctx context.Context) ([]models.ElasticIndexPolicy, error)
 	CreateLogArchive(ctx context.Context, archive *models.LogArchive) error
@@ -181,15 +181,15 @@ func (r *repository) FindIndexPolicy(ctx context.Context, productID int, environ
 	return &list[0], nil
 }
 
-func (r *repository) GetSensitiveFieldDefinitions(ctx context.Context, productID int) ([]models.LogFieldDefinition, error) {
+func (r *repository) GetActiveFieldDefinitions(ctx context.Context, productID int) ([]models.LogFieldDefinition, error) {
 	var list []models.LogFieldDefinition
-	err := r.db.WithContext(ctx).Where("product_id = ? AND is_sensitive = TRUE AND is_active = TRUE", productID).Find(&list).Error
+	err := r.db.WithContext(ctx).Where("(product_id = ? OR product_id IS NULL) AND is_active = TRUE", productID).Find(&list).Error
 	return list, err
 }
 
 func (r *repository) GetLogMaskingRules(ctx context.Context, productID int) ([]models.LogMaskingRule, error) {
 	var list []models.LogMaskingRule
-	err := r.db.WithContext(ctx).Where("product_id = ? AND is_active = TRUE", productID).Find(&list).Error
+	err := r.db.WithContext(ctx).Where("(product_id = ? OR product_id IS NULL) AND is_active = TRUE", productID).Find(&list).Error
 	return list, err
 }
 

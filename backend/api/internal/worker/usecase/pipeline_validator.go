@@ -11,37 +11,21 @@ import (
 
 // PipelineValidator validates a single custom field value against its schema configuration.
 func PipelineValidator(ctx context.Context, field models.LogFieldDefinition, value any) error {
-	if field.ConfigJSON == nil {
-		return nil
-	}
-
 	var config models.FieldConfigJSON
-	if err := json.Unmarshal(*field.ConfigJSON, &config); err != nil {
-		return nil
-	}
-
-	if config.Validation == nil {
-		return nil
+	if field.ConfigJSON != nil {
+		if err := json.Unmarshal(*field.ConfigJSON, &config); err != nil {
+			return fmt.Errorf("field %s has invalid config_json: %w", field.FieldKey, err)
+		}
 	}
 
 	valConfig := config.Validation
-
-	if valConfig.Required && value == nil {
+	if (field.IsRequired || (valConfig != nil && valConfig.Required)) && value == nil {
 		return fmt.Errorf("field %s is required", field.FieldKey)
 	}
-
-	if value == nil && !valConfig.Nullable {
-		// Depending on strictness, we might error if it's nil and not nullable
-		return fmt.Errorf("field %s cannot be null", field.FieldKey)
-	}
-
 	if value == nil {
-		return nil // Nothing else to validate if nil
-	}
-
-	switch field.FieldType {
-	case nil:
-		// Fallback for old schema
+		if valConfig != nil && !valConfig.Nullable {
+			return fmt.Errorf("field %s cannot be null", field.FieldKey)
+		}
 		return nil
 	}
 
@@ -55,9 +39,12 @@ func PipelineValidator(ctx context.Context, field models.LogFieldDefinition, val
 				return fmt.Errorf("field %s must be at most %d characters", field.FieldKey, *strConfig.MaxLength)
 			}
 			if strConfig.Regex != nil && *strConfig.Regex != "" {
-				matched, err := regexp.MatchString(*strConfig.Regex, str)
-				if err == nil && !matched {
-					return fmt.Errorf("field %s does not match pattern %s", field.FieldKey, *strConfig.Regex)
+				expression, err := regexp.Compile(*strConfig.Regex)
+				if err != nil {
+					return fmt.Errorf("field %s has invalid regex: %w", field.FieldKey, err)
+				}
+				if !expression.MatchString(str) {
+					return fmt.Errorf("field %s does not match configured pattern", field.FieldKey)
 				}
 			}
 		}
@@ -68,17 +55,13 @@ func PipelineValidator(ctx context.Context, field models.LogFieldDefinition, val
 		isNum := false
 		switch v := value.(type) {
 		case float64:
-			num = v
-			isNum = true
+			num, isNum = v, true
 		case int:
-			num = float64(v)
-			isNum = true
+			num, isNum = float64(v), true
 		case int32:
-			num = float64(v)
-			isNum = true
+			num, isNum = float64(v), true
 		case int64:
-			num = float64(v)
-			isNum = true
+			num, isNum = float64(v), true
 		}
 		if isNum {
 			numConfig := config.NumberConfig

@@ -7,6 +7,7 @@ export type CustomField = {
   category_id?: number | null;
   field_key: string;
   display_name?: string | null;
+  field_group?: string | null;
   description?: string | null;
   source_section: string;
   field_path?: string | null;
@@ -23,6 +24,14 @@ export type CustomField = {
   is_filterable: boolean;
   is_sortable: boolean;
   is_aggregatable: boolean;
+  show_in_table: boolean;
+  show_in_detail: boolean;
+  show_in_dashboard: boolean;
+  show_in_export: boolean;
+  view_permission?: string | null;
+  filter_permission?: string | null;
+  export_permission?: string | null;
+  mask_type?: string | null;
   display_order?: number | null;
   default_value?: string | null;
   is_active: boolean;
@@ -102,6 +111,7 @@ export const customFieldService = {
     field_path: string;
     display_name?: string;
     sample_value?: unknown;
+    source_section?: string;
     detected_type: string;
   }): Promise<CustomField> => (await apiClient.post(`${endpoint}/favorites`, payload)).data,
   reorderFavorites: async (productId: number, items: Array<{ field_definition_id: number; display_order: number }>): Promise<void> => {

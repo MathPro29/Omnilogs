@@ -10,6 +10,7 @@ type CreateLogFieldDefinitionRequest struct {
 	CategoryID           *int            `json:"category_id,omitempty" binding:"omitempty,gt=0"`
 	FieldKey             string          `json:"field_key" binding:"required"`
 	DisplayName          *string         `json:"display_name,omitempty"`
+	FieldGroup           *string         `json:"field_group,omitempty"`
 	Description          *string         `json:"description,omitempty"`
 	SourceSection        string          `json:"source_section" binding:"required"`
 	FieldPath            *string         `json:"field_path,omitempty"`
@@ -26,6 +27,14 @@ type CreateLogFieldDefinitionRequest struct {
 	IsFilterable         bool            `json:"is_filterable"`
 	IsSortable           bool            `json:"is_sortable"`
 	IsAggregatable       bool            `json:"is_aggregatable"`
+	ShowInTable          *bool           `json:"show_in_table,omitempty"`
+	ShowInDetail         *bool           `json:"show_in_detail,omitempty"`
+	ShowInDashboard      *bool           `json:"show_in_dashboard,omitempty"`
+	ShowInExport         *bool           `json:"show_in_export,omitempty"`
+	ViewPermission       *string         `json:"view_permission,omitempty"`
+	FilterPermission     *string         `json:"filter_permission,omitempty"`
+	ExportPermission     *string         `json:"export_permission,omitempty"`
+	MaskType             *string         `json:"mask_type,omitempty"`
 	DisplayOrder         *int            `json:"display_order,omitempty" binding:"omitempty,gte=0"`
 	DefaultValue         *string         `json:"default_value,omitempty"`
 	FieldType            *string         `json:"field_type,omitempty"`
@@ -37,7 +46,9 @@ type CreateLogFieldDefinitionRequest struct {
 }
 
 type UpdateLogFieldDefinitionRequest struct {
+	SourceSection        *string         `json:"source_section,omitempty"`
 	DisplayName          *string         `json:"display_name,omitempty"`
+	FieldGroup           *string         `json:"field_group,omitempty"`
 	Description          *string         `json:"description,omitempty"`
 	FieldPath            *string         `json:"field_path,omitempty"`
 	ElasticFieldName     *string         `json:"elastic_field_name,omitempty"`
@@ -53,6 +64,14 @@ type UpdateLogFieldDefinitionRequest struct {
 	IsFilterable         *bool           `json:"is_filterable,omitempty"`
 	IsSortable           *bool           `json:"is_sortable,omitempty"`
 	IsAggregatable       *bool           `json:"is_aggregatable,omitempty"`
+	ShowInTable          *bool           `json:"show_in_table,omitempty"`
+	ShowInDetail         *bool           `json:"show_in_detail,omitempty"`
+	ShowInDashboard      *bool           `json:"show_in_dashboard,omitempty"`
+	ShowInExport         *bool           `json:"show_in_export,omitempty"`
+	ViewPermission       *string         `json:"view_permission,omitempty"`
+	FilterPermission     *string         `json:"filter_permission,omitempty"`
+	ExportPermission     *string         `json:"export_permission,omitempty"`
+	MaskType             *string         `json:"mask_type,omitempty"`
 	DisplayOrder         *int            `json:"display_order,omitempty" binding:"omitempty,gte=0"`
 	DefaultValue         *string         `json:"default_value,omitempty"`
 	IsActive             *bool           `json:"is_active,omitempty"`
@@ -71,6 +90,7 @@ type LogFieldDefinitionResponse struct {
 	CategoryID           *int             `json:"category_id,omitempty"`
 	FieldKey             string           `json:"field_key"`
 	DisplayName          *string          `json:"display_name,omitempty"`
+	FieldGroup           *string          `json:"field_group,omitempty"`
 	Description          *string          `json:"description,omitempty"`
 	SourceSection        string           `json:"source_section"`
 	FieldPath            *string          `json:"field_path,omitempty"`
@@ -87,6 +107,14 @@ type LogFieldDefinitionResponse struct {
 	IsFilterable         bool             `json:"is_filterable"`
 	IsSortable           bool             `json:"is_sortable"`
 	IsAggregatable       bool             `json:"is_aggregatable"`
+	ShowInTable          bool             `json:"show_in_table"`
+	ShowInDetail         bool             `json:"show_in_detail"`
+	ShowInDashboard      bool             `json:"show_in_dashboard"`
+	ShowInExport         bool             `json:"show_in_export"`
+	ViewPermission       *string          `json:"view_permission,omitempty"`
+	FilterPermission     *string          `json:"filter_permission,omitempty"`
+	ExportPermission     *string          `json:"export_permission,omitempty"`
+	MaskType             *string          `json:"mask_type,omitempty"`
 	DisplayOrder         *int             `json:"display_order,omitempty"`
 	DefaultValue         *string          `json:"default_value,omitempty"`
 	IsActive             bool             `json:"is_active"`

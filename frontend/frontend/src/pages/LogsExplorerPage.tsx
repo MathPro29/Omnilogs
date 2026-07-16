@@ -10,6 +10,7 @@ import {
   DatabaseOutlined,
   StarOutlined,
   StarFilled,
+  DownloadOutlined,
 } from '@ant-design/icons';
 import {
   XAxis,
@@ -169,14 +170,17 @@ const getCustomFieldValue = (record: any, path: string): unknown => {
   if (normalizeFavoriteFieldPath(path) === '$') {
     return record.raw?.payload || record.payload || record.raw || record;
   }
-  const normalizedPath = path.replace(/^payload\./, '').replace(/^custom_fields\./, '');
+  const normalizedPath = path.replace(/^(payload|data)\./, '').replace(/^custom_fields\./, '');
   const segments = normalizedPath.split('.').filter(Boolean);
   const candidates = [
     record.customFields,
+    record.raw?.data?.custom_fields,
     record.raw?.payload?.custom_fields,
     record.raw?.custom_fields,
+    record.raw?.data,
     record.raw?.payload,
     record.raw,
+    record.data,
     record.payload,
   ];
 
@@ -278,6 +282,8 @@ export function LogsExplorerPage() {
   const [selectedCustomFieldPaths, setSelectedCustomFieldPaths] = useState<string[]>([]);
   const [customFieldFilterPath, setCustomFieldFilterPath] = useState<string>();
   const [customFieldFilterValue, setCustomFieldFilterValue] = useState<string>();
+  const [sortField, setSortField] = useState<string>();
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [autoRefresh, setAutoRefresh] = useState(false);
@@ -343,7 +349,7 @@ export function LogsExplorerPage() {
     (field.project_id == null || selectedProjectIds.length === 0 || selectedProjectIds.includes(field.project_id)) &&
     (field.category_id == null || selectedCategoryIds.length === 0 || selectedCategoryIds.includes(field.category_id))
   );
-  const visibleCustomFields = scopedCustomFields.filter((field) => field.is_visible);
+  const visibleCustomFields = scopedCustomFields.filter((field) => field.is_visible && field.show_in_table !== false);
   const filterableCustomFields = scopedCustomFields.filter((field) =>
     field.is_filterable &&
     ![''].includes(field.field_key)
@@ -435,6 +441,8 @@ export function LogsExplorerPage() {
       selectedCustomFieldPaths,
       customFieldFilterPath,
       customFieldFilterValue,
+      sortField,
+      sortOrder,
       logKeyword,
       currentPage,
       pageSize,
@@ -449,6 +457,8 @@ export function LogsExplorerPage() {
         keyword: logKeyword || undefined,
         customFieldPath: customFieldFilterPath,
         customFieldValue: customFieldFilterValue,
+        sortField,
+        sortOrder: sortField ? sortOrder : undefined,
         page: currentPage,
         perPage: pageSize,
       }),
@@ -796,6 +806,20 @@ export function LogsExplorerPage() {
     getCategoryName,
   ]);
 
+  const exportVisibleLogs = () => {
+    const exportFields = scopedCustomFields.filter(field => field.is_visible && field.show_in_export !== false).sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0));
+    const headers = ['Timestamp', 'Level', 'Log Type', 'Message', ...exportFields.map(field => field.display_name || field.field_key)];
+    const escapeCSV = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const rows = logs.map(log => [log.timestamp, log.level, log.logType, log.message, ...exportFields.map(field => getCustomFieldValue(log, field.elastic_field_name || field.field_path || field.field_key))]);
+    const csv = [headers, ...rows].map(row => row.map(value => escapeCSV(typeof value === 'object' ? JSON.stringify(value) : value)).join(',')).join('\n');
+    const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `omnilogs-${selectedProductId}-${new Date().toISOString()}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div style={{ padding: '8px' }}>
       <Space direction="vertical" style={{ width: '100%' }} size="large">
@@ -936,7 +960,7 @@ export function LogsExplorerPage() {
 
 
               {filterableCustomFields.map((field) => {
-                const path = field.field_path || `custom_fields.${field.field_key}`;
+                const path = field.elastic_field_name || field.field_path || `custom_fields.${field.field_key}`;
                 const isCurrent = customFieldFilterPath === path;
                 const currentVal = isCurrent ? customFieldFilterValue : undefined;
                 
@@ -1042,6 +1066,15 @@ export function LogsExplorerPage() {
                     }))}
                     style={{ width: '100%' }}
                   />
+                </Form.Item>
+              </Col>
+
+              <Col xs={24} sm={12} md={6}>
+                <Form.Item label="Dynamic sort" style={{ marginBottom: 0 }}>
+                  <Space.Compact style={{ width: '100%' }}>
+                    <Select allowClear placeholder="Field" value={sortField} onChange={(value) => { setSortField(value); setCurrentPage(1); }} options={scopedCustomFields.filter(field => field.is_sortable).map(field => ({ value: field.elastic_field_name || field.field_path, label: field.display_name || field.field_key }))} style={{ width: '70%' }} />
+                    <Select value={sortOrder} onChange={(value) => { setSortOrder(value); setCurrentPage(1); }} options={[{ value: 'asc', label: 'ASC' }, { value: 'desc', label: 'DESC' }]} style={{ width: '30%' }} />
+                  </Space.Compact>
                 </Form.Item>
               </Col>
 
@@ -1237,6 +1270,7 @@ export function LogsExplorerPage() {
             bordered={false}
             className="shadow-sm"
             style={{ borderRadius: '12px' }}
+            extra={<Button icon={<DownloadOutlined />} onClick={exportVisibleLogs} disabled={logs.length === 0}>Export CSV</Button>}
             title={
               <Space>
                 <DatabaseOutlined style={{ color: 'var(--color-primary)' }} />
@@ -1361,6 +1395,7 @@ export function LogsExplorerPage() {
 
             {(() => {
               const visibleFieldsForLog = getVisibleCustomFieldsForLog(selectedLog, customFields)
+                .filter((field) => field.show_in_detail !== false)
                 .filter((field) => selectedCustomFieldPaths.length === 0 || selectedCustomFieldPaths.includes(field.field_path || `custom_fields.${field.field_key}`));
               if (visibleFieldsForLog.length === 0) return null;
 

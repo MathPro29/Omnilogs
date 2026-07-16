@@ -1,4 +1,5 @@
 // ===== Route Paths =====
+// เพิ่มลด ROUTE ของ Frontend จะมีผลต่อ route ของ backend
 export const ROUTES = {
   LOGIN: '/login',
   REGISTER: '/register',
@@ -16,7 +17,6 @@ export const ROUTES = {
   RETENTION_TEST: '/retention-test',
   SENSITIVE_ACCESS: '/sensitive-access',
   CUSTOM_FIELDS: '/custom-fields',
-  PRODUCT_ROLES: '/product-roles',
   FORBIDDEN: '/403',
   NOT_FOUND: '/404',
   FORGOT_PASSWORD: '/forgot-password',

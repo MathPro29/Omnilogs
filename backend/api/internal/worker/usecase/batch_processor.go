@@ -20,7 +20,6 @@ import (
 type batchCache struct {
 	fields     sync.Map // productID -> []models.LogFieldDefinition
 	rules      sync.Map // productID -> []models.LogMaskingRule
-	matchers   sync.Map // productID -> *sensitiveMatchers
 	hierarchy  sync.Map // string -> error (caching valid or invalid results)
 	indexNames sync.Map // productID-environmentID-date -> index name
 }
@@ -51,7 +50,9 @@ func (u *usecase) processFetchedMessages(ctx context.Context, msgs []*nats.Msg) 
 		defer u.refreshBatchStatuses(ctx, batchIDs)
 	}
 
-	u.markFetchedBatchesProcessing(ctx, msgs)
+	if err := u.markFetchedBatchesProcessing(ctx, msgs); err != nil {
+		return err
+	}
 
 	prepared, err := u.prepareLogs(ctx, msgs)
 	if err != nil {
@@ -125,7 +126,7 @@ func (u *usecase) refreshBatchStatuses(ctx context.Context, batchIDs map[string]
 	}
 }
 
-func (u *usecase) markFetchedBatchesProcessing(ctx context.Context, msgs []*nats.Msg) {
+func (u *usecase) markFetchedBatchesProcessing(ctx context.Context, msgs []*nats.Msg) error {
 	batchIDs := make(map[string]struct{})
 	for _, msg := range msgs {
 		envelope, err := decodeMessage(msg)
@@ -153,7 +154,9 @@ func (u *usecase) markFetchedBatchesProcessing(ctx context.Context, msgs []*nats
 			"error_message":         nil,
 		}).Error; err != nil {
 		slog.Error("failed to mark fetched batches as processing", "error", err)
+		return err
 	}
+	return nil
 }
 
 func (u *usecase) prepareLogs(ctx context.Context, msgs []*nats.Msg) ([]processedLog, error) {
@@ -168,9 +171,9 @@ func (u *usecase) prepareLogs(ctx context.Context, msgs []*nats.Msg) ([]processe
 	}
 
 	for pid := range uniqueProductIDs {
-		fields, err := u.repo.GetSensitiveFieldDefinitions(ctx, pid)
+		fields, err := u.repo.GetActiveFieldDefinitions(ctx, pid)
 		if err != nil {
-			return nil, fmt.Errorf("load sensitive field definitions for product %d: %w", pid, err)
+			return nil, fmt.Errorf("load field definitions for product %d: %w", pid, err)
 		}
 		cache.fields.Store(pid, fields)
 
@@ -179,7 +182,6 @@ func (u *usecase) prepareLogs(ctx context.Context, msgs []*nats.Msg) ([]processe
 			return nil, fmt.Errorf("load masking rules for product %d: %w", pid, err)
 		}
 		cache.rules.Store(pid, rules)
-		cache.matchers.Store(pid, buildSensitiveMatchers(fields, rules))
 	}
 
 	type prepareResult struct {
@@ -244,11 +246,6 @@ func (u *usecase) prepareLog(ctx context.Context, msg *nats.Msg, cache *batchCac
 	if val, ok := cache.rules.Load(*envelope.ProductID); ok {
 		rules = val.([]models.LogMaskingRule)
 	}
-	var matchers *sensitiveMatchers
-	if val, ok := cache.matchers.Load(*envelope.ProductID); ok {
-		matchers = val.(*sensitiveMatchers)
-	}
-
 	var payload map[string]any
 	if err := json.Unmarshal(envelope.InputPayload, &payload); err != nil {
 		return nil, u.failMessage(ctx, msg, envelope, "TRANSFORM", "INVALID_PAYLOAD", err.Error(), false)
@@ -256,14 +253,28 @@ func (u *usecase) prepareLog(ctx context.Context, msg *nats.Msg, cache *batchCac
 	if payload == nil {
 		return nil, u.failMessage(ctx, msg, envelope, "TRANSFORM", "INVALID_PAYLOAD", "payload is null or empty", false)
 	}
-
+	_, rawMeta, err := buildElasticDocument(&envelope, payload)
+	if err != nil {
+		return nil, u.failMessage(ctx, msg, envelope, "TRANSFORM", "INVALID_PAYLOAD", err.Error(), false)
+	}
+	fields = applicableFieldDefinitions(fields, rawMeta)
+	sensitiveFields := make([]models.LogFieldDefinition, 0, len(fields))
+	for _, field := range fields {
+		if field.IsSensitive {
+			sensitiveFields = append(sensitiveFields, field)
+		}
+	}
+	matchers := buildSensitiveMatchers(sensitiveFields, rules)
+	// ควบคุมการประมวลผล
 	// 1. EXTRACT & TRANSFORM & VALIDATE PIPELINE
 	for _, field := range fields {
-		if field.FieldPath == nil || *field.FieldPath == "" {
+		path := strings.TrimSpace(field.FieldKey)
+		if field.FieldPath != nil && strings.TrimSpace(*field.FieldPath) != "" {
+			path = canonicalDynamicPath(*field.FieldPath)
+		}
+		if path == "" {
 			continue
 		}
-
-		path := *field.FieldPath
 		val, exists := readJSONPath(payload, path)
 		if exists {
 			transformed, err := PipelineTransformer(ctx, field, val)
@@ -354,6 +365,34 @@ func (u *usecase) prepareLog(ctx context.Context, msg *nats.Msg, cache *batchCac
 		indexRef:        indexRef,
 		originalPayload: originalPayload,
 	}, nil
+}
+
+func canonicalDynamicPath(path string) string {
+	path = strings.Trim(strings.TrimSpace(path), ".")
+	if path == "$" {
+		return "$"
+	}
+
+	// Field definitions can originate from the legacy payload, the current data
+	// shape, or a raw sample. The worker always traverses the decoded document
+	// root, so these transport prefixes must not participate in path matching.
+	for {
+		switch {
+		case strings.HasPrefix(path, "raw."):
+			path = strings.TrimPrefix(path, "raw.")
+		case strings.HasPrefix(path, "payload."):
+			path = strings.TrimPrefix(path, "payload.")
+		case strings.HasPrefix(path, "data."):
+			path = strings.TrimPrefix(path, "data.")
+		case strings.HasPrefix(path, "fields."):
+			path = strings.TrimPrefix(path, "fields.")
+		default:
+			if path == "raw" || path == "payload" || path == "data" || path == "fields" || path == "" {
+				return "$"
+			}
+			return path
+		}
+	}
 }
 
 func readJSONPath(value any, path string) (any, bool) {

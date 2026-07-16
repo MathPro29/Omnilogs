@@ -52,3 +52,22 @@ func TestNormalizeFavoriteFieldPathRemovesPayloadEnvelope(t *testing.T) {
 		t.Fatalf("unexpected payload root path: %s", got)
 	}
 }
+
+func TestNormalizeFavoriteFieldPathSupportsAllPayloadEnvelopes(t *testing.T) {
+	for input, want := range map[string]string{
+		"data.request.user.email":   "request.user.email",
+		"fields.request.user.email": "request.user.email",
+		"raw.data.request.id":       "request.id",
+		"data":                      "$",
+	} {
+		if got := normalizeFavoriteFieldPath(input); got != want {
+			t.Fatalf("normalizeFavoriteFieldPath(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestDynamicElasticFieldNameUsesCanonicalPath(t *testing.T) {
+	if got := dynamicElasticFieldName("data", "raw.data.request.id"); got != "data.request.id" {
+		t.Fatalf("dynamicElasticFieldName() = %q, want data.request.id", got)
+	}
+}

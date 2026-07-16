@@ -12,7 +12,7 @@ import (
 )
 
 func CustomFieldRoutes(router *gin.Engine, db *gorm.DB, env *configs.Env) {
-	handler := handler.NewHandler(db, env)
+	handler := handler.NewHandler(db)
 
 	customFields := router.Group("/api/v1/custom-fields")
 	customFields.Use(middleware.UserAuthMiddleware(env.JWTSecret))

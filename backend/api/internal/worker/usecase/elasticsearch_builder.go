@@ -145,7 +145,10 @@ func buildElasticDocument(message *queue.LogMessage, payload map[string]any) (ma
 		"source_type":     message.SourceType,
 		"source_platform": message.SourcePlatform,
 		"received_at":     message.PublishedAt.UTC().Format(time.RFC3339Nano),
-		"payload":         payload,
+		// data is the canonical flexible-schema document. payload remains as a
+		// compatibility alias for existing dashboards and API consumers.
+		"data":    payload,
+		"payload": payload,
 	}
 	if message.ProductID != nil {
 		document["product_id"] = *message.ProductID

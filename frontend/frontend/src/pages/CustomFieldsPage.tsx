@@ -99,6 +99,16 @@ export function CustomFieldsPage() {
     form.resetFields();
     form.setFieldsValue({
       data_type: 'string',
+      source_section: 'data',
+      is_visible: true,
+      is_searchable: true,
+      is_filterable: true,
+      is_sortable: true,
+      is_aggregatable: true,
+      show_in_table: true,
+      show_in_detail: true,
+      show_in_dashboard: false,
+      show_in_export: true,
       is_required: false,
       is_sensitive: false,
       mask_before_index: false,
@@ -229,8 +239,8 @@ export function CustomFieldsPage() {
         config_json: parsedConfigJson,
         product_id: productId,
         field_path: fieldPath,
-        source_section: 'payload',
-        elastic_field_name: fieldValues.elastic_field_name?.trim() || `payload.custom_fields.${fieldValues.field_key}`,
+        source_section: fieldValues.source_section || 'data',
+        elastic_field_name: fieldValues.elastic_field_name?.trim() || `${fieldValues.source_section || 'data'}.${fieldPath}`,
         value_source_type: fieldValues.data_type === 'enum' ? 'ENUM' : 'NONE',
       };
       let fieldId = editing?.field_definition_id;
@@ -452,8 +462,8 @@ export function CustomFieldsPage() {
                   form.setFieldsValue({ field_path: `custom_fields.${key}` });
                 }
                 
-                if (!allValues.elastic_field_name || allValues.elastic_field_name.startsWith('payload.custom_fields.')) {
-                  form.setFieldsValue({ elastic_field_name: `payload.custom_fields.${key}` });
+                if (!allValues.elastic_field_name || /^(payload|data)\.custom_fields\./.test(allValues.elastic_field_name)) {
+                  form.setFieldsValue({ elastic_field_name: `${allValues.source_section || 'data'}.custom_fields.${key}` });
                 }
               }
             }}
@@ -471,8 +481,10 @@ export function CustomFieldsPage() {
               <Col xs={24} md={12}><Form.Item name="display_name" label="ชื่อที่แสดง" rules={[{ required: true }]}><Input placeholder="Customer Tier" /></Form.Item></Col>
               <Col xs={24} md={12}><Form.Item name="data_type" label="Data type" rules={[{ required: true }]}><Select options={['string', 'number', 'boolean', 'datetime', 'json', 'array', 'object', 'enum'].map((value) => ({ value, label: value.toUpperCase() }))} /></Form.Item></Col>
               <Col xs={24} md={12}><Form.Item name="display_order" label="ลำดับแสดงผล"><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
-              <Col xs={24} md={12}><Form.Item name="field_path" label="Field Path"><Input placeholder="custom_fields.customer_tier" disabled={true} /></Form.Item></Col>
-              <Col xs={24} md={12}><Form.Item name="elastic_field_name" label="Elasticsearch Field"><Input placeholder="payload.custom_fields.customer_tier" disabled={true} /></Form.Item></Col>
+              <Col xs={24} md={12}><Form.Item name="field_group" label="Group / Category"><Input placeholder="Customer / Request / Security" /></Form.Item></Col>
+              <Col xs={24} md={12}><Form.Item name="source_section" label="Source section" rules={[{ required: true }]}><Select options={[{ value: 'data', label: 'Dynamic data' }, { value: 'payload', label: 'Legacy payload' }, { value: 'metadata', label: 'Log metadata' }]} /></Form.Item></Col>
+              <Col xs={24} md={12}><Form.Item name="field_path" label="Field Path" rules={[{ required: true }]}><Input placeholder="request.customer.id" /></Form.Item></Col>
+              <Col xs={24} md={12}><Form.Item name="elastic_field_name" label="Elasticsearch Field"><Input placeholder="data.request.customer.id" /></Form.Item></Col>
             </Row>
 
             <Row gutter={16} style={{ marginTop: 8, marginBottom: 16 }}>
@@ -492,6 +504,25 @@ export function CustomFieldsPage() {
                 </Form.Item>
               </Col>
             </Row>
+
+            <Card size="small" title="Usage & capabilities" style={{ marginBottom: 16 }}>
+              <Row gutter={[16, 8]}>
+                {[
+                  ['is_visible', 'Visible'], ['is_searchable', 'Search'], ['is_filterable', 'Filter'], ['is_sortable', 'Sort'],
+                  ['is_aggregatable', 'Dashboard aggregate'], ['show_in_table', 'Table'], ['show_in_detail', 'Detail'],
+                  ['show_in_dashboard', 'Dashboard'], ['show_in_export', 'Export'],
+                ].map(([name, label]) => <Col xs={12} md={8} key={name}><Form.Item name={name} label={label} valuePropName="checked"><Switch /></Form.Item></Col>)}
+              </Row>
+            </Card>
+
+            <Card size="small" title="Field permissions" style={{ marginBottom: 16 }}>
+              <Row gutter={16}>
+                <Col xs={24} md={8}><Form.Item name="view_permission" label="View permission"><Input placeholder="LOG_FIELD:VIEW_SENSITIVE" /></Form.Item></Col>
+                <Col xs={24} md={8}><Form.Item name="filter_permission" label="Filter permission"><Input placeholder="LOG_FIELD:FILTER" /></Form.Item></Col>
+                <Col xs={24} md={8}><Form.Item name="export_permission" label="Export permission"><Input placeholder="LOG_FIELD:EXPORT" /></Form.Item></Col>
+                <Col xs={24} md={8}><Form.Item name="mask_type" label="Masking"><Select allowClear options={['FULL', 'PARTIAL', 'EMAIL', 'LAST4', 'HASH'].map(value => ({ value, label: value }))} /></Form.Item></Col>
+              </Row>
+            </Card>
 
             {editing?.is_favorite && (
               <Alert

@@ -124,21 +124,24 @@ func buildSensitiveMatchers(fields []models.LogFieldDefinition, rules []models.L
 
 	for i := range fields {
 		field := &fields[i]
-		if field.FieldKey != "" {
-			matchers.fieldByKey[field.FieldKey] = field
-		}
 		if field.FieldPath != nil && *field.FieldPath != "" {
-			matchers.fieldByPath[*field.FieldPath] = field
+			path := normalizeArrayPath(canonicalDynamicPath(*field.FieldPath))
+			matchers.fieldByPath[path] = field
+		} else if field.FieldKey != "" {
+			// A key-only definition intentionally applies to every matching key.
+			// Do not use a path-scoped definition as a key fallback: multiple paths
+			// often share names such as email, id, or token.
+			matchers.fieldByKey[field.FieldKey] = field
 		}
 	}
 
 	for i := range rules {
 		rule := &rules[i]
-		if rule.FieldKey != nil && *rule.FieldKey != "" {
-			matchers.ruleByKey[*rule.FieldKey] = rule
-		}
 		if rule.FieldPath != nil && *rule.FieldPath != "" {
-			matchers.ruleByPath[*rule.FieldPath] = rule
+			path := normalizeArrayPath(canonicalDynamicPath(*rule.FieldPath))
+			matchers.ruleByPath[path] = rule
+		} else if rule.FieldKey != nil && *rule.FieldKey != "" {
+			matchers.ruleByKey[*rule.FieldKey] = rule
 		}
 	}
 
@@ -149,6 +152,7 @@ func (m *sensitiveMatchers) matchField(key string, path string) *models.LogField
 	if m == nil {
 		return nil
 	}
+	path = canonicalDynamicPath(path)
 	if field := m.fieldByPath[path]; field != nil {
 		return field
 	}
@@ -162,6 +166,7 @@ func (m *sensitiveMatchers) matchRule(key string, path string) *models.LogMaskin
 	if m == nil {
 		return nil
 	}
+	path = canonicalDynamicPath(path)
 	if rule := m.ruleByPath[path]; rule != nil {
 		return rule
 	}

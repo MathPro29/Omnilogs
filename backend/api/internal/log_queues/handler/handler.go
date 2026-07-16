@@ -32,6 +32,23 @@ func (h *Handler) QueueHandler(c *gin.Context) {
 		return
 	}
 
+	if productID, exists := c.Get("service_product_id"); exists {
+		resolvedProductID := productID.(int)
+		if req.ProductID != nil && *req.ProductID != resolvedProductID {
+			responses.Forbidden(c, "API key does not belong to requested product")
+			return
+		}
+		req.ProductID = &resolvedProductID
+		if environmentID, scoped := c.Get("service_environment_id"); scoped {
+			resolvedEnvironmentID := environmentID.(int)
+			if req.EnvironmentID != nil && *req.EnvironmentID != resolvedEnvironmentID {
+				responses.Forbidden(c, "API key does not belong to requested environment")
+				return
+			}
+			req.EnvironmentID = &resolvedEnvironmentID
+		}
+	}
+
 	batch, err := h.usecase.Enqueue(c.Request.Context(), req)
 	if err != nil {
 		if err.Error() == "environment does not belong to product" || err.Error() == "product_id is required when environment_id is provided" {
@@ -57,7 +74,7 @@ func (h *Handler) ConsumeHandler(c *gin.Context) {
 		responses.Error(c, "INTERNAL_ERROR", "Failed to consume batch", err)
 		return
 	}
-	// ถ้าไม่มีคิวค้างให้เป็น 404 
+	// ถ้าไม่มีคิวค้างให้เป็น 404
 	if !processed {
 		responses.NotFound(c, "No pending batches in queue")
 		return

@@ -6,10 +6,14 @@ import (
 )
 
 type IngestLogItemRequest struct {
-	SequenceNo          int             `json:"sequence_no" binding:"required,gte=0"`
-	SourceType          string          `json:"source_type" binding:"required"`
-	SourcePlatform      string          `json:"source_platform" binding:"required"`
-	InputPayload        json.RawMessage `json:"input_payload" binding:"required"`
+	SequenceNo     int    `json:"sequence_no" binding:"required,gte=0"`
+	SourceType     string `json:"source_type" binding:"required"`
+	SourcePlatform string `json:"source_platform" binding:"required"`
+	// InputPayload is the legacy request shape. Data is the canonical dynamic
+	// document shape; both accept arbitrary JSON without a schema deployment.
+	InputPayload        json.RawMessage `json:"input_payload,omitempty"`
+	Data                json.RawMessage `json:"data,omitempty"`
+	Fields              json.RawMessage `json:"fields,omitempty"`
 	DetectedProductCode *string         `json:"detected_product_code,omitempty"`
 }
 

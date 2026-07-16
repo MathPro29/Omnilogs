@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -43,6 +44,21 @@ func NewUsecase(repo repository.Repository, natsQueue *configs.NATSQueue) Usecas
 func (u *usecase) Enqueue(ctx context.Context, req dto.IngestLogBatchRequest) (*models.LogQueueBatch, error) {
 	if u.natsQueue == nil {
 		return nil, ErrQueueDisabled
+	}
+
+	for i := range req.Logs {
+		document := req.Logs[i].InputPayload
+		if len(document) == 0 {
+			document = req.Logs[i].Data
+		}
+		if len(document) == 0 {
+			document = req.Logs[i].Fields
+		}
+		var object map[string]any
+		if len(document) == 0 || json.Unmarshal(document, &object) != nil || object == nil {
+			return nil, fmt.Errorf("logs[%d] must contain an object in data, fields, or input_payload", i)
+		}
+		req.Logs[i].InputPayload = document
 	}
 
 	if req.EnvironmentID != nil {

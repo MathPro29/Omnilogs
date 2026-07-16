@@ -34,6 +34,8 @@ type SearchInput struct {
 	TraceID          *string
 	CustomFieldPath  *string
 	CustomFieldValue *string
+	SortField        *string
+	SortOrder        string
 	Keyword          *string
 	Page             int
 	PerPage          int
@@ -72,6 +74,7 @@ type SearchResult struct {
 }
 
 type Usecase interface {
+	AuthorizeProductAccess(ctx context.Context, actorUserID uint, platformAdmin bool, productID int64) error
 	Search(ctx context.Context, input SearchInput, requestID, traceID, ipAddress, userAgent *string) (*SearchResult, error)
 	FindByID(ctx context.Context, actorUserID uint, platformAdmin bool, productID int64, logID string, requestID, traceID, ipAddress, userAgent *string) (*MainLogDocument, error)
 	FindByAudit(ctx context.Context, actorUserID uint, platformAdmin bool, auditID string, requestID, traceID, ipAddress, userAgent *string) (*models.SystemAuditLog, *MainLogDocument, string, error)
@@ -295,6 +298,10 @@ func (u *usecase) findMainLogFromPostgresPayload(ctx context.Context, ref *model
 
 	value := mapMainLog(ref.LogID, source)
 	return &value, nil
+}
+
+func (u *usecase) AuthorizeProductAccess(ctx context.Context, actorUserID uint, platformAdmin bool, productID int64) error {
+	return u.ensureProductAccess(ctx, actorUserID, platformAdmin, productID)
 }
 
 func (u *usecase) ensureProductAccess(ctx context.Context, actorUserID uint, platformAdmin bool, productID int64) error {

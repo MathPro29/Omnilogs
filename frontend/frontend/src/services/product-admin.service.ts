@@ -89,6 +89,8 @@ interface SearchLogsMultiParams {
   keyword?: string;
   customFieldPath?: string;
   customFieldValue?: string;
+  sortField?: string;
+  sortOrder?: 'asc' | 'desc';
   page?: number;
   perPage?: number;
 }
@@ -111,6 +113,7 @@ interface ImportLogsPayload {
   message: string;
   eventType?: string;
   customFields?: Record<string, unknown>;
+  rawData?: Record<string, unknown>;
 }
 
 function shouldUseMock(): boolean {
@@ -1027,6 +1030,8 @@ export const productAdminService = {
         keyword: params.keyword,
         custom_field_path: params.customFieldPath,
         custom_field_value: params.customFieldValue,
+        sort_field: params.sortField,
+        sort_order: params.sortOrder,
         page: params.page ?? 1,
         per_page: params.perPage ?? 20,
       },
@@ -1120,7 +1125,8 @@ export const productAdminService = {
           sequence_no: 1,
           source_type: 'application',
           source_platform: 'api-key-import',
-          input_payload: {
+          data: {
+            ...(payload.rawData || {}),
             log_level: payload.logLevel,
             event_type: payload.eventType || 'MANUAL_IMPORT',
             message: payload.message,

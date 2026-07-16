@@ -32,5 +32,5 @@ func DashboardRoutes(router *gin.Engine, db *gorm.DB, esClient *elasticsearch.Cl
 	group.GET("/logs", dashHandler.GetLogs)
 	group.GET("/stats", dashHandler.GetLogStats)
 	group.GET("/logs/:index/:logId", dashHandler.GetLogDetail)
-	group.GET("/audit-logs", dashHandler.GetAuditLogs)
+	group.GET("/audit-logs", middleware.AuditVisibilityMiddleware(db), dashHandler.GetAuditLogs)
 }

@@ -39,7 +39,10 @@ import { PageTransition } from "@/components";
 import { PERMISSIONS, ROUTES } from "@/constants";
 import { productAdminService } from "@/services/product-admin.service";
 import { userService } from "@/services/user.service";
-import { customFieldService, type CustomField } from "@/services/custom-field.service";
+import {
+  customFieldService,
+  type CustomField,
+} from "@/services/custom-field.service";
 import { useAuthStore } from "@/store";
 import type {
   Product,
@@ -54,7 +57,7 @@ import type {
 const { Title, Text } = Typography;
 
 const RESOURCE_ACTIONS = [
-  { resource: "PRODUCT", actions: ["READ", "UPDATE", "DELETE"] },
+  { resource: "PRODUCT", actions: ["CREATE", "READ", "UPDATE", "DELETE"] },
   { resource: "PROJECT", actions: ["CREATE", "READ", "UPDATE", "DELETE"] },
   { resource: "FEATURE", actions: ["CREATE", "READ", "UPDATE", "DELETE"] },
   { resource: "CATEGORY", actions: ["CREATE", "READ", "UPDATE", "DELETE"] },
@@ -64,10 +67,20 @@ const RESOURCE_ACTIONS = [
   { resource: "API_KEY", actions: ["CREATE", "READ", "UPDATE", "DELETE"] },
   { resource: "ENVIRONMENT", actions: ["CREATE", "READ", "UPDATE", "DELETE"] },
   { resource: "LOG", actions: ["READ", "EXPORT", "VIEW_SENSITIVE"] },
-  { resource: "ELASTIC_INDEX_POLICY", actions: ["CREATE", "READ", "UPDATE", "DELETE"] },
+  { resource: "AUDIT_LOG", actions: ["READ"] },
+  {
+    resource: "ELASTIC_INDEX_POLICY",
+    actions: ["CREATE", "READ", "UPDATE", "DELETE"],
+  },
 ];
 
-const CUSTOM_FIELD_ACTIONS = ["VISIBLE", "SEARCH", "FILTER", "SORT", "AGGREGATE"];
+const CUSTOM_FIELD_ACTIONS = [
+  "VISIBLE",
+  "SEARCH",
+  "FILTER",
+  "SORT",
+  "AGGREGATE",
+];
 
 type MemberForm = {
   userId: number;
@@ -113,7 +126,9 @@ function AccessControlContent() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [features, setFeatures] = useState<ProjectFeature[]>([]);
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
-  const [selectedPermissions, setSelectedPermissions] = useState<Record<string, boolean>>({});
+  const [selectedPermissions, setSelectedPermissions] = useState<
+    Record<string, boolean>
+  >({});
   const [productId, setProductId] = useState<number>();
   const [overview, setOverview] = useState<ProductAccessOverview>();
   const [loading, setLoading] = useState(true);
@@ -190,7 +205,6 @@ function AccessControlContent() {
     if (productId) void loadProductContext(productId);
   }, [productId, loadProductContext]);
 
-
   const scopeOptions = useMemo(
     () => [
       { value: "PRODUCT", label: "Entire Product" },
@@ -217,7 +231,7 @@ function AccessControlContent() {
   const watchedRoleId = Form.useWatch("roleId", memberForm);
   const selectedRole = useMemo(
     () => overview?.roles.find((role) => role.roleId === watchedRoleId),
-    [overview?.roles, watchedRoleId]
+    [overview?.roles, watchedRoleId],
   );
 
   if (!canView) return <Navigate to={ROUTES.FORBIDDEN} replace />;
@@ -337,7 +351,9 @@ function AccessControlContent() {
     });
 
     // Handle custom fields default values (just like ProductRoleConsolePage does)
-    const existingKeys = new Set(finalPermissions.map(p => `${p.resourceType}:${p.action}`));
+    const existingKeys = new Set(
+      finalPermissions.map((p) => `${p.resourceType}:${p.action}`),
+    );
     customFields.forEach((field) => {
       const resource = `CUSTOM_FIELD:${field.field_definition_id}`;
       const defaults: Record<string, boolean> = {
@@ -349,7 +365,10 @@ function AccessControlContent() {
       };
       CUSTOM_FIELD_ACTIONS.forEach((action) => {
         const key = `${resource}:${action}`;
-        if (!Object.prototype.hasOwnProperty.call(selectedPermissions, key) && defaults[action]) {
+        if (
+          !Object.prototype.hasOwnProperty.call(selectedPermissions, key) &&
+          defaults[action]
+        ) {
           finalPermissions.push({ resourceType: resource, action });
           existingKeys.add(key);
         }
@@ -595,22 +614,33 @@ function AccessControlContent() {
                       pagination={{ pageSize: 10 }}
                       expandable={{
                         expandedRowRender: (member) => {
-                          const grouped = member.effectivePermissions.reduce((acc, p) => {
-                            let categoryName = p.resourceType;
-                            if (p.resourceType.startsWith("CUSTOM_FIELD:")) {
-                              const fieldId = p.resourceType.split(":")[1];
-                              const field = customFields.find((f) => String(f.field_definition_id) === fieldId);
-                              categoryName = field ? `Custom Field: ${field.display_name || field.field_key}` : `Custom Field (${fieldId})`;
-                            } else if (p.resourceType === "CUSTOM_FIELD") {
-                              categoryName = "Custom Fields (Global)";
-                            }
-                            
-                            if (!acc[categoryName]) {
-                              acc[categoryName] = [];
-                            }
-                            acc[categoryName].push(p);
-                            return acc;
-                          }, {} as Record<string, typeof member.effectivePermissions>);
+                          const grouped = member.effectivePermissions.reduce(
+                            (acc, p) => {
+                              let categoryName = p.resourceType;
+                              if (p.resourceType.startsWith("CUSTOM_FIELD:")) {
+                                const fieldId = p.resourceType.split(":")[1];
+                                const field = customFields.find(
+                                  (f) =>
+                                    String(f.field_definition_id) === fieldId,
+                                );
+                                categoryName = field
+                                  ? `Custom Field: ${field.display_name || field.field_key}`
+                                  : `Custom Field (${fieldId})`;
+                              } else if (p.resourceType === "CUSTOM_FIELD") {
+                                categoryName = "Custom Fields (Global)";
+                              }
+
+                              if (!acc[categoryName]) {
+                                acc[categoryName] = [];
+                              }
+                              acc[categoryName].push(p);
+                              return acc;
+                            },
+                            {} as Record<
+                              string,
+                              typeof member.effectivePermissions
+                            >,
+                          );
 
                           return (
                             <div className="p-2 bg-gray-50/50 rounded-lg">
@@ -619,36 +649,63 @@ function AccessControlContent() {
                                 <span>Effective Permission Details</span>
                               </div>
                               {Object.keys(grouped).length === 0 ? (
-                                <Text type="secondary" className="italic text-xs">No permissions assigned.</Text>
+                                <Text
+                                  type="secondary"
+                                  className="italic text-xs"
+                                >
+                                  No permissions assigned.
+                                </Text>
                               ) : (
                                 <Row gutter={[12, 12]}>
-                                  {Object.entries(grouped).map(([category, perms]) => (
-                                    <Col xs={24} sm={12} md={8} lg={6} key={category}>
-                                      <Card
-                                        size="small"
-                                        title={<Text strong className="text-xs text-indigo-900">{category}</Text>}
-                                        className="h-full border-indigo-100 hover:border-indigo-300 transition-colors shadow-sm bg-white"
-                                        bodyStyle={{ padding: "8px 12px" }}
+                                  {Object.entries(grouped).map(
+                                    ([category, perms]) => (
+                                      <Col
+                                        xs={24}
+                                        sm={12}
+                                        md={8}
+                                        lg={6}
+                                        key={category}
                                       >
-                                        <Space wrap size={[4, 4]}>
-                                          {perms.map((p) => (
-                                            <Tag
-                                              color={p.source === "ROLE" ? "blue" : "gold"}
-                                              key={`${p.resourceType}:${p.action}`}
-                                              className="m-0 text-[11px]"
+                                        <Card
+                                          size="small"
+                                          title={
+                                            <Text
+                                              strong
+                                              className="text-xs text-indigo-900"
                                             >
-                                              {p.action} <span className="text-[9px] opacity-75">({p.source})</span>
-                                            </Tag>
-                                          ))}
-                                        </Space>
-                                      </Card>
-                                    </Col>
-                                  ))}
+                                              {category}
+                                            </Text>
+                                          }
+                                          className="h-full border-indigo-100 hover:border-indigo-300 transition-colors shadow-sm bg-white"
+                                          bodyStyle={{ padding: "8px 12px" }}
+                                        >
+                                          <Space wrap size={[4, 4]}>
+                                            {perms.map((p) => (
+                                              <Tag
+                                                color={
+                                                  p.source === "ROLE"
+                                                    ? "blue"
+                                                    : "gold"
+                                                }
+                                                key={`${p.resourceType}:${p.action}`}
+                                                className="m-0 text-[11px]"
+                                              >
+                                                {p.action}{" "}
+                                                <span className="text-[9px] opacity-75">
+                                                  ({p.source})
+                                                </span>
+                                              </Tag>
+                                            ))}
+                                          </Space>
+                                        </Card>
+                                      </Col>
+                                    ),
+                                  )}
                                 </Row>
                               )}
                             </div>
                           );
-                        }
+                        },
                       }}
                     />
                   </Card>
@@ -681,22 +738,30 @@ function AccessControlContent() {
                     <Row gutter={[16, 16]}>
                       {overview.roles.map((role) => {
                         // Group the role's permissions by resource type/custom field
-                        const groupedPerms = role.permissions.reduce((acc, p) => {
-                          let categoryName = p.resourceType;
-                          if (p.resourceType.startsWith("CUSTOM_FIELD:")) {
-                            const fieldId = p.resourceType.split(":")[1];
-                            const field = customFields.find((f) => String(f.field_definition_id) === fieldId);
-                            categoryName = field ? `Custom Field: ${field.display_name || field.field_key}` : `Custom Field (${fieldId})`;
-                          } else if (p.resourceType === "CUSTOM_FIELD") {
-                            categoryName = "Custom Fields (Global)";
-                          }
-                          
-                          if (!acc[categoryName]) {
-                            acc[categoryName] = [];
-                          }
-                          acc[categoryName].push(p);
-                          return acc;
-                        }, {} as Record<string, typeof role.permissions>);
+                        const groupedPerms = role.permissions.reduce(
+                          (acc, p) => {
+                            let categoryName = p.resourceType;
+                            if (p.resourceType.startsWith("CUSTOM_FIELD:")) {
+                              const fieldId = p.resourceType.split(":")[1];
+                              const field = customFields.find(
+                                (f) =>
+                                  String(f.field_definition_id) === fieldId,
+                              );
+                              categoryName = field
+                                ? `Custom Field: ${field.display_name || field.field_key}`
+                                : `Custom Field (${fieldId})`;
+                            } else if (p.resourceType === "CUSTOM_FIELD") {
+                              categoryName = "Custom Fields (Global)";
+                            }
+
+                            if (!acc[categoryName]) {
+                              acc[categoryName] = [];
+                            }
+                            acc[categoryName].push(p);
+                            return acc;
+                          },
+                          {} as Record<string, typeof role.permissions>,
+                        );
 
                         return (
                           <Col xs={24} lg={12} key={role.roleId}>
@@ -737,7 +802,9 @@ function AccessControlContent() {
                                           type="text"
                                           danger
                                           disabled={role.memberCount > 0}
-                                          icon={<TrashIcon className="w-4 h-4" />}
+                                          icon={
+                                            <TrashIcon className="w-4 h-4" />
+                                          }
                                         />
                                       </Tooltip>
                                     </Popconfirm>
@@ -747,34 +814,62 @@ function AccessControlContent() {
                             >
                               <div className="mb-3 flex justify-between items-center bg-gray-50 p-2 rounded">
                                 <Text type="secondary" className="text-xs">
-                                  Code: <code className="bg-white px-1.5 py-0.5 rounded border text-indigo-600 font-mono text-[11px]">{role.roleCode}</code>
+                                  Code:{" "}
+                                  <code className="bg-white px-1.5 py-0.5 rounded border text-indigo-600 font-mono text-[11px]">
+                                    {role.roleCode}
+                                  </code>
                                 </Text>
                                 <Space>
-                                  <Badge status={role.isActive ? "success" : "default"} text={role.isActive ? "Active" : "Inactive"} className="text-xs" />
-                                  <Tag color="cyan" className="m-0 text-[11px]">{role.memberCount} member(s)</Tag>
+                                  <Badge
+                                    status={
+                                      role.isActive ? "success" : "default"
+                                    }
+                                    text={role.isActive ? "Active" : "Inactive"}
+                                    className="text-xs"
+                                  />
+                                  <Tag color="cyan" className="m-0 text-[11px]">
+                                    {role.memberCount} member(s)
+                                  </Tag>
                                 </Space>
                               </div>
 
                               <div className="space-y-3 mt-3">
-                                <Text strong className="text-[10px] text-gray-400 block uppercase tracking-wider">Granted Permissions</Text>
+                                <Text
+                                  strong
+                                  className="text-[10px] text-gray-400 block uppercase tracking-wider"
+                                >
+                                  Granted Permissions
+                                </Text>
                                 {Object.keys(groupedPerms).length === 0 ? (
-                                  <Text type="secondary" className="italic text-xs block">No permissions assigned.</Text>
+                                  <Text
+                                    type="secondary"
+                                    className="italic text-xs block"
+                                  >
+                                    No permissions assigned.
+                                  </Text>
                                 ) : (
                                   <Row gutter={[8, 8]}>
-                                    {Object.entries(groupedPerms).map(([category, perms]) => (
-                                      <Col xs={24} sm={12} key={category}>
-                                        <div className="bg-indigo-50/20 p-2 rounded border border-indigo-50 h-full">
-                                          <div className="text-[10px] font-bold text-indigo-900 mb-1 leading-tight">{category}</div>
-                                          <Space wrap size={[2, 2]}>
-                                            {perms.map((p) => (
-                                              <Tag key={`${p.resourceType}:${p.action}`} className="m-0 text-[10px] bg-white border-indigo-100/50 text-indigo-955">
-                                                {p.action}
-                                              </Tag>
-                                            ))}
-                                          </Space>
-                                        </div>
-                                      </Col>
-                                    ))}
+                                    {Object.entries(groupedPerms).map(
+                                      ([category, perms]) => (
+                                        <Col xs={24} sm={12} key={category}>
+                                          <div className="bg-indigo-50/20 p-2 rounded border border-indigo-50 h-full">
+                                            <div className="text-[10px] font-bold text-indigo-900 mb-1 leading-tight">
+                                              {category}
+                                            </div>
+                                            <Space wrap size={[2, 2]}>
+                                              {perms.map((p) => (
+                                                <Tag
+                                                  key={`${p.resourceType}:${p.action}`}
+                                                  className="m-0 text-[10px] bg-white border-indigo-100/50 text-indigo-955"
+                                                >
+                                                  {p.action}
+                                                </Tag>
+                                              ))}
+                                            </Space>
+                                          </div>
+                                        </Col>
+                                      ),
+                                    )}
                                   </Row>
                                 )}
                               </div>
@@ -932,19 +1027,27 @@ function AccessControlContent() {
             </Row>
 
             <div className="mt-4">
-              <Text strong className="block mb-2">Resource Permissions</Text>
+              <Text strong className="block mb-2">
+                Resource Permissions
+              </Text>
               <div className="max-h-[300px] overflow-y-auto border border-gray-200 rounded">
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 sticky top-0">
                     <tr>
-                      <th className="px-3 py-2 text-left border-b w-1/3">Resource</th>
-                      <th className="px-3 py-2 text-left border-b w-2/3">Actions</th>
+                      <th className="px-3 py-2 text-left border-b w-1/3">
+                        Resource
+                      </th>
+                      <th className="px-3 py-2 text-left border-b w-2/3">
+                        Actions
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {RESOURCE_ACTIONS.map((item) => (
                       <tr key={item.resource}>
-                        <td className="px-3 py-2 font-medium align-top">{item.resource}</td>
+                        <td className="px-3 py-2 font-medium align-top">
+                          {item.resource}
+                        </td>
                         <td className="px-3 py-2">
                           <Space wrap size={[16, 8]}>
                             {item.actions.map((action) => {
@@ -974,7 +1077,9 @@ function AccessControlContent() {
             </div>
 
             <div className="mt-6 mb-4">
-              <Text strong className="block mb-1">Custom Field Capabilities</Text>
+              <Text strong className="block mb-1">
+                Custom Field Capabilities
+              </Text>
               <Text type="secondary" className="block text-xs mb-2">
                 Configure direct visibility and capabilities for custom fields.
               </Text>
@@ -989,7 +1094,12 @@ function AccessControlContent() {
                       <tr>
                         <th className="px-3 py-2 border-b">Field</th>
                         {CUSTOM_FIELD_ACTIONS.map((action) => (
-                          <th key={action} className="px-2 py-2 text-center border-b font-medium">{action}</th>
+                          <th
+                            key={action}
+                            className="px-2 py-2 text-center border-b font-medium"
+                          >
+                            {action}
+                          </th>
                         ))}
                       </tr>
                     </thead>
@@ -1006,16 +1116,27 @@ function AccessControlContent() {
                         return (
                           <tr key={field.field_definition_id}>
                             <td className="px-3 py-2">
-                              <div className="font-medium text-gray-800">{field.display_name || field.field_key}</div>
-                              <div className="text-xs text-gray-400">{field.field_path || field.field_key}</div>
+                              <div className="font-medium text-gray-800">
+                                {field.display_name || field.field_key}
+                              </div>
+                              <div className="text-xs text-gray-400">
+                                {field.field_path || field.field_key}
+                              </div>
                             </td>
                             {CUSTOM_FIELD_ACTIONS.map((action) => {
                               const key = `${resource}:${action}`;
-                              const checked = Object.prototype.hasOwnProperty.call(selectedPermissions, key)
-                                ? Boolean(selectedPermissions[key])
-                                : defaultValues[action];
+                              const checked =
+                                Object.prototype.hasOwnProperty.call(
+                                  selectedPermissions,
+                                  key,
+                                )
+                                  ? Boolean(selectedPermissions[key])
+                                  : defaultValues[action];
                               return (
-                                <td key={action} className="px-2 py-2 text-center">
+                                <td
+                                  key={action}
+                                  className="px-2 py-2 text-center"
+                                >
                                   <Checkbox
                                     checked={checked}
                                     onChange={(e) => {
@@ -1069,17 +1190,37 @@ function AccessControlContent() {
 
 export default AccessControlPage;
 
-
-class AccessControlErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+class AccessControlErrorBoundary extends Component<
+  { children: ReactNode },
+  { hasError: boolean }
+> {
   state = { hasError: false };
-  static getDerivedStateFromError() { return { hasError: true }; }
-  componentDidCatch(error: unknown) { console.error('AccessControlPage render error:', error); }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error: unknown) {
+    console.error("AccessControlPage render error:", error);
+  }
   render() {
-    if (this.state.hasError) return <Card className="m-6"><Alert type="error" showIcon title="Access Control could not be displayed" description="Please refresh the page. If the problem continues, check the API response for this product." /></Card>;
+    if (this.state.hasError)
+      return (
+        <Card className="m-6">
+          <Alert
+            type="error"
+            showIcon
+            title="Access Control could not be displayed"
+            description="Please refresh the page. If the problem continues, check the API response for this product."
+          />
+        </Card>
+      );
     return this.props.children;
   }
 }
 
 export function AccessControlPage() {
-  return <AccessControlErrorBoundary><AccessControlContent /></AccessControlErrorBoundary>;
+  return (
+    <AccessControlErrorBoundary>
+      <AccessControlContent />
+    </AccessControlErrorBoundary>
+  );
 }

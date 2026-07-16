@@ -65,6 +65,8 @@ func (h *Handler) Search(c *gin.Context) {
 		TraceID:          stringParam(c.Query("trace_id")),
 		CustomFieldPath:  stringParam(c.Query("custom_field_path")),
 		CustomFieldValue: stringParam(c.Query("custom_field_value")),
+		SortField:        stringParam(c.Query("sort_field")),
+		SortOrder:        c.Query("sort_order"),
 		Keyword:          stringParam(c.Query("keyword")),
 	}
 
@@ -153,7 +155,7 @@ func (h *Handler) GetByAudit(c *gin.Context) {
 }
 
 func (h *Handler) LiveTail(c *gin.Context) {
-	_, ok := middleware.CurrentUserID(c)
+	userID, ok := middleware.CurrentUserID(c)
 	if !ok {
 		c.AbortWithStatus(http.StatusUnauthorized)
 		return
@@ -162,6 +164,18 @@ func (h *Handler) LiveTail(c *gin.Context) {
 	productID, err := strconv.ParseInt(c.Query("product_id"), 10, 64)
 	if err != nil || productID <= 0 {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "product_id is required"})
+		return
+	}
+	if err := h.usecase.AuthorizeProductAccess(c.Request.Context(), userID, middleware.HasAdminPlatformRole(c), productID); err != nil {
+		if errors.Is(err, responses.ErrForbidden) {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+			return
+		}
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to authorize log stream"})
+		return
+	}
+	if h.natsQueue == nil || h.natsQueue.Conn == nil {
+		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "live log stream is unavailable"})
 		return
 	}
 
@@ -191,6 +205,9 @@ func (h *Handler) LiveTail(c *gin.Context) {
 		case <-c.Request.Context().Done():
 			return
 		case msg := <-msgChan:
+			if msg == nil {
+				continue
+			}
 			var logData map[string]any
 			if err := json.Unmarshal(msg.Data, &logData); err == nil {
 				if environmentID != "" {

@@ -106,3 +106,28 @@ func BenchmarkBuildSearchQuery(b *testing.B) {
 		_ = buildSearchQuery(input)
 	}
 }
+
+func TestDynamicDataPathAndSort(t *testing.T) {
+	path := "data.order.total"
+	normalized, ok := normalizeCustomFieldPath(path)
+	if !ok || normalized != path {
+		t.Fatalf("normalized dynamic path = %q, ok=%v", normalized, ok)
+	}
+	order := "desc"
+	query := buildSearchQuery(SearchInput{
+		ProductID: 1, Page: 1, PerPage: 20,
+		SortField: &path, SortOrder: order,
+	})
+	sortItems := query["sort"].([]any)
+	first := sortItems[0].(map[string]any)
+	if _, exists := first[path]; !exists {
+		t.Fatalf("dynamic sort does not contain %s: %#v", path, first)
+	}
+}
+
+func TestDynamicSortRejectsUnsafePath(t *testing.T) {
+	path := "data.user.*"
+	if err := validateSearchInput(SearchInput{SortField: &path}); err == nil {
+		t.Fatal("expected unsafe dynamic sort path to be rejected")
+	}
+}

@@ -9,6 +9,7 @@ type LogFieldDefinition struct {
 	CategoryID           *int             `gorm:"uniqueIndex:uq_field_definition,priority:3" json:"category_id,omitempty"`
 	FieldKey             string           `gorm:"not null;uniqueIndex:uq_field_definition,priority:4" json:"field_key"`
 	DisplayName          *string          `json:"display_name,omitempty"`
+	FieldGroup           *string          `gorm:"index" json:"field_group,omitempty"`
 	Description          *string          `gorm:"type:text" json:"description,omitempty"`
 	SourceSection        string           `gorm:"not null;index:idx_source_field_path,priority:1" json:"source_section"`
 	FieldPath            *string          `gorm:"index:idx_source_field_path,priority:2" json:"field_path,omitempty"`
@@ -25,6 +26,14 @@ type LogFieldDefinition struct {
 	IsFilterable         bool             `gorm:"not null;default:false;index" json:"is_filterable"`
 	IsSortable           bool             `gorm:"not null;default:false" json:"is_sortable"`
 	IsAggregatable       bool             `gorm:"not null;default:false;index" json:"is_aggregatable"`
+	ShowInTable          bool             `gorm:"not null;default:true" json:"show_in_table"`
+	ShowInDetail         bool             `gorm:"not null;default:true" json:"show_in_detail"`
+	ShowInDashboard      bool             `gorm:"not null;default:false" json:"show_in_dashboard"`
+	ShowInExport         bool             `gorm:"not null;default:true" json:"show_in_export"`
+	ViewPermission       *string          `json:"view_permission,omitempty"`
+	FilterPermission     *string          `json:"filter_permission,omitempty"`
+	ExportPermission     *string          `json:"export_permission,omitempty"`
+	MaskType             *string          `json:"mask_type,omitempty"`
 	DisplayOrder         *int             `json:"display_order,omitempty"`
 	DefaultValue         *string          `gorm:"type:text" json:"default_value,omitempty"`
 	IsActive             bool             `gorm:"not null;default:true;index:idx_field_product_active,priority:2" json:"is_active"`

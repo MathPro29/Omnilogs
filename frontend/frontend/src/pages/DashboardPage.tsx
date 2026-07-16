@@ -4,8 +4,6 @@ import { Card, Space, Typography, Modal, Button, Select, Input, Table, Tag, Form
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { SearchOutlined, EyeOutlined, SendOutlined, ReloadOutlined, LineChartOutlined } from '@ant-design/icons';
 import { productAdminService } from '@/services';
-import { CustomFieldInputs } from '@/components/CustomFieldInputs';
-import { getCustomFieldInitialValues, normalizeCustomFieldValues } from '@/utils/custom-field-values';
 import { customFieldService } from '@/services/custom-field.service';
 import { useAppStore, useAutoLogStore } from '@/store';
 import { apiClient } from '@/api';
@@ -57,7 +55,6 @@ export function DashboardPage() {
   const [generatorForm] = Form.useForm();
   const generatorProductId = Form.useWatch('productId', generatorForm);
   const generatorProjectId = Form.useWatch('projectId', generatorForm);
-  const generatorCategoryId = Form.useWatch('categoryId', generatorForm);
 
   // Elastic Online Status
   // refresh every 5 seconds
@@ -159,20 +156,7 @@ export function DashboardPage() {
     enabled: !!generatorProductId && !!generatorProjectId,
   });
 
-  const { data: generatorCustomFieldDefinitions = [] } = useQuery({
-    queryKey: ['custom-fields-generator', generatorProductId, generatorProjectId, generatorCategoryId],
-    queryFn: () => customFieldService.list(generatorProductId!, generatorProjectId || undefined, generatorCategoryId || undefined),
-    enabled: !!generatorProductId,
-  });
-  const generatorCustomFields = generatorCustomFieldDefinitions.filter((field) =>
-    (field.product_id == null || field.product_id === generatorProductId) &&
-    (field.project_id == null || field.project_id === generatorProjectId) &&
-    (field.category_id == null || field.category_id === generatorCategoryId)
-  );
 
-  useEffect(() => {
-    generatorForm.setFieldValue('customFields', getCustomFieldInitialValues(generatorCustomFields));
-  }, [generatorForm, generatorProductId, generatorProjectId, generatorCategoryId, generatorCustomFieldDefinitions]);
 
   // Features for Monitor Filter
   const { data: monitorFeatures = [], isLoading: isLoadingMonitorFeatures } = useQuery({
@@ -186,6 +170,10 @@ export function DashboardPage() {
     queryFn: () => customFieldService.list(selectedProductId!, selectedProjectId || undefined, selectedCategoryId || undefined),
     enabled: !!selectedProductId,
   });
+
+  const dashboardCustomFields = monitorCustomFields
+    .filter((field) => field.is_active && field.is_visible && field.show_in_dashboard && field.is_aggregatable)
+    .sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0));
 
   // Sync monitor environment options when product changes
   useEffect(() => {
@@ -279,6 +267,7 @@ export function DashboardPage() {
       message: string;
       eventType: string;
       customFields?: Record<string, unknown>;
+      rawData?: string;
     }) => {
       let featureFullPath = null;
       let featurePathIds = null;
@@ -299,7 +288,8 @@ export function DashboardPage() {
         logLevel: values.logLevel,
         message: values.message,
         eventType: values.eventType,
-        customFields: normalizeCustomFieldValues(generatorCustomFields, values.customFields),
+        customFields: values.customFields,
+        rawData: (() => { try { return JSON.parse(values.rawData || '{}'); } catch { return {}; } })(),
       });
     },
     onSuccess: (_, variables) => {
@@ -451,7 +441,6 @@ export function DashboardPage() {
                 onValuesChange={(changedValues) => {
                   if ('productId' in changedValues) {
                     setSelectedProductId(changedValues.productId);
-                    generatorForm.setFieldValue('customFields', {});
                   }
                   if ('environmentId' in changedValues) {
                     setSelectedEnvironmentId(changedValues.environmentId);
@@ -459,11 +448,9 @@ export function DashboardPage() {
                   if ('projectId' in changedValues) {
                     setSelectedProjectId(changedValues.projectId);
                     generatorForm.setFieldValue('categoryId', null);
-                    generatorForm.setFieldValue('customFields', {});
                   }
                   if ('categoryId' in changedValues) {
                     setSelectedCategoryId(changedValues.categoryId);
-                    generatorForm.setFieldValue('customFields', {});
                   }
                 }}
               >
@@ -570,7 +557,7 @@ export function DashboardPage() {
                   <Input.TextArea rows={3} placeholder="กรอกข้อความแจ้งเตือนหรือข้อมูลที่ต้องการเก็บบันทึก..." />
                 </Form.Item>
 
-                <CustomFieldInputs fields={generatorCustomFields} />
+                <Form.Item label="Arbitrary JSON data (no Custom Field/Table dependency)" name="rawData" rules={[{ required: true }, { validator: async (_, value) => { if (!value) return; const parsed = JSON.parse(value); if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') throw new Error('JSON object required'); } }]}><Input.TextArea rows={10} placeholder={'{\n  "order": { "id": "ORD-1001", "total": 1599.50 },\n  "anything": true,\n  "nested": [1, 2, 3]\n}'} /></Form.Item>
 
                 <Form.Item style={{ marginBottom: '12px' }}>
 
@@ -1009,7 +996,7 @@ export function DashboardPage() {
                         width: 220,
                         render: (_: unknown, record: MainLog) => record.customFields && Object.keys(record.customFields).length > 0 ? (
                           <Space wrap size={[4, 4]}>
-                            {Object.entries(record.customFields).map(([key, value]) => {
+                            {Object.entries(record.customFields).filter(([key]) => dashboardCustomFields.some(field => field.field_key === key)).sort(([a], [b]) => dashboardCustomFields.findIndex(field => field.field_key === a) - dashboardCustomFields.findIndex(field => field.field_key === b)).map(([key, value]) => {
                               const field = monitorCustomFields.find((item) => item.field_key === key);
                               return <Tag key={key}>{field?.display_name || key}: {formatCustomValue(monitorCustomFields, key, value)}</Tag>;
                             })}
@@ -1104,7 +1091,7 @@ export function DashboardPage() {
             {selectedLog.customFields && Object.keys(selectedLog.customFields).length > 0 && (
               <Card size="small" title="Custom Fields" style={{ marginBottom: 16 }}>
                 <Row gutter={[16, 12]}>
-                  {Object.entries(selectedLog.customFields).map(([key, value]) => {
+                  {Object.entries(selectedLog.customFields).filter(([key]) => monitorCustomFields.some(field => field.field_key === key && field.is_visible && field.show_in_detail !== false)).sort(([a], [b]) => (monitorCustomFields.find(field => field.field_key === a)?.display_order ?? 0) - (monitorCustomFields.find(field => field.field_key === b)?.display_order ?? 0)).map(([key, value]) => {
                     const field = monitorCustomFields.find((item) => item.field_key === key);
                     return (
                       <Col xs={24} sm={12} key={key}>

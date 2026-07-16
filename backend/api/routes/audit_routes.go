@@ -34,6 +34,7 @@ func AuditRoutes(router *gin.Engine, db *gorm.DB, esClient *elasticsearch.Client
 	group := router.Group("/api/v1/audit-logs")
 	group.Use(middleware.UserAuthMiddleware(env.JWTSecret))
 	group.Use(middleware.RequestTimeout(time.Duration(env.APIRequestTimeoutSeconds) * time.Second))
+	group.Use(middleware.AuditVisibilityMiddleware(db))
 
 	group.GET("", auditHandler.List)
 	group.GET("/secrets/requests", auditSecretHandler.ListPendingRequests)

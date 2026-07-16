@@ -109,11 +109,4 @@ export const menuConfig: MenuItem[] = [
     path: ROUTES.CUSTOM_FIELDS,
     requiredPermissions: [PERMISSIONS.FEATURE_CUSTOM_FIELDS],
   },
-  {
-    key: MENU_KEYS.PRODUCT_ROLES,
-    label: "Product Roles",
-    icon: (<ShieldCheckIcon className="w-5 h-5" />) as ReactNode,
-    path: ROUTES.PRODUCT_ROLES,
-    requiredPermissions: [PERMISSIONS.FEATURE_PRODUCT_ROLES],
-  },
 ];

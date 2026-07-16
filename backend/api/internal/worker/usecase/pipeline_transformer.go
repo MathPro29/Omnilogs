@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"omnilogs-api/models"
@@ -16,38 +17,40 @@ func PipelineTransformer(ctx context.Context, field models.LogFieldDefinition, v
 
 	var config models.FieldConfigJSON
 	if err := json.Unmarshal(*field.ConfigJSON, &config); err != nil {
+		return value, fmt.Errorf("field %s has invalid config_json: %w", field.FieldKey, err)
+	}
+
+	str, ok := value.(string)
+	if !ok {
 		return value, nil
 	}
 
-	// Handle string transformations
-	if str, ok := value.(string); ok {
-		// Specific type configs might have shorthand like "Trim", "Uppercase"
-		if config.StringConfig != nil {
-			if config.StringConfig.Trim {
-				str = strings.TrimSpace(str)
-			}
-			if config.StringConfig.Uppercase {
-				str = strings.ToUpper(str)
-			}
-			if config.StringConfig.Lowercase {
-				str = strings.ToLower(str)
-			}
+	if config.StringConfig != nil {
+		if config.StringConfig.Trim {
+			str = strings.TrimSpace(str)
 		}
-		
-		// Full transformation pipeline support
-		for _, step := range config.Transform {
-			switch step.Type {
-			case "TRIM":
-				str = strings.TrimSpace(str)
-			case "UPPERCASE":
-				str = strings.ToUpper(str)
-			case "LOWERCASE":
-				str = strings.ToLower(str)
-			}
+		if config.StringConfig.Uppercase {
+			str = strings.ToUpper(str)
 		}
-		
-		return str, nil
+		if config.StringConfig.Lowercase {
+			str = strings.ToLower(str)
+		}
 	}
 
-	return value, nil
+	for _, step := range config.Transform {
+		switch strings.ToUpper(strings.TrimSpace(step.Type)) {
+		case "TRIM":
+			str = strings.TrimSpace(str)
+		case "UPPERCASE":
+			str = strings.ToUpper(str)
+		case "LOWERCASE":
+			str = strings.ToLower(str)
+		case "":
+			return value, fmt.Errorf("field %s contains an empty transformation type", field.FieldKey)
+		default:
+			return value, fmt.Errorf("field %s contains unsupported transformation %q", field.FieldKey, step.Type)
+		}
+	}
+
+	return str, nil
 }

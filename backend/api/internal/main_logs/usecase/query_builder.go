@@ -46,7 +46,7 @@ func normalizeFilterIDs(values []int64) []int64 {
 
 func normalizeCustomFieldPath(raw string) (string, bool) {
 	path := strings.TrimSpace(raw)
-	path = strings.TrimPrefix(path, "payload.")
+	path = strings.TrimPrefix(path, "raw.")
 	path = strings.ReplaceAll(path, "[]", "")
 	segments := strings.Split(path, ".")
 	if len(segments) == 0 || len(segments) > 20 {
@@ -57,7 +57,12 @@ func normalizeCustomFieldPath(raw string) (string, bool) {
 			return "", false
 		}
 	}
-	return "payload." + strings.Join(segments, "."), true
+	normalized := strings.Join(segments, ".")
+	if strings.HasPrefix(normalized, "payload.") || strings.HasPrefix(normalized, "data.") || normalized == "payload" || normalized == "data" {
+		return normalized, true
+	}
+	// Unqualified paths retain the legacy payload behavior.
+	return "payload." + normalized, true
 }
 
 func validateSearchInput(input SearchInput) error {
@@ -70,6 +75,14 @@ func validateSearchInput(input SearchInput) error {
 		if _, valid := normalizeCustomFieldPath(*input.CustomFieldPath); !valid {
 			return fmt.Errorf("%w: custom_field_path is not allowed", ErrInvalidSearchFilter)
 		}
+	}
+	if input.SortField != nil {
+		if _, valid := normalizeCustomFieldPath(*input.SortField); !valid {
+			return fmt.Errorf("%w: sort_field is not allowed", ErrInvalidSearchFilter)
+		}
+	}
+	if input.SortOrder != "" && !strings.EqualFold(input.SortOrder, "asc") && !strings.EqualFold(input.SortOrder, "desc") {
+		return fmt.Errorf("%w: sort_order must be asc or desc", ErrInvalidSearchFilter)
 	}
 	return nil
 }
@@ -189,6 +202,7 @@ func buildSearchQuery(input SearchInput) map[string]any {
 								"payload.trace_id^3",
 								"payload.correlation_id^2",
 								"payload.feature_full_path^2",
+								"data.*",
 							},
 							"operator": "and",
 						},
@@ -206,6 +220,7 @@ func buildSearchQuery(input SearchInput) map[string]any {
 								"payload.source_request_id^4",
 								"payload.trace_id^4",
 								"payload.feature_full_path^2",
+								"data.*",
 							},
 						},
 					},
@@ -224,6 +239,7 @@ func buildSearchQuery(input SearchInput) map[string]any {
 								"payload.trace_id^3",
 								"payload.correlation_id^2",
 								"payload.feature_full_path^2",
+								"data.*",
 							},
 							"default_operator": "and",
 						},
@@ -237,6 +253,21 @@ func buildSearchQuery(input SearchInput) map[string]any {
 	return buildSearchQueryBody(input, filters, must)
 }
 
+func buildSort(input SearchInput) []any {
+	if input.SortField == nil {
+		return []any{map[string]any{"@timestamp": map[string]any{"order": "desc"}}}
+	}
+	field, valid := normalizeCustomFieldPath(*input.SortField)
+	if !valid {
+		return []any{map[string]any{"@timestamp": map[string]any{"order": "desc"}}}
+	}
+	order := strings.ToLower(input.SortOrder)
+	if order == "" {
+		order = "asc"
+	}
+	return []any{map[string]any{field: map[string]any{"order": order, "unmapped_type": "keyword", "missing": "_last"}}}
+}
+
 func buildSearchQueryBody(input SearchInput, filters, must []map[string]any) map[string]any {
 	return map[string]any{
 		"query": map[string]any{
@@ -245,9 +276,7 @@ func buildSearchQueryBody(input SearchInput, filters, must []map[string]any) map
 				"must":   must,
 			},
 		},
-		"sort": []any{
-			map[string]any{"@timestamp": map[string]any{"order": "desc"}},
-		},
+		"sort": buildSort(input),
 		"from": (input.Page - 1) * input.PerPage,
 		"size": input.PerPage,
 	}
