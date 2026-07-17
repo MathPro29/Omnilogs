@@ -200,9 +200,9 @@ export function ProductCatalogPage() {
     enabled: !!selectedProductId,
   });
 
-  const products = productsQuery.data || [];
-  const projects = projectsQuery.data || [];
-  const features = featuresQuery.data || [];
+  const products = useMemo(() => productsQuery.data || [], [productsQuery.data]);
+  const projects = useMemo(() => projectsQuery.data || [], [projectsQuery.data]);
+  const features = useMemo(() => featuresQuery.data || [], [featuresQuery.data]);
   const selectedProduct = useMemo(
     () => products.find((product) => product.productId === selectedProductId) || null,
     [products, selectedProductId]
@@ -306,6 +306,19 @@ export function ProductCatalogPage() {
       setEditingProject(null);
       projectForm.resetFields();
       queryClient.invalidateQueries({ queryKey: ['projects-admin', selectedProductId] });
+    },
+  });
+
+  const deleteProjectMutation = useMutation({
+    mutationFn: (projectId: number) => productAdminService.deleteProject(selectedProductId!, projectId),
+    onSuccess: () => {
+      message.success('Project deleted');
+      setSelectedProjectId(null);
+      setSelectedFeatureId(null);
+      queryClient.invalidateQueries({ queryKey: ['projects-admin', selectedProductId] });
+    },
+    onError: (err: any) => {
+      message.error(err?.response?.data?.message || 'Delete project failed');
     },
   });
 
@@ -588,6 +601,24 @@ export function ProductCatalogPage() {
                       >
                         Edit
                       </Button>,
+                      isPlatformAdmin && (
+                        <Button
+                          key={`delete-project-${item.projectId}`}
+                          size="small"
+                          type="link"
+                          danger
+                          icon={<TrashIcon className="w-3.5 h-3.5" />}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            Modal.confirm({
+                              title: `Delete Project ${item.projectName}?`,
+                              content: 'Are you sure you want to delete this project and all its contents? This action cannot be undone.',
+                              okButtonProps: { danger: true },
+                              onOk: () => deleteProjectMutation.mutate(item.projectId),
+                            });
+                          }}
+                        />
+                      )
                     ]}
                   >
                     <div className="w-full flex items-center justify-between gap-3">

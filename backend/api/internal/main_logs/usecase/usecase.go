@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"omnilogs-api/dto"
 	auditusecase "omnilogs-api/internal/audit_logs/usecase"
 	"omnilogs-api/internal/main_logs/repository"
 	"omnilogs-api/models"
@@ -19,59 +20,9 @@ import (
 var ErrMainLogNotFound = errors.New("main log not found")
 var ErrInvalidSearchFilter = errors.New("invalid log search filter")
 
-type SearchInput struct {
-	ActorUserID      uint
-	PlatformAdmin    bool
-	ProductID        int64
-	EnvironmentID    *int64
-	ProjectID        *int64
-	ProjectIDs       []int64
-	CategoryID       *int64
-	CategoryIDs      []int64
-	Level            *string
-	LogType          *string
-	RequestID        *string
-	TraceID          *string
-	CustomFieldPath  *string
-	CustomFieldValue *string
-	SortField        *string
-	SortOrder        string
-	Keyword          *string
-	Page             int
-	PerPage          int
-}
-
-type MainLogDocument struct {
-	LogID           string         `json:"log_id"`
-	ProductID       int64          `json:"product_id"`
-	EnvironmentID   *int64         `json:"environment_id,omitempty"`
-	SourceID        *int64         `json:"source_id,omitempty"`
-	Timestamp       *string        `json:"timestamp,omitempty"`
-	Level           *string        `json:"level,omitempty"`
-	LogType         *string        `json:"log_type,omitempty"`
-	Message         *string        `json:"message,omitempty"`
-	RequestID       *string        `json:"request_id,omitempty"`
-	TraceID         *string        `json:"trace_id,omitempty"`
-	Method          *string        `json:"method,omitempty"`
-	Path            *string        `json:"path,omitempty"`
-	URL             *string        `json:"url,omitempty"`
-	StatusCode      *int64         `json:"status_code,omitempty"`
-	LatencyMs       *int64         `json:"latency_ms,omitempty"`
-	RequestHeaders  map[string]any `json:"request_headers,omitempty"`
-	ResponseHeaders map[string]any `json:"response_headers,omitempty"`
-	RequestPayload  any            `json:"request_payload,omitempty"`
-	ResponsePayload any            `json:"response_payload,omitempty"`
-	ErrorCode       *string        `json:"error_code,omitempty"`
-	ErrorMessage    *string        `json:"error_message,omitempty"`
-	StackTrace      *string        `json:"stack_trace,omitempty"`
-	CustomFields    map[string]any `json:"custom_fields,omitempty"`
-	Raw             map[string]any `json:"raw"`
-}
-
-type SearchResult struct {
-	Items []MainLogDocument
-	Total int64
-}
+type SearchInput = dto.MainLogSearchInput
+type MainLogDocument = dto.MainLogResponse
+type SearchResult = dto.MainLogSearchResult
 
 type Usecase interface {
 	AuthorizeProductAccess(ctx context.Context, actorUserID uint, platformAdmin bool, productID int64) error

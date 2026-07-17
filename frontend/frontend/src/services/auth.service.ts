@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { apiClient } from '@/api';
-import { ALL_PERMISSIONS, API_ENDPOINTS } from '@/constants';
+import { ALL_PERMISSIONS, API_ENDPOINTS, DEFAULT_ADMIN_FEATURES } from '@/constants';
 import type { ApiResponse, LoginRequest, LoginResponse, User } from '@/types';
 import type { RegisterFormData } from '@/schemas';
 
@@ -57,8 +57,13 @@ function mapBackendUser(user: BackendUserResponse, fallbackRole?: string): User 
   const roleName = user.role || user.platform_role_name || fallbackRole || 'user';
   const fullName = [user.first_name, user.last_name].filter(Boolean).join(' ').trim() || user.username || user.email;
 
-  const isPlatformAdmin = ['god', 'owner', 'superadmin', 'admin', 'super_admin'].includes(roleName.toLowerCase());
-  const userPermissions = isPlatformAdmin ? ALL_PERMISSIONS : (user.permissions || []);
+  const isPlatformAdmin = ['god', 'owner', 'superadmin', 'super_admin'].includes(roleName.toLowerCase());
+  let userPermissions = isPlatformAdmin ? ALL_PERMISSIONS : (user.permissions || []);
+
+  if (roleName.toLowerCase() === 'admin') {
+    const customPerms = user.permissions || [];
+    userPermissions = Array.from(new Set([...DEFAULT_ADMIN_FEATURES, ...customPerms]));
+  }
 
   return {
     id: String(user.user_id || user.id || ''),

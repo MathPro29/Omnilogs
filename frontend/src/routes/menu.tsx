@@ -1,12 +1,13 @@
-import type { ReactNode } from 'react';
+import type { ReactNode } from "react";
 import {
   HomeIcon,
   UsersIcon,
-  Cog6ToothIcon,
   BoltIcon,
-} from '@heroicons/react/24/outline';
-import { ROUTES, PERMISSIONS, MENU_KEYS } from '@/constants';
-import type { MenuItem } from '@/types';
+  MagnifyingGlassIcon,
+  ClipboardDocumentCheckIcon,
+} from "@heroicons/react/24/outline";
+import { ROUTES, PERMISSIONS, MENU_KEYS } from "@/constants";
+import type { MenuItem } from "@/types";
 
 /**
  * Sidebar Menu Config
@@ -24,8 +25,8 @@ export const menuConfig: MenuItem[] = [
   // ===== แดชบอร์ด =====
   {
     key: MENU_KEYS.DASHBOARD,
-    label: 'แดชบอร์ด',
-    icon: <HomeIcon className="w-5 h-5" /> as ReactNode,
+    label: "แดชบอร์ด",
+    icon: (<HomeIcon className="w-5 h-5" />) as ReactNode,
     path: ROUTES.DASHBOARD,
     requiredPermissions: [PERMISSIONS.DASHBOARD_VIEW],
   },
@@ -33,19 +34,19 @@ export const menuConfig: MenuItem[] = [
   // ===== จัดการผู้ใช้ (submenu) =====
   {
     key: MENU_KEYS.USER_MANAGEMENT,
-    label: 'จัดการผู้ใช้',
-    icon: <UsersIcon className="w-5 h-5" /> as ReactNode,
+    label: "จัดการผู้ใช้",
+    icon: (<UsersIcon className="w-5 h-5" />) as ReactNode,
     requiredPermissions: [PERMISSIONS.USER_VIEW],
     children: [
       {
         key: MENU_KEYS.USERS,
-        label: 'ผู้ใช้งาน',
+        label: "ผู้ใช้งาน",
         path: ROUTES.USERS,
         requiredPermissions: [PERMISSIONS.USER_VIEW],
       },
       {
         key: MENU_KEYS.ROLES,
-        label: 'บทบาทและสิทธิ์',
+        label: "บทบาทและสิทธิ์",
         path: ROUTES.ROLES,
         requiredPermissions: [PERMISSIONS.ROLE_VIEW],
       },
@@ -61,9 +62,24 @@ export const menuConfig: MenuItem[] = [
   //   requiredPermissions: [PERMISSIONS.LEAVE_VIEW],
   // },
   {
+    key: MENU_KEYS.AUDIT_LOGS,
+    label: "Audit Logs",
+    icon: (<ClipboardDocumentCheckIcon className="w-5 h-5" />) as ReactNode,
+    path: ROUTES.AUDIT_LOGS,
+  },
+
+  {
     key: MENU_KEYS.LOGS_LIVE,
-    label: 'Live Tail',
-    icon: <BoltIcon className="w-5 h-5" /> as ReactNode,
+    label: "Live Tail",
+    icon: (<BoltIcon className="w-5 h-5" />) as ReactNode,
     path: ROUTES.LOGS_LIVE,
+  },
+
+  {
+    key: "logs-explorer",
+    label: "Logs Explorer",
+    icon: (<MagnifyingGlassIcon className="w-5 h-5" />) as ReactNode,
+    path: ROUTES.LOGS_EXPLORE,
+    requiredPermissions: [PERMISSIONS.DASHBOARD_VIEW],
   },
 ];

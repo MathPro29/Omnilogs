@@ -22,6 +22,7 @@ type Usecase interface {
 	ListProjects(Actor, int) ([]models.Project, error)
 	GetProject(Actor, int, int) (*models.Project, error)
 	UpdateProject(Actor, int, int, dto.UpdateProjectRequest) (*models.Project, error)
+	DeleteProject(Actor, int, int) error
 }
 
 type usecase struct{ repository repository.Repository }

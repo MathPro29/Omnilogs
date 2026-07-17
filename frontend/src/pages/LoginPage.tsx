@@ -126,6 +126,10 @@ export function LoginPage() {
               </span>
             </Button>
           </Form.Item>
+          <div className="flex items-center justify-between text-sm">
+            <a href={ROUTES.FORGOT_PASSWORD}>ลืมรหัสผ่าน?</a>
+            <a href={ROUTES.REGISTER} className="font-medium">สมัครสมาชิก</a>
+          </div>
         </Form>
 
         {/* Demo credentials */}

@@ -3,16 +3,18 @@ package handler
 import (
 	"strings"
 	"testing"
+
+	"omnilogs-api/dto"
 )
 
 func TestValidateFavoriteReorderRejectsDuplicates(t *testing.T) {
-	if err := validateFavoriteReorder([]favoriteOrder{
+	if err := validateFavoriteReorder([]dto.FavoriteOrder{
 		{FieldDefinitionID: 1, DisplayOrder: 0},
 		{FieldDefinitionID: 1, DisplayOrder: 1},
 	}); err == nil || !strings.Contains(err.Error(), "duplicate favorite field") {
 		t.Fatalf("expected duplicate field error, got %v", err)
 	}
-	if err := validateFavoriteReorder([]favoriteOrder{
+	if err := validateFavoriteReorder([]dto.FavoriteOrder{
 		{FieldDefinitionID: 1, DisplayOrder: 0},
 		{FieldDefinitionID: 2, DisplayOrder: 0},
 	}); err == nil || !strings.Contains(err.Error(), "duplicate display_order") {
@@ -21,7 +23,7 @@ func TestValidateFavoriteReorderRejectsDuplicates(t *testing.T) {
 }
 
 func TestValidateFavoriteReorderAcceptsOrderedItems(t *testing.T) {
-	if err := validateFavoriteReorder([]favoriteOrder{
+	if err := validateFavoriteReorder([]dto.FavoriteOrder{
 		{FieldDefinitionID: 2, DisplayOrder: 0},
 		{FieldDefinitionID: 1, DisplayOrder: 1},
 	}); err != nil {

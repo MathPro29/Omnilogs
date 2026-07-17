@@ -1,0 +1,29 @@
+/* ===== Application Shell ===== */
+.app-shell {
+  min-height: 100vh;
+  min-width: 0;
+  padding: clamp(88px, 10vw, 112px) clamp(16px, 2.5vw, 40px) clamp(32px, 5vw, 80px);
+  background: var(--app-canvas-background, #f1f5f9);
+}
+
+.page-panel {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: clamp(20px, 2.5vw, 36px);
+  background: transparent;
+}
+
+.page-panel > * {
+  min-width: 0;
+}
+
+@media (max-width: 760px) {
+  .app-shell {
+    padding: 84px 12px 32px;
+  }
+
+  .page-panel {
+    padding: 16px 4px;
+  }
+}

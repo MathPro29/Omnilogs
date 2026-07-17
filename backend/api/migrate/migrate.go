@@ -382,6 +382,14 @@ func seedPlatformRoles(db *gorm.DB) {
 			IsSystemRole:   true,
 			IsActive:       true,
 		},
+		{
+			PlatformRoleID: 5,
+			RoleCode:       "admin",
+			RoleName:       "Admin",
+			Permissions:    []byte(`{"default_menu_access": true}`),
+			IsSystemRole:   true,
+			IsActive:       true,
+		},
 	}
 
 	for _, r := range roles {

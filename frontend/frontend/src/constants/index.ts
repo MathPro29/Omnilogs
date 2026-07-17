@@ -17,6 +17,7 @@ export const ROUTES = {
   RETENTION_TEST: '/retention-test',
   SENSITIVE_ACCESS: '/sensitive-access',
   CUSTOM_FIELDS: '/custom-fields',
+  PRODUCT_ROLES: '/product-roles',
   FORBIDDEN: '/403',
   NOT_FOUND: '/404',
   FORGOT_PASSWORD: '/forgot-password',
@@ -63,6 +64,17 @@ export const PERMISSIONS = {
 
 // ===== All Permissions (สำหรับ Super Admin) =====
 export const ALL_PERMISSIONS = Object.values(PERMISSIONS);
+
+// ===== Default Admin Features =====
+export const DEFAULT_ADMIN_FEATURES = [
+  PERMISSIONS.FEATURE_DASHBOARD,
+  PERMISSIONS.FEATURE_LOGS_EXPLORER,
+  PERMISSIONS.FEATURE_AUDITS,
+  PERMISSIONS.FEATURE_SENSITIVE_ACCESS,
+  PERMISSIONS.FEATURE_CUSTOM_FIELDS,
+  PERMISSIONS.FEATURE_PRODUCT_ROLES,
+  PERMISSIONS.FEATURE_API_TEST,
+];
 
 // ===== Default Roles =====
 export const DEFAULT_ROLES = {

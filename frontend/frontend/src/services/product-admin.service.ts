@@ -1,6 +1,19 @@
 import axios from 'axios';
 import { apiClient } from '@/api';
 import type {
+  CreateFeaturePayload,
+  CreateMembershipPayload,
+  CreatePermissionRulePayload,
+  CreateProductPayload,
+  CreateProjectPayload,
+  CreateRolePayload,
+  CreateScopePayload,
+  DashboardLogStatsParams,
+  ImportLogsPayload,
+  SearchLogsMultiParams,
+  SearchLogsParams,
+} from '@/dto/product-admin.dto';
+import type {
   ApiResponse,
   LogQueueBatch,
   LogQueueItem,
@@ -11,110 +24,12 @@ import type {
   Product,
   ProductApiKey,
   ProductMembership,
-  RolePermissionAssignment,
   ProductRoleDefinition,
   Project,
   ProjectFeature,
   ProductAccessOverview,
   ProductAccessMember,
 } from '@/types';
-
-interface CreateProductPayload {
-  productName: string;
-  productCode?: string;
-  environments?: Array<{ environmentCode: string; environmentName: string }>;
-}
-
-interface CreateProjectPayload {
-  projectCode?: string;
-  projectName: string;
-}
-
-interface CreateFeaturePayload {
-  categoryCode?: string;
-  categoryName: string;
-  parentId?: number | null;
-  categoryType?: string | null;
-}
-
-interface CreateRolePayload {
-  roleCode: string;
-  roleName: string;
-  permissions: RolePermissionAssignment[];
-}
-
-interface CreateMembershipPayload {
-  userId: number;
-  roleId: number;
-  expiresAt?: string | null;
-}
-
-interface CreateScopePayload {
-  projectId?: number | null;
-  categoryId?: number | null;
-  scopeLevel: 'PRODUCT' | 'PROJECT' | 'CATEGORY';
-}
-
-interface CreatePermissionRulePayload {
-  userId: number;
-  productId: number;
-  roleId?: number | null;
-  projectId?: number | null;
-  categoryId?: number | null;
-  resourceType: string;
-  action: string;
-  effect: 'ALLOW' | 'DENY';
-  scopeLevel: 'GLOBAL' | 'PRODUCT' | 'PROJECT' | 'CATEGORY';
-  expiresAt?: string | null;
-}
-
-interface SearchLogsParams {
-  productId: number;
-  environmentId?: number;
-  projectId?: number;
-  categoryId?: number;
-  level?: string;
-  logType?: string;
-  keyword?: string;
-  page?: number;
-  perPage?: number;
-}
-
-interface SearchLogsMultiParams {
-  productId: number;
-  environmentId?: number;
-  projectIds?: number[];
-  categoryIds?: number[];
-  levels?: string[];
-  keyword?: string;
-  customFieldPath?: string;
-  customFieldValue?: string;
-  sortField?: string;
-  sortOrder?: 'asc' | 'desc';
-  page?: number;
-  perPage?: number;
-}
-
-interface DashboardLogStatsParams {
-  productId: number;
-  environmentId?: number;
-  projectIds?: number[];
-  categoryIds?: number[];
-}
-
-interface ImportLogsPayload {
-  productId: number;
-  environmentId: number;
-  projectId?: number;
-  categoryId?: number;
-  featureFullPath?: string | null;
-  featurePathIds?: string | null;
-  logLevel: string;
-  message: string;
-  eventType?: string;
-  customFields?: Record<string, unknown>;
-  rawData?: Record<string, unknown>;
-}
 
 function shouldUseMock(): boolean {
   return import.meta.env.VITE_USE_MOCK === 'true';
@@ -573,6 +488,15 @@ export const productAdminService = {
       is_active: payload.isActive,
     });
     return normalizeProject(response.data.data);
+  },
+
+  deleteProject: async (productId: number, projectId: number): Promise<void> => {
+    if (shouldUseMock()) {
+      await delay();
+      mockProjects = mockProjects.filter((item) => item.projectId !== projectId);
+      return;
+    }
+    await apiClient.delete(`/products/${productId}/projects/${projectId}`);
   },
 
   listFeatures: async (productId: number, projectId: number): Promise<ProjectFeature[]> => {

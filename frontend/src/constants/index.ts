@@ -1,7 +1,10 @@
 // ===== Route Paths =====
 export const ROUTES = {
   LOGIN: '/login',
+  REGISTER: '/register',
+  FORGOT_PASSWORD: '/forgot-password',
   DASHBOARD: '/dashboard',
+  LOGS_EXPLORE : '/logs-explorer',
   USERS: '/users',
   USER_CREATE: '/users/create',
   USER_EDIT: '/users/:id/edit',
@@ -9,6 +12,7 @@ export const ROUTES = {
   ROLES: '/roles',
   SETTINGS: '/settings',
   LOGS_LIVE: '/logs-live',
+  AUDIT_LOGS: '/audit-logs',
   FORBIDDEN: '/403',
   NOT_FOUND: '/404',
 } as const;
@@ -82,12 +86,16 @@ export const MENU_KEYS = {
   ROLES: 'roles',
   SETTINGS: 'settings',
   LOGS_LIVE: 'logs-live',
+  AUDIT_LOGS: 'audit-logs',
 } as const;
 
 // ===== API Endpoints =====
 export const API_ENDPOINTS = {
   AUTH: {
     LOGIN: '/auth/login',
+    REGISTER: '/auth/register',
+    FORGOT_PASSWORD: '/auth/forgot-password',
+    RESET_PASSWORD: '/auth/reset-password',
     LOGOUT: '/auth/logout',
     REFRESH: '/auth/refresh',
     ME: '/auth/me',
@@ -105,6 +113,10 @@ export const API_ENDPOINTS = {
   },
   DASHBOARD: {
     SUMMARY: '/dashboard/summary',
+  },
+  AUDIT_LOGS: {
+    LIST: '/v1/audit-logs',
+    DETAIL: (auditId: string) => `/v1/audit-logs/${auditId}`,
   },
   SETTINGS: {
     GET: '/settings',

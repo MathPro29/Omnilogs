@@ -35,7 +35,7 @@ func (u *usecase) Register(req dto.RegisterRequest) (*dto.UserResponse, error) {
 		LastName:     req.LastName,
 		Username:     req.Username,
 		Email:        req.Email,
-		RoleID:       defaultUserRoleID,
+		RoleID:       defaultRegistrationRoleID,
 		PasswordHash: PasswordHash,
 		PhoneNumber:  req.PhoneNumber,
 	}

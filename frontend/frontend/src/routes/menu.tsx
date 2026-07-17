@@ -9,7 +9,6 @@ import {
   ArchiveBoxIcon,
   LockClosedIcon,
   AdjustmentsHorizontalIcon,
-  ShieldCheckIcon,
 } from "@heroicons/react/24/outline";
 import { ROUTES, PERMISSIONS, MENU_KEYS } from "@/constants";
 import type { MenuItem } from "@/types";

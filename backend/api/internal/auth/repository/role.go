@@ -32,44 +32,25 @@ func (r *repository) populateUserRole(user *models.User) error {
 	return nil
 }
 
-func (r *repository) getOrCreateDefaultRoleID() (int, error) {
+func (r *repository) getOrCreateRegistrationRoleID() (int, error) {
 	var role models.PlatformRole
-	err := r.db.Where("role_code = ?", "user").First(&role).Error
+	err := r.db.Where("role_code = ?", "admin").First(&role).Error
 	if err == nil {
 		return role.PlatformRoleID, nil
 	}
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		// Create the default user role
+		// Registration uses a non-privileged platform role. It is deliberately
+		// excluded from HasAdminPlatformRole and grants no product access.
 		role = models.PlatformRole{
-			RoleCode:     "user",
-			RoleName:     "User",
-			Permissions:  []byte("{}"),
+			RoleCode:     "admin",
+			RoleName:     "Admin",
+			Permissions:  []byte(`{"default_menu_access": true}`),
 			IsSystemRole: true,
 			IsActive:     true,
 		}
 		if err := r.db.Create(&role).Error; err != nil {
 			return 0, err
 		}
-
-		// Also create admin and superadmin roles if they don't exist
-		adminRole := models.PlatformRole{
-			RoleCode:     "admin",
-			RoleName:     "Admin",
-			Permissions:  []byte("{}"),
-			IsSystemRole: true,
-			IsActive:     true,
-		}
-		r.db.FirstOrCreate(&adminRole, models.PlatformRole{RoleCode: "admin"})
-
-		superadminRole := models.PlatformRole{
-			RoleCode:     "superadmin",
-			RoleName:     "Superadmin",
-			Permissions:  []byte("{}"),
-			IsSystemRole: true,
-			IsActive:     true,
-		}
-		r.db.FirstOrCreate(&superadminRole, models.PlatformRole{RoleCode: "superadmin"})
-
 		return role.PlatformRoleID, nil
 	}
 	return 0, err

@@ -17,6 +17,8 @@
  * 3. ใส่ className wrapper ในหน้าที่ต้องการ เช่น <div className="users-page">
  */
 
+@import './layout/app-shell.css';
+@import './layout/floating-dock.css';
 @import './pages/login.css';
 @import './pages/dashboard.css';
 @import './pages/users.css';

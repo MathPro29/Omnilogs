@@ -71,6 +71,7 @@ func ProductRoutes(router *gin.Engine, db *gorm.DB, env *configs.Env) {
 	products.GET("/:productId/projects", projectHandler.ListProjects)
 	products.GET("/:productId/projects/:projectId", projectHandler.GetProject)
 	products.PATCH("/:productId/projects/:projectId", projectHandler.UpdateProject)
+	products.DELETE("/:productId/projects/:projectId", projectHandler.DeleteProject)
 	products.POST("/:productId/projects/:projectId/features", featureHandler.CreateFeature)
 	products.GET("/:productId/projects/:projectId/features", featureHandler.ListFeatures)
 	products.PATCH("/:productId/projects/:projectId/features/:featureId", featureHandler.UpdateFeature)

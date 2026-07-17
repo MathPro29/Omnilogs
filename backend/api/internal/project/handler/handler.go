@@ -9,7 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-
 func (h *Handler) CreateProject(c *gin.Context) {
 	a, _ := actor(c)
 	productID, ok := idParam(c, "productId")
@@ -77,4 +76,20 @@ func (h *Handler) UpdateProject(c *gin.Context) {
 		return
 	}
 	utils.Success(c, http.StatusOK, value)
+}
+func (h *Handler) DeleteProject(c *gin.Context) {
+	a, _ := actor(c)
+	productID, ok := idParam(c, "productId")
+	if !ok {
+		return
+	}
+	projectID, ok := idParam(c, "projectId")
+	if !ok {
+		return
+	}
+	if err := h.usecase.DeleteProject(a, productID, projectID); err != nil {
+		fail(c, err)
+		return
+	}
+	utils.Success(c, http.StatusOK, gin.H{"project_id": projectID, "status": "deleted"})
 }

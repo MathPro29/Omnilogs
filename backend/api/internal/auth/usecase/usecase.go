@@ -8,10 +8,9 @@ import (
 	authrepo "omnilogs-api/internal/auth/repository"
 	authservice "omnilogs-api/internal/auth/service"
 	"omnilogs-api/models"
-
 )
 
-const defaultUserRoleID uint = 4
+const defaultRegistrationRoleID uint = 5
 
 var (
 	ErrForbiddenRoleAssignment = errors.New("forbidden role assignment")

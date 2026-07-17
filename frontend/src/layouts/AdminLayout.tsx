@@ -22,11 +22,11 @@ export function AdminLayout() {
           }
         }}
       />
-      <div className="page-panel">
+      <section className="page-panel" aria-live="polite">
         <AnimatePresence mode="wait">
           <Outlet />
         </AnimatePresence>
-      </div>
+      </section>
     </main>
   );
 }

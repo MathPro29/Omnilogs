@@ -36,6 +36,7 @@ import {
   PAGINATION,
   STATUS_LABELS,
   STATUS_COLORS,
+  DEFAULT_ADMIN_FEATURES,
 } from "@/constants";
 import { formatDate, getInitials, debounce } from "@/utils";
 import { PageTransition, PermissionGuard, TableSkeleton } from "@/components";
@@ -173,7 +174,7 @@ export function UsersPage() {
 
   const handleFormSubmit = (values: any) => {
     const role = values.role;
-    const isAdminRole = ["god", "owner", "superadmin", "admin"].includes(role);
+    const isAdminRole = ["god", "owner", "superadmin"].includes(role);
     const permissions = isAdminRole ? [] : (values.permissions || []);
 
     if (editingUser) {
@@ -260,16 +261,22 @@ export function UsersPage() {
       key: "permissions",
       render: (_, record) => {
         const role = record.roles?.[0]?.name || "user";
-        const isAdminRole = ["god", "owner", "superadmin", "admin"].includes(role);
+        const isAdminRole = ["god", "owner", "superadmin"].includes(role);
         if (isAdminRole) {
           return <Tag color="gold">ทั้งหมด (All)</Tag>;
         }
-        if (!record.permissions || record.permissions.length === 0) {
+
+        let displayPermissions = record.permissions || [];
+        if (role.toLowerCase() === 'admin') {
+          displayPermissions = Array.from(new Set([...DEFAULT_ADMIN_FEATURES, ...displayPermissions]));
+        }
+
+        if (displayPermissions.length === 0) {
           return <span className="text-gray-400 font-normal">—</span>;
         }
         return (
           <div className="flex gap-1 flex-wrap max-w-xs">
-            {record.permissions.map((perm) => {
+            {displayPermissions.map((perm) => {
               const opt = FEATURE_OPTIONS.find((o) => o.value === perm);
               return (
                 <Tag key={perm} color="blue" bordered={false}>
@@ -309,13 +316,18 @@ export function UsersPage() {
                 icon={<PencilSquareIcon className="w-4 h-4" />}
                 onClick={() => {
                   setEditingUser(record);
+                  const role = record.roles?.[0]?.name || "user";
+                  let recordPerms = record.permissions || [];
+                  if (role.toLowerCase() === 'admin' && recordPerms.length === 0) {
+                    recordPerms = DEFAULT_ADMIN_FEATURES;
+                  }
                   form.setFieldsValue({
                     fullName: record.fullName,
                     email: record.email,
                     phone: record.phone,
-                    role: record.roles?.[0]?.name || "user",
+                    role: role,
                     status: record.status,
-                    permissions: record.permissions || [],
+                    permissions: recordPerms,
                   });
                   setIsModalOpen(true);
                 }}
@@ -566,10 +578,18 @@ export function UsersPage() {
             rules={[{ required: true, message: "กรุณาเลือกบทบาท" }]}
           >
             <Select
+              onChange={(value) => {
+                if (value === "admin") {
+                  form.setFieldsValue({ permissions: DEFAULT_ADMIN_FEATURES });
+                } else if (["god", "owner", "superadmin"].includes(value)) {
+                  form.setFieldsValue({ permissions: [] });
+                }
+              }}
               options={[
                 { label: "GOD", value: "god" },
                 { label: "Owner", value: "owner" },
                 { label: "Superadmin", value: "superadmin" },
+                { label: "Admin", value: "admin" },
                 { label: "User", value: "user" },
               ]}
             />
@@ -580,7 +600,7 @@ export function UsersPage() {
           >
             {({ getFieldValue }) => {
               const role = getFieldValue("role");
-              const isAdminRole = ["god", "owner", "superadmin", "admin"].includes(role);
+              const isAdminRole = ["god", "owner", "superadmin"].includes(role);
               return (
                 <Form.Item
                   name="permissions"

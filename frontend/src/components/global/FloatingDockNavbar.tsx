@@ -143,7 +143,7 @@ export function FloatingDockNavbar({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: shouldReduceMotion ? 0 : 0.2 }}
-            onClick={() => setIsOpen(false)}
+            onClick={closeDock}
           />
         )}
       </AnimatePresence>
@@ -163,44 +163,36 @@ export function FloatingDockNavbar({
               aria-expanded={isOpen}
               aria-controls={menuId}
             >
-              <span className="nav-dock__logo">O</span>
               <span
                 className={`nav-dock__brand-copy ${
                   isExpanded ? "nav-dock__brand-copy--open" : ""
                 }`}
               >
-                <span className="nav-dock__brand-title">OmniLogs</span>
+                <span className="nav-dock__brand-title font-extrabold">
+                  OmniLogs
+                </span>
               </span>
             </button>
+            {/* Vertical divider */}
+            {!isExpanded && (
+              <span className="nav-dock__divider" aria-hidden="true" />
+            )}
+            <div className="nav-dock__actions">
+              <div className="nav-dock__quick-actions" aria-label="Quick navigation">
+                <button type="button" className="nav-dock__quick-link" onClick={() => navigate("/")}>Home</button>
+                <button type="button" className="nav-dock__quick-link" onClick={() => navigate("/logs-explorer")}>Logs Explorer</button>
+              </div>
 
-            <div className="nav-dock__actions" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-               {/* li */}
-                <a href="/">
-                  Home
-                </a>
-                <a href="/logs">
-                  Explore Logs
-                </a>
-                <a href="">
-                  Page A
-                </a>
-                <a href="">
-                  Page B
-                </a>
-                
-              <Dropdown menu={{ items: userMenuItems }} placement="bottomRight" trigger={["click"]}>
-                <div style={{ cursor: "pointer", display: "flex", alignItems: "center" }}>
-                  <Avatar
-                    size={36}
-                    style={{
-                      backgroundColor: "var(--color-primary)",
-                      fontWeight: 600,
-                      fontSize: "0.875rem",
-                    }}
-                  >
+              <Dropdown
+                menu={{ items: userMenuItems }}
+                placement="bottomRight"
+                trigger={["click"]}
+              >
+                <button type="button" className="nav-dock__profile" aria-label="Open profile menu">
+                  <Avatar size={{ xs: 32, sm: 36 }} className="nav-dock__avatar">
                     {currentUser ? getInitials(currentUser.fullName) : "U"}
                   </Avatar>
-                </div>
+                </button>
               </Dropdown>
 
               <button
@@ -258,15 +250,7 @@ export function FloatingDockNavbar({
                       }
                 }
               >
-                <div 
-                  className="nav-dock__grid"
-                  style={{
-                    gridTemplateColumns: `repeat(${Math.min(3, navigationGroups.length)}, minmax(0, 1fr))`,
-                    justifyContent: 'center',
-                    maxWidth: navigationGroups.length < 3 ? '720px' : 'none',
-                    margin: '0 auto'
-                  }}
-                >
+                <div className="nav-dock__grid">
                   {navigationGroups.map((group, groupIndex) => (
                     <motion.section
                       key={group.id}
