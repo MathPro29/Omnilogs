@@ -11,6 +11,13 @@ import (
 func (r *repository) GetAuditLogs(ctx context.Context, q dto.AuditLogQuery) ([]models.SystemAuditLog, int64, error) {
 	var auditLogs []models.SystemAuditLog
 	query := r.db.WithContext(ctx).Model(&models.SystemAuditLog{})
+	if q.AllowedProductIDs != nil {
+		if len(q.AllowedProductIDs) == 0 {
+			query = query.Where("1 = 0")
+		} else {
+			query = query.Where("product_id IN ?", q.AllowedProductIDs)
+		}
+	}
 
 	if q.ProductID != nil {
 		query = query.Where("product_id = ?", *q.ProductID)

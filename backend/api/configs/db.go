@@ -2,11 +2,14 @@ package configs
 
 import (
 	"fmt"
+	"log"
 	"log/slog"
+	"os"
 	"time"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 func ConnectDB(env *Env) (*gorm.DB, error) {
@@ -23,17 +26,27 @@ func ConnectDB(env *Env) (*gorm.DB, error) {
 	var err error
 	maxRetries := 15
 	retryInterval := 2 * time.Second
+	gormLogger := logger.New(
+		log.New(os.Stdout, "", log.LstdFlags),
+		logger.Config{
+			SlowThreshold:             time.Duration(env.DBSlowQueryThresholdMS) * time.Millisecond,
+			LogLevel:                  logger.Warn,
+			IgnoreRecordNotFoundError: true,
+			ParameterizedQueries:      true,
+			Colorful:                  false,
+		},
+	)
 
 	for i := 0; i < maxRetries; i++ {
-		db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
+		db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: gormLogger})
 		if err == nil {
 			// Successfully connected
 			break
 		}
 
-		slog.Warn("failed to connect to database, retrying...", 
-			"attempt", i+1, 
-			"max_retries", maxRetries, 
+		slog.Warn("failed to connect to database, retrying...",
+			"attempt", i+1,
+			"max_retries", maxRetries,
 			"error", err,
 		)
 		time.Sleep(retryInterval)

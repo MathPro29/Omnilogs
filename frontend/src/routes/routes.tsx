@@ -6,6 +6,7 @@ import {
   SettingsPage,
   ForbiddenPage,
   LiveTailPage,
+  AuditLogsPage,
 } from '@/pages';
 
 /**
@@ -57,6 +58,10 @@ export const adminRoutes: RouteConfig[] = [
   {
     path: ROUTES.LOGS_LIVE,
     element: <LiveTailPage />,
+  },
+  {
+    path: ROUTES.AUDIT_LOGS,
+    element: <AuditLogsPage />,
   },
   {
     path: ROUTES.FORBIDDEN,

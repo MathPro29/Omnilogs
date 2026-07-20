@@ -1,6 +1,8 @@
 package mainlogs
 
 import (
+	"time"
+
 	"omnilogs-api/configs"
 	auditrepo "omnilogs-api/internal/audit_logs/repository"
 	auditusecase "omnilogs-api/internal/audit_logs/usecase"
@@ -12,11 +14,11 @@ import (
 	"gorm.io/gorm"
 )
 
-func NewHandler(db *gorm.DB, esClient *elasticsearch.Client, encryptionKey string, natsQueue *configs.NATSQueue) *handler.Handler {
+func NewHandler(db *gorm.DB, esClient *elasticsearch.Client, encryptionKey string, natsQueue *configs.NATSQueue, queryTimeout, slowQueryThreshold time.Duration) *handler.Handler {
 	auditRepo := auditrepo.NewRepository(db)
 	audits := auditusecase.NewUsecase(auditRepo)
 
-	mainLogRepo := mainlogrepo.NewRepository(db, esClient)
+	mainLogRepo := mainlogrepo.NewRepository(db, esClient, queryTimeout, slowQueryThreshold)
 	mainLogs := mainlogusecase.NewUsecase(mainLogRepo, audits, encryptionKey)
 	return handler.NewHandler(mainLogs, natsQueue)
 }

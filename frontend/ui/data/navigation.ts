@@ -28,9 +28,9 @@ export const navigationGroups: NavigationGroup[] = [
     title: "Monitoring",
     items: [
       {
-        id: "explore-logs",
-        label: "Explore Logs",
-        href: "/logs",
+        id: "logs-explorer",
+        label: "Logs Explorer",
+        href: "/logs-explorer",
         icon: Search,
       },
       {

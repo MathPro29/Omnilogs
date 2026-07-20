@@ -31,7 +31,10 @@ export const sensitiveLogService = {
     const response = await apiClient.get<ApiResponse<SensitiveSecretOption[]>>(`/products/${productId}/sensitive-logs/secrets`);
     return response.data.data || [];
   },
-  async reviewRequest(productId: number, requestId: string, approval_status: 'APPROVED' | 'REJECTED') {
+  async revealRawMainLog(productId: number, logId: string) {
+    const response = await apiClient.get<ApiResponse<any>>(`/products/${productId}/sensitive-logs/main-logs/${logId}/raw`);
+    return response.data.data;
+  },  async reviewRequest(productId: number, requestId: string, approval_status: 'APPROVED' | 'REJECTED') {
     const response = await apiClient.post<ApiResponse<SensitiveAccessRequest>>(`/products/${productId}/sensitive-logs/requests/${requestId}/review`, { approval_status });
     return response.data.data;
   },

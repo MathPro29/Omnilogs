@@ -1,5 +1,5 @@
-import { useEffect, useState, useMemo, useCallback } from 'react';
-import { Card, Space, Typography, Modal, Button, Select, Input, Table, Tag, Form, Row, Col, Badge, message, Spin, Switch, Statistic, Tooltip as AntTooltip } from 'antd';
+import { useEffect, useState, useMemo, useCallback, type ReactNode } from 'react';
+import { Card, Space, Typography, Modal, Button, Select, Input, Table, Tag, Form, Row, Col, Spin, Switch, Statistic, Tooltip as AntTooltip, message } from 'antd';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   SearchOutlined,
@@ -8,10 +8,11 @@ import {
   LineChartOutlined,
   ThunderboltOutlined,
   DatabaseOutlined,
+  StarOutlined,
+  StarFilled,
+  DownloadOutlined,
 } from '@ant-design/icons';
 import {
-  LineChart,
-  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -22,9 +23,10 @@ import {
   AreaChart,
 } from 'recharts';
 import { productAdminService, normalizeMainLog } from '@/services';
+import { customFieldService, type CustomField } from '@/services/custom-field.service';
 import { useAppStore, useAuthStore } from '@/store';
 import { ROUTES } from '@/constants';
-import type { MainLog, Project, ProjectFeature } from '@/types';
+import type { MainLog } from '@/types';
 
 const { Text, Title, Paragraph } = Typography;
 
@@ -39,9 +41,237 @@ const LEVEL_COLORS: Record<string, string> = {
 
 const LEVEL_OPTIONS = ['DEBUG', 'INFO', 'WARN', 'ERROR'];
 
+const normalizeFavoriteFieldPath = (path: string) => {
+  const normalized = path.replace(/^raw\./, '');
+  if (normalized === 'payload') return '$';
+  return normalized.replace(/^payload\./, '');
+};
+
+const detectRawJSONType = (value: unknown): string => {
+  if (Array.isArray(value)) return 'array';
+  if (value !== null && typeof value === 'object') return 'object';
+  if (typeof value === 'boolean') return 'boolean';
+  if (typeof value === 'number') return 'number';
+  if (typeof value === 'string' && value.includes('-') && !Number.isNaN(Date.parse(value))) return 'datetime';
+  return 'string';
+};
+
+type JSONFavoriteTreeProps = {
+  value: unknown;
+  path?: string;
+  level?: number;
+  favoritePaths: Set<string>;
+  onToggleFavorite: (path: string, value: unknown, dataType: string, isFavorited: boolean) => void;
+};
+
+const JSONFavoriteRow = ({ label, path, canFavorite, isFavorited, onToggle, children }: {
+  label?: ReactNode;
+  path: string;
+  canFavorite: boolean;
+  isFavorited: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) => (
+  <div
+    className="json-fav-row"
+    style={{ display: 'flex', alignItems: 'flex-start', gap: 0, position: 'relative', paddingRight: canFavorite ? 28 : 0 }}
+  >
+    <div style={{ flex: 1, minWidth: 0 }}>
+      {label}{children}
+    </div>
+    {canFavorite && (
+      <AntTooltip title={isFavorited ? 'นำออกจาก Custom Field' : 'เพิ่มไปยัง Custom Field'}>
+        <Button
+          type="text"
+          size="small"
+          icon={isFavorited ? <StarFilled /> : <StarOutlined />}
+          aria-label={isFavorited ? `Remove ${path} from favorite` : `Add ${path} to favorite`}
+          onClick={onToggle}
+          className={isFavorited ? 'json-fav-star json-fav-star' : 'json-fav-star'}
+          style={{
+            color: '#faad14',
+            padding: '0 4px',
+            height: 20,
+            width: 20,
+            position: 'absolute',
+            right: 0,
+            top: 2,
+            opacity: isFavorited ? 1 : 0.4,
+          }}
+        />
+      </AntTooltip>
+    )}
+  </div>
+);
+
+const JSONFavoriteTree = ({ value, path = '', level = 0, favoritePaths, onToggleFavorite }: JSONFavoriteTreeProps) => {
+  const indent = level * 16;
+
+  // Leaf / primitive value
+  if (value === null || typeof value !== 'object') {
+    return (
+      <Text style={{ color: typeof value === 'string' ? '#ce9178' : typeof value === 'number' ? '#b5cea8' : typeof value === 'boolean' ? '#569cd6' : '#d4d4d4' }}>
+        {JSON.stringify(value)}
+      </Text>
+    );
+  }
+
+  // Array
+  if (Array.isArray(value)) {
+    if (value.length === 0) return <Text type="secondary">[]</Text>;
+    return (
+      <>
+        <Text type="secondary">[</Text>
+        {value.map((item, index) => (
+          <div key={`${path}[${index}]`} style={{ marginLeft: indent + 16, lineHeight: 1.7 }}>
+            <JSONFavoriteTree value={item} path={`${path}[]`} level={level + 1} favoritePaths={favoritePaths} onToggleFavorite={onToggleFavorite} />
+            {index < value.length - 1 && <Text type="secondary">,</Text>}
+          </div>
+        ))}
+        <Text type="secondary">]</Text>
+      </>
+    );
+  }
+
+  // Object
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length === 0) return <Text type="secondary">{'{}'}</Text>;
+
+  return (
+    <>
+      <Text type="secondary">{'{'}</Text>
+      {entries.map(([key, child], idx) => {
+        const childPath = path ? `${path}.${key}` : key;
+        const childCanFav = !!childPath;
+        const childIsFav = favoritePaths.has(normalizeFavoriteFieldPath(childPath));
+        const childDataType = detectRawJSONType(child);
+        return (
+          <div key={childPath} style={{ marginLeft: indent + 16, lineHeight: 1.7 }}>
+            <JSONFavoriteRow
+              label={<Text style={{ color: '#9cdcfe' }}>{JSON.stringify(key)}: </Text>}
+              path={childPath}
+              canFavorite={childCanFav}
+              isFavorited={childIsFav}
+              onToggle={() => onToggleFavorite(childPath, child, childDataType, childIsFav)}
+            >
+              <JSONFavoriteTree value={child} path={childPath} level={level + 1} favoritePaths={favoritePaths} onToggleFavorite={onToggleFavorite} />
+              {idx < entries.length - 1 && <Text type="secondary">,</Text>}
+            </JSONFavoriteRow>
+          </div>
+        );
+      })}
+      <Text type="secondary">{'}'}</Text>
+    </>
+  );
+};
+
+const getCustomFieldValue = (record: any, path: string): unknown => {
+  if (!record) return undefined;
+  if (normalizeFavoriteFieldPath(path) === '$') {
+    return record.raw?.payload || record.payload || record.raw || record;
+  }
+  const normalizedPath = path.replace(/^(payload|data)\./, '').replace(/^custom_fields\./, '');
+  const segments = normalizedPath.split('.').filter(Boolean);
+  const candidates = [
+    record.customFields,
+    record.raw?.data?.custom_fields,
+    record.raw?.payload?.custom_fields,
+    record.raw?.custom_fields,
+    record.raw?.data,
+    record.raw?.payload,
+    record.raw,
+    record.data,
+    record.payload,
+  ];
+
+  const readPath = (value: any, index: number): unknown => {
+    if (index >= segments.length) return value;
+    if (Array.isArray(value)) {
+      const values = value.map((item) => readPath(item, index)).filter((item) => item !== undefined && item !== null);
+      return values.length > 0 ? values : undefined;
+    }
+    if (!value || typeof value !== 'object') return undefined;
+    const segment = segments[index];
+    if (segment.endsWith('[]')) {
+      const arrayValue = value[segment.slice(0, -2)];
+      return Array.isArray(arrayValue) ? readPath(arrayValue, index + 1) : undefined;
+    }
+    return segment in value ? readPath(value[segment], index + 1) : undefined;
+  };
+
+  for (const candidate of candidates) {
+    const current = readPath(candidate, 0);
+    if (current !== undefined && current !== null) return current;
+  }
+  return undefined;
+};
+
+const formatCustomFieldValue = (field: CustomField | undefined, value: unknown): string => {
+  if (value === undefined || value === null || value === '') return '—';
+  if (field?.data_type === 'enum') {
+    return field.enum_options?.find((option) => option.option_value === String(value))?.option_label || String(value);
+  }
+  if (typeof value === 'boolean') return value ? 'ใช่' : 'ไม่ใช่';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+};
+
+const filterJsonObject = (obj: any, term: string): any => {
+  if (!term) return obj;
+  if (typeof obj !== 'object' || obj === null) return obj;
+
+  const cleanTerm = term.toLowerCase().trim();
+  if (cleanTerm === '') return obj;
+  
+  if (Array.isArray(obj)) {
+    return obj
+      .map(item => filterJsonObject(item, term))
+      .filter(item => {
+        if (typeof item === 'object' && item !== null) {
+          return Object.keys(item).length > 0;
+        }
+        return String(item).toLowerCase().includes(cleanTerm);
+      });
+  }
+
+  const result: any = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (key.toLowerCase().includes(cleanTerm)) {
+      result[key] = value;
+      continue;
+    }
+    if (typeof value === 'object' && value !== null) {
+      const filteredValue = filterJsonObject(value, term);
+      if (filteredValue && (Array.isArray(filteredValue) ? filteredValue.length > 0 : Object.keys(filteredValue).length > 0)) {
+        result[key] = filteredValue;
+      }
+    } else if (String(value).toLowerCase().includes(cleanTerm)) {
+      result[key] = value;
+    }
+  }
+  return result;
+};
+
+const getVisibleCustomFieldsForLog = (log: MainLog, allCustomFields: CustomField[]) => {
+  const raw = (log.raw || log) as any;
+  const projId = raw?.payload?.project_id || raw?.project_id || log.productId;
+  // Category / Feature might not be set, so check categoryId
+  const catId = raw?.payload?.category_id || raw?.category_id || (log as any).categoryId;
+  
+  return allCustomFields.filter((field) => 
+    field.is_active &&
+    field.is_favorite &&
+    field.is_visible &&
+    (field.product_id == null || field.product_id === log.productId) &&
+    (field.project_id == null || field.project_id === projId) &&
+    (field.category_id == null || field.category_id === catId)
+  );
+};
+
 export function LogsExplorerPage() {
   const setBreadcrumbs = useAppStore((state) => state.setBreadcrumbs);
   const accessToken = useAuthStore((state) => state.accessToken);
+  const currentUser = useAuthStore((state) => state.currentUser);
 
   // Filter States
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
@@ -49,10 +279,32 @@ export function LogsExplorerPage() {
   const [selectedProjectIds, setSelectedProjectIds] = useState<number[]>([]);
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<number[]>([]);
   const [selectedLevels, setSelectedLevels] = useState<string[]>([]);
+  const [selectedCustomFieldPaths, setSelectedCustomFieldPaths] = useState<string[]>([]);
+  const [customFieldFilterPath, setCustomFieldFilterPath] = useState<string>();
+  const [customFieldFilterValue, setCustomFieldFilterValue] = useState<string>();
+  const [sortField, setSortField] = useState<string>();
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [selectedLog, setSelectedLog] = useState<MainLog | null>(null);
+
+  const handleCustomFieldPathsChange = (paths: string[]) => {
+    setSelectedCustomFieldPaths(paths);
+    if (selectedProductId) {
+      const key = `omnilogs_custom_fields_${currentUser?.id || "default"}_${selectedProductId}`;
+      localStorage.setItem(key, JSON.stringify(paths));
+    }
+  };
+
+  // States for JSON filtering
+  const [jsonFilterTerm, setJsonFilterTerm] = useState('');
+
+  useEffect(() => {
+    if (!selectedLog) {
+      setJsonFilterTerm('');
+    }
+  }, [selectedLog]);
 
   useEffect(() => {
     setBreadcrumbs([
@@ -84,6 +336,73 @@ export function LogsExplorerPage() {
 
   const monitorProduct = products.find((p) => p.productId === selectedProductId);
   const monitorEnvironments = monitorProduct?.productEnvironments || [];
+
+  const { data: customFields = [], refetch: refetchCustomFields } = useQuery({
+    queryKey: ['explorer-custom-fields', selectedProductId],
+    queryFn: () => customFieldService.list(selectedProductId || undefined),
+    enabled: !!selectedProductId,
+  });
+  const scopedCustomFields = customFields.filter((field: CustomField) =>
+    field.is_active &&
+    field.is_favorite &&
+    (field.product_id == null || field.product_id === selectedProductId) &&
+    (field.project_id == null || selectedProjectIds.length === 0 || selectedProjectIds.includes(field.project_id)) &&
+    (field.category_id == null || selectedCategoryIds.length === 0 || selectedCategoryIds.includes(field.category_id))
+  );
+  const visibleCustomFields = scopedCustomFields.filter((field) => field.is_visible && field.show_in_table !== false);
+  const filterableCustomFields = scopedCustomFields.filter((field) =>
+    field.is_filterable &&
+    ![''].includes(field.field_key)
+  );
+
+  const addFavoriteFromLog = async (path: string, sampleValue: unknown, detectedType: string) => {
+    if (!selectedProductId) return;
+    const canonicalPath = normalizeFavoriteFieldPath(path);
+    await customFieldService.favorite({
+      product_id: selectedProductId,
+      field_path: canonicalPath,
+      sample_value: sampleValue,
+      detected_type: detectedType,
+    });
+    await refetchCustomFields();
+    setSelectedCustomFieldPaths((current) => {
+      const next = current.length > 0 && !current.includes(canonicalPath) ? [...current, canonicalPath] : current;
+      const key = `omnilogs_custom_fields_${currentUser?.id || "default"}_${selectedProductId}`;
+      localStorage.setItem(key, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const favoritePaths = useMemo(() => {
+    const paths = new Set<string>();
+    for (const field of customFields) {
+      if (field.is_favorite && field.is_active) {
+        const p = field.field_path || `custom_fields.${field.field_key}`;
+        paths.add(normalizeFavoriteFieldPath(p));
+      }
+    }
+    return paths;
+  }, [customFields]);
+
+  const toggleFavoriteFromRawJSON = async (path: string, sampleValue: unknown, detectedType: string, isFavorited: boolean) => {
+    try {
+      if (isFavorited) {
+        const canonicalPath = normalizeFavoriteFieldPath(path);
+        const field = customFields.find((f) => normalizeFavoriteFieldPath(f.field_path || `custom_fields.${f.field_key}`) === canonicalPath && f.is_favorite);
+        if (field) {
+          await customFieldService.removeFavorite(field.field_definition_id);
+          await refetchCustomFields();
+          message.success(`นำ ${canonicalPath} ออกจาก Favorite แล้ว`);
+        }
+      } else {
+        await addFavoriteFromLog(path, sampleValue, detectedType);
+        message.success(`เพิ่ม ${path} เป็น Favorite แล้ว`);
+      }
+    } catch (error: unknown) {
+      const apiError = error as { response?: { data?: { error?: string } }; message?: string };
+      message.error(apiError.response?.data?.error || apiError.message || 'ดำเนินการไม่สำเร็จ');
+    }
+  };
 
   const { data: monitorProjects = [], isLoading: isLoadingProjects } = useQuery({
     queryKey: ['projects-admin-explorer', selectedProductId],
@@ -119,6 +438,11 @@ export function LogsExplorerPage() {
       selectedProjectIds,
       selectedCategoryIds,
       selectedLevels,
+      selectedCustomFieldPaths,
+      customFieldFilterPath,
+      customFieldFilterValue,
+      sortField,
+      sortOrder,
       logKeyword,
       currentPage,
       pageSize,
@@ -131,6 +455,10 @@ export function LogsExplorerPage() {
         categoryIds: selectedCategoryIds.length > 0 ? selectedCategoryIds : undefined,
         levels: selectedLevels.length > 0 ? selectedLevels : undefined,
         keyword: logKeyword || undefined,
+        customFieldPath: customFieldFilterPath,
+        customFieldValue: customFieldFilterValue,
+        sortField,
+        sortOrder: sortField ? sortOrder : undefined,
         page: currentPage,
         perPage: pageSize,
       }),
@@ -272,13 +600,36 @@ export function LogsExplorerPage() {
   useEffect(() => {
     setSelectedProjectIds([]);
     setSelectedCategoryIds([]);
+    setCustomFieldFilterPath(undefined);
+    setCustomFieldFilterValue(undefined);
     setSelectedEnvironmentId(null);
     setCurrentPage(1);
-  }, [selectedProductId]);
+
+    if (selectedProductId) {
+      const key = `omnilogs_custom_fields_${currentUser?.id || "default"}_${selectedProductId}`;
+      const saved = localStorage.getItem(key);
+      if (saved) {
+        try {
+          setSelectedCustomFieldPaths(JSON.parse(saved));
+        } catch {
+          setSelectedCustomFieldPaths([]);
+        }
+      } else {
+        setSelectedCustomFieldPaths([]);
+      }
+    } else {
+      setSelectedCustomFieldPaths([]);
+    }
+  }, [selectedProductId, currentUser?.id]);
 
   useEffect(() => {
     setSelectedCategoryIds([]);
   }, [selectedProjectIds]);
+
+  useEffect(() => {
+    setCustomFieldFilterPath(undefined);
+    setCustomFieldFilterValue(undefined);
+  }, [selectedProjectIds, selectedCategoryIds]);
 
   // ─── Helpers ─────────────────────────
 
@@ -317,6 +668,157 @@ export function LogsExplorerPage() {
     },
     [allFeatures]
   );
+
+  const tableColumns = useMemo(() => {
+    const cols: any[] = [
+      {
+        title: 'เวลา (Timestamp)',
+        dataIndex: 'timestamp',
+        key: 'timestamp',
+        width: 170,
+        render: (value: string | null | undefined) => (
+          <Text code style={{ fontFamily: 'monospace', fontSize: '11px' }}>
+            {value ? new Date(value).toLocaleString('th-TH') : '-'}
+          </Text>
+        ),
+      },
+      {
+        title: 'Level',
+        dataIndex: 'level',
+        key: 'level',
+        width: 90,
+        render: (value: string | null | undefined) => (
+          <Tag color={getLevelColor(value)} style={{ fontWeight: 600 }}>
+            {value?.toUpperCase() || 'INFO'}
+          </Tag>
+        ),
+      },
+      {
+        title: 'Project',
+        key: 'project',
+        width: 130,
+        render: (_: any, record: any) => {
+          const projId = record.raw?.payload?.project_id || record.raw?.project_id;
+          const name = getProjectName(projId);
+          return name ? (
+            <Tag bordered={false} color="blue">
+              {name}
+            </Tag>
+          ) : (
+            <Text type="secondary" style={{ fontSize: 11 }}>—</Text>
+          );
+        },
+      },
+      {
+        title: 'Category',
+        key: 'category',
+        width: 140,
+        render: (_: any, record: any) => {
+          const catId = record.raw?.payload?.category_id || record.raw?.category_id;
+          const name = getCategoryName(catId);
+          const path = record.raw?.payload?.feature_full_path;
+          return name ? (
+            <AntTooltip title={path || name}>
+              <Tag bordered={false} color="purple">
+                {name}
+              </Tag>
+            </AntTooltip>
+          ) : (
+            <Text type="secondary" style={{ fontSize: 11 }}>—</Text>
+          );
+        },
+      },
+      {
+        title: 'ประเภท (Log Type)',
+        dataIndex: 'logType',
+        key: 'logType',
+        width: 120,
+        render: (value: string | null | undefined) => (
+          <Tag bordered={false}>{value || 'N/A'}</Tag>
+        ),
+      },
+    ];
+
+    // Add selected custom fields; an empty selection means all visible fields.
+    const selectedPaths = new Set(selectedCustomFieldPaths);
+    const pathsToRender = visibleCustomFields
+      .map((field) => field.field_path || `custom_fields.${field.field_key}`)
+      .filter((path) => selectedCustomFieldPaths.length === 0 || selectedPaths.has(path));
+
+    pathsToRender.forEach((path) => {
+      const field = visibleCustomFields.find(
+        (f) => f.field_path === path || `custom_fields.${f.field_key}` === path
+      );
+      const displayName = field?.display_name || field?.field_key || path;
+      cols.push({
+        title: `${displayName} (Custom)`,
+        key: path,
+        width: 150,
+        render: (_: any, record: any) => {
+          const val = getCustomFieldValue(record, path);
+          return <Text style={{ fontSize: 12 }}>{formatCustomFieldValue(field, val)}</Text>;
+        },
+      });
+    });
+
+    cols.push({
+      title: 'ข้อความ (Message)',
+      dataIndex: 'message',
+      key: 'message',
+      render: (value: string | null | undefined, record: any) => (
+        <div style={{ maxWidth: '400px', wordBreak: 'break-all' }}>
+          <Text strong style={{ display: 'block' }}>
+            {value || '-'}
+          </Text>
+          {record.path && (
+            <Text
+              type="secondary"
+              style={{ fontSize: '11px', fontFamily: 'monospace' }}
+            >
+              [{record.method || 'GET'}] {record.path}
+            </Text>
+          )}
+        </div>
+      ),
+    });
+
+    cols.push({
+      title: '',
+      key: 'action',
+      width: 80,
+      render: (_: any, record: MainLog) => (
+        <Button
+          type="link"
+          icon={<EyeOutlined />}
+          onClick={() => setSelectedLog(record)}
+          size="small"
+        >
+          ดู
+        </Button>
+      ),
+    });
+
+    return cols;
+  }, [
+    selectedCustomFieldPaths,
+    visibleCustomFields,
+    getProjectName,
+    getCategoryName,
+  ]);
+
+  const exportVisibleLogs = () => {
+    const exportFields = scopedCustomFields.filter(field => field.is_visible && field.show_in_export !== false).sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0));
+    const headers = ['Timestamp', 'Level', 'Log Type', 'Message', ...exportFields.map(field => field.display_name || field.field_key)];
+    const escapeCSV = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const rows = logs.map(log => [log.timestamp, log.level, log.logType, log.message, ...exportFields.map(field => getCustomFieldValue(log, field.elastic_field_name || field.field_path || field.field_key))]);
+    const csv = [headers, ...rows].map(row => row.map(value => escapeCSV(typeof value === 'object' ? JSON.stringify(value) : value)).join(',')).join('\n');
+    const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `omnilogs-${selectedProductId}-${new Date().toISOString()}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div style={{ padding: '8px' }}>
@@ -452,6 +954,127 @@ export function LogsExplorerPage() {
                     }))}
                     style={{ width: '100%' }}
                   />
+                </Form.Item>
+              </Col>
+
+
+
+              {filterableCustomFields.map((field) => {
+                const path = field.elastic_field_name || field.field_path || `custom_fields.${field.field_key}`;
+                const isCurrent = customFieldFilterPath === path;
+                const currentVal = isCurrent ? customFieldFilterValue : undefined;
+                
+                return (
+                  <Col xs={24} sm={12} md={6} key={field.field_definition_id}>
+                    <Form.Item 
+                      label={
+                        <Space>
+                          <span>{field.display_name || field.field_key}</span>
+                          {isCurrent && <Tag color="green" style={{ fontSize: '10px', height: 'auto', lineHeight: '14px', padding: '0 4px', margin: 0 }}>กรองอยู่</Tag>}
+                        </Space>
+                      } 
+                      style={{ marginBottom: 0 }}
+                    >
+                      {field.data_type === 'enum' ? (
+                        <Select
+                          allowClear
+                          placeholder="เลือกค่า..."
+                          value={currentVal}
+                          onChange={(val) => {
+                            if (val === undefined) {
+                              setCustomFieldFilterPath(undefined);
+                              setCustomFieldFilterValue(undefined);
+                            } else {
+                              setCustomFieldFilterPath(path);
+                              setCustomFieldFilterValue(val);
+                            }
+                            setCurrentPage(1);
+                          }}
+                          options={(field.enum_options || []).filter((opt) => opt.is_active).map((opt) => ({
+                            value: opt.option_value,
+                            label: (
+                              <Space>
+                                {opt.color_code && (
+                                  <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', backgroundColor: opt.color_code }} />
+                                )}
+                                <span>{opt.option_label}</span>
+                              </Space>
+                            ),
+                          }))}
+                          style={{ width: '100%' }}
+                        />
+                      ) : field.data_type === 'boolean' ? (
+                        <Select
+                          allowClear
+                          placeholder="เลือก..."
+                          value={currentVal}
+                          onChange={(val) => {
+                            if (val === undefined) {
+                              setCustomFieldFilterPath(undefined);
+                              setCustomFieldFilterValue(undefined);
+                            } else {
+                              setCustomFieldFilterPath(path);
+                              setCustomFieldFilterValue(val);
+                            }
+                            setCurrentPage(1);
+                          }}
+                          options={[{ value: 'true', label: 'ใช่' }, { value: 'false', label: 'ไม่ใช่' }]}
+                          style={{ width: '100%' }}
+                        />
+                      ) : (
+                        <Input
+                          allowClear
+                          placeholder="กรอกค่า..."
+                          value={currentVal}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (!val) {
+                              setCustomFieldFilterPath(undefined);
+                              setCustomFieldFilterValue(undefined);
+                            } else {
+                              setCustomFieldFilterPath(path);
+                              setCustomFieldFilterValue(val);
+                            }
+                            setCurrentPage(1);
+                          }}
+                        />
+                      )}
+                    </Form.Item>
+                  </Col>
+                );
+              })}
+
+              <Col xs={24} sm={12} md={12}>
+                <Form.Item
+                  label="Custom Fields ที่แสดงในตาราง"
+                  style={{ marginBottom: 0 }}
+                >
+                  <Select
+                    mode="multiple"
+                    allowClear
+                    maxTagCount="responsive"
+                    placeholder={visibleCustomFields.length > 0 ? 'เลือก Custom Fields ที่ต้องการแสดง' : 'ไม่มี Custom Fields ที่เปิดเผย'}
+                    value={selectedCustomFieldPaths}
+                    onChange={(paths) => {
+                      handleCustomFieldPathsChange(paths);
+                      setCurrentPage(1);
+                    }}
+                    disabled={visibleCustomFields.length === 0}
+                    options={visibleCustomFields.map((field) => ({
+                      value: field.field_path || `custom_fields.${field.field_key}`,
+                      label: field.display_name || field.field_key,
+                    }))}
+                    style={{ width: '100%' }}
+                  />
+                </Form.Item>
+              </Col>
+
+              <Col xs={24} sm={12} md={6}>
+                <Form.Item label="Dynamic sort" style={{ marginBottom: 0 }}>
+                  <Space.Compact style={{ width: '100%' }}>
+                    <Select allowClear placeholder="Field" value={sortField} onChange={(value) => { setSortField(value); setCurrentPage(1); }} options={scopedCustomFields.filter(field => field.is_sortable).map(field => ({ value: field.elastic_field_name || field.field_path, label: field.display_name || field.field_key }))} style={{ width: '70%' }} />
+                    <Select value={sortOrder} onChange={(value) => { setSortOrder(value); setCurrentPage(1); }} options={[{ value: 'asc', label: 'ASC' }, { value: 'desc', label: 'DESC' }]} style={{ width: '30%' }} />
+                  </Space.Compact>
                 </Form.Item>
               </Col>
 
@@ -606,8 +1229,8 @@ export function LogsExplorerPage() {
                           fontSize: 12,
                         }}
                         labelStyle={{ color: '#ccc', marginBottom: 4 }}
-                        formatter={(value: number, name: string) => [value, name]}
-                        labelFormatter={(label: string, payload: any[]) => {
+                        formatter={(value, name) => [value ?? 0, String(name)]}
+                        labelFormatter={(label, payload) => {
                           const first = payload?.[0]?.payload;
                           return first?.fullTime || label;
                         }}
@@ -647,6 +1270,7 @@ export function LogsExplorerPage() {
             bordered={false}
             className="shadow-sm"
             style={{ borderRadius: '12px' }}
+            extra={<Button icon={<DownloadOutlined />} onClick={exportVisibleLogs} disabled={logs.length === 0}>Export CSV</Button>}
             title={
               <Space>
                 <DatabaseOutlined style={{ color: 'var(--color-primary)' }} />
@@ -683,109 +1307,7 @@ export function LogsExplorerPage() {
                 showTotal: (total, range) =>
                   `แสดงผล ${range[0]}-${range[1]} จากทั้งหมด ${total} รายการ`,
               }}
-              columns={[
-                {
-                  title: 'เวลา (Timestamp)',
-                  dataIndex: 'timestamp',
-                  key: 'timestamp',
-                  width: 170,
-                  render: (value: string | null | undefined) => (
-                    <Text code style={{ fontFamily: 'monospace', fontSize: '11px' }}>
-                      {value ? new Date(value).toLocaleString('th-TH') : '-'}
-                    </Text>
-                  ),
-                },
-                {
-                  title: 'Level',
-                  dataIndex: 'level',
-                  key: 'level',
-                  width: 90,
-                  render: (value: string | null | undefined) => (
-                    <Tag color={getLevelColor(value)} style={{ fontWeight: 600 }}>
-                      {value?.toUpperCase() || 'INFO'}
-                    </Tag>
-                  ),
-                },
-                {
-                  title: 'Project',
-                  key: 'project',
-                  width: 130,
-                  render: (_: any, record: any) => {
-                    const projId = record.raw?.payload?.project_id || record.raw?.project_id;
-                    const name = getProjectName(projId);
-                    return name ? (
-                      <Tag bordered={false} color="blue">
-                        {name}
-                      </Tag>
-                    ) : (
-                      <Text type="secondary" style={{ fontSize: 11 }}>—</Text>
-                    );
-                  },
-                },
-                {
-                  title: 'Category',
-                  key: 'category',
-                  width: 140,
-                  render: (_: any, record: any) => {
-                    const catId = record.raw?.payload?.category_id || record.raw?.category_id;
-                    const name = getCategoryName(catId);
-                    const path = record.raw?.payload?.feature_full_path;
-                    return name ? (
-                      <AntTooltip title={path || name}>
-                        <Tag bordered={false} color="purple">
-                          {name}
-                        </Tag>
-                      </AntTooltip>
-                    ) : (
-                      <Text type="secondary" style={{ fontSize: 11 }}>—</Text>
-                    );
-                  },
-                },
-                {
-                  title: 'ประเภท (Log Type)',
-                  dataIndex: 'logType',
-                  key: 'logType',
-                  width: 120,
-                  render: (value: string | null | undefined) => (
-                    <Tag bordered={false}>{value || 'N/A'}</Tag>
-                  ),
-                },
-                {
-                  title: 'ข้อความ (Message)',
-                  dataIndex: 'message',
-                  key: 'message',
-                  render: (value: string | null | undefined, record: any) => (
-                    <div style={{ maxWidth: '400px', wordBreak: 'break-all' }}>
-                      <Text strong style={{ display: 'block' }}>
-                        {value || '-'}
-                      </Text>
-                      {record.path && (
-                        <Text
-                          type="secondary"
-                          style={{ fontSize: '11px', fontFamily: 'monospace' }}
-                        >
-                          [{record.method || 'GET'}] {record.path}
-                        </Text>
-                      )}
-                    </div>
-                  ),
-                },
-                {
-                  title: '',
-                  key: 'action',
-                  width: 80,
-                  render: (_: any, record: MainLog) => (
-                    <Button
-                      type="link"
-                      icon={<EyeOutlined />}
-                      onClick={() => setSelectedLog(record)}
-                      size="small"
-                    >
-                      ดู
-                    </Button>
-                  ),
-                },
-              ]}
+              columns={tableColumns}
             />
           </Card>
         ) : (
@@ -825,12 +1347,8 @@ export function LogsExplorerPage() {
         }
         open={!!selectedLog}
         onCancel={() => setSelectedLog(null)}
-        footer={[
-          <Button key="close" type="primary" onClick={() => setSelectedLog(null)}>
-            ปิดหน้าต่าง
-          </Button>,
-        ]}
         width={800}
+        footer={null}
       >
         {selectedLog && (
           <div style={{ marginTop: '15px' }}>
@@ -875,11 +1393,47 @@ export function LogsExplorerPage() {
               </Col>
             </Row>
 
-            <Title level={5}>Raw JSON Document (Elasticsearch payload)</Title>
-            <pre
+            {(() => {
+              const visibleFieldsForLog = getVisibleCustomFieldsForLog(selectedLog, customFields)
+                .filter((field) => field.show_in_detail !== false)
+                .filter((field) => selectedCustomFieldPaths.length === 0 || selectedCustomFieldPaths.includes(field.field_path || `custom_fields.${field.field_key}`));
+              if (visibleFieldsForLog.length === 0) return null;
+
+              return (
+                <Card size="small" title="Custom Fields" style={{ marginBottom: 16 }}>
+                  <Row gutter={[16, 12]}>
+                    {visibleFieldsForLog.map((field) => {
+                      const value = getCustomFieldValue(selectedLog, field.field_path || `custom_fields.${field.field_key}`);
+                      const isSelected = selectedCustomFieldPaths.includes(field.field_path || `custom_fields.${field.field_key}`);
+                      if (!isSelected && (value === undefined || value === null)) return null;
+                      return (
+                        <Col xs={24} sm={12} key={field.field_definition_id}>
+                          <Text type="secondary">{field.display_name || field.field_key}</Text>
+                          <div><Text strong>{formatCustomFieldValue(field, value)}</Text></div>
+                        </Col>
+                      );
+                    })}
+                  </Row>
+                </Card>
+              );
+            })()}
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
+              <Space size="small">
+                <Title level={5} style={{ margin: 0 }}>Raw JSON Document</Title>
+                </Space>
+              <Input
+                placeholder="กรองคีย์หรือค่าใน JSON..."
+                style={{ width: '220px' }}
+                value={jsonFilterTerm}
+                onChange={(e) => setJsonFilterTerm(e.target.value)}
+                allowClear
+                size="small"
+              />
+            </div>
+            <div
               style={{
                 background: '#1e1e1e',
-                color: '#d4d4d4',
                 padding: '15px',
                 borderRadius: '8px',
                 overflowX: 'auto',
@@ -889,8 +1443,13 @@ export function LogsExplorerPage() {
                 maxHeight: '400px',
               }}
             >
-              {JSON.stringify(selectedLog.raw || selectedLog, null, 2)}
-            </pre>
+              {(() => {
+                const jsonDoc = jsonFilterTerm
+                  ? filterJsonObject(selectedLog.raw || selectedLog, jsonFilterTerm)
+                  : selectedLog.raw || selectedLog;
+                return <JSONFavoriteTree value={jsonDoc} favoritePaths={favoritePaths} onToggleFavorite={(path, value, dataType, isFav) => { void toggleFavoriteFromRawJSON(path, value, dataType, isFav); }} />;
+              })()}
+            </div>
           </div>
         )}
       </Modal>

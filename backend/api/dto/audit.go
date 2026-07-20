@@ -7,15 +7,16 @@ import (
 
 type AuditLogFilterRequest struct {
 	PaginationRequest
-	ActorUserID  *int64     `form:"actor_user_id" binding:"omitempty,gt=0"`
-	ProductID    *int64     `form:"product_id" binding:"omitempty,gt=0"`
-	Action       *string    `form:"action"`
-	ResourceType *string    `form:"resource_type"`
-	ResourceID   *string    `form:"resource_id"`
-	Result       *string    `form:"result"`
-	Keyword      *string    `form:"keyword"`
-	DateFrom     *time.Time `form:"date_from" time_format:"2006-01-02T15:04:05Z07:00"`
-	DateTo       *time.Time `form:"date_to" time_format:"2006-01-02T15:04:05Z07:00"`
+	ActorUserID       *int64     `form:"actor_user_id" binding:"omitempty,gt=0"`
+	ProductID         *int64     `form:"product_id" binding:"omitempty,gt=0"`
+	AllowedProductIDs []int      `form:"-" json:"-"`
+	Action            *string    `form:"action"`
+	ResourceType      *string    `form:"resource_type"`
+	ResourceID        *string    `form:"resource_id"`
+	Result            *string    `form:"result"`
+	Keyword           *string    `form:"keyword"`
+	DateFrom          *time.Time `form:"date_from" time_format:"2006-01-02T15:04:05Z07:00"`
+	DateTo            *time.Time `form:"date_to" time_format:"2006-01-02T15:04:05Z07:00"`
 }
 
 type SystemAuditLogResponse struct {

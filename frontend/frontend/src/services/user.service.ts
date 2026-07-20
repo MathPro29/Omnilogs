@@ -130,6 +130,7 @@ interface BackendAdminUser {
   phone_number?: string | null;
   is_active?: boolean;
   role?: string;
+  permissions?: string[];
   created_at?: string;
   updated_at?: string;
 }
@@ -147,7 +148,7 @@ function mapBackendUser(user: BackendAdminUser): User {
     position: roleName,
     status: user.is_active === false ? 'inactive' : 'active',
     roles: [{ id: roleName, name: roleName, permissions: [] }],
-    permissions: [],
+    permissions: user.permissions || [],
     createdAt: user.created_at || new Date().toISOString(),
     updatedAt: user.updated_at || new Date().toISOString(),
   };

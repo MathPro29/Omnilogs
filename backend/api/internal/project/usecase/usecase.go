@@ -8,6 +8,8 @@ import (
 	"omnilogs-api/models"
 	"omnilogs-api/responses"
 	"omnilogs-api/utils"
+
+	"gorm.io/gorm"
 )
 
 func (u *usecase) CreateProject(actor Actor, productID int, req dto.CreateProjectRequest) (*models.Project, error) {
@@ -79,4 +81,25 @@ func (u *usecase) UpdateProject(actor Actor, productID, id int, req dto.UpdatePr
 		return nil, responses.ErrNotFound
 	}
 	return u.GetProject(actor, productID, id)
+}
+
+func (u *usecase) DeleteProject(actor Actor, productID, projectID int) error {
+	target := AccessTarget{ProductID: productID, ProjectID: &projectID}
+	if err := u.authorize(actor, target, "PROJECT", "DELETE"); err != nil {
+		return err
+	}
+
+	return u.repository.DB().Transaction(func(tx *gorm.DB) error {
+		if result := tx.Where("project_id = ? AND product_id = ?", projectID, productID).Delete(&models.ProjectFeature{}); result.Error != nil {
+			return classifyDBError(result.Error)
+		}
+		result := tx.Where("project_id = ? AND product_id = ?", projectID, productID).Delete(&models.Project{})
+		if result.Error != nil {
+			return classifyDBError(result.Error)
+		}
+		if result.RowsAffected == 0 {
+			return responses.ErrNotFound
+		}
+		return nil
+	})
 }

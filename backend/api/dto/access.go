@@ -6,8 +6,8 @@ import (
 )
 
 type RolePermissionAssignment struct {
-	ResourceType string `json:"resource_type" binding:"required,oneof=PRODUCT PROJECT FEATURE CATEGORY ROLE ACCESS USER API_KEY ENVIRONMENT LOG ELASTIC_INDEX_POLICY"`
-	Action       string `json:"action" binding:"required,oneof=CREATE READ UPDATE DELETE GRANT REVOKE EXPORT VIEW_SENSITIVE"`
+	ResourceType string `json:"resource_type" binding:"required"`
+	Action       string `json:"action" binding:"required"`
 }
 
 type CreateRoleTemplateRequest struct {

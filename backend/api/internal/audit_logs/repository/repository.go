@@ -47,6 +47,13 @@ func (r *repository) List(ctx context.Context, filter dto.AuditLogFilterRequest)
 	}
 
 	query := r.db.WithContext(ctx).Model(&models.SystemAuditLog{})
+	if filter.AllowedProductIDs != nil {
+		if len(filter.AllowedProductIDs) == 0 {
+			query = query.Where("1 = 0")
+		} else {
+			query = query.Where("product_id IN ?", filter.AllowedProductIDs)
+		}
+	}
 	if filter.ActorUserID != nil {
 		query = query.Where("actor_user_id = ?", *filter.ActorUserID)
 	}

@@ -3,6 +3,7 @@ import { Navigate } from 'react-router-dom';
 import { useAuthStore } from '@/store';
 import { ROUTES, PERMISSIONS } from '@/constants';
 import { productAdminService } from '@/services';
+import { customFieldService, type CustomField } from '@/services/custom-field.service';
 import type { Product, ProductRoleDefinition, RolePermissionAssignment } from '@/types';
 
 // [KEY : ACCESS PERMISSOIN PAGE]
@@ -18,6 +19,8 @@ const RESOURCE_ACTIONS: Array<{ resource: string; actions: string[] }> = [
   { resource: 'LOG', actions: ['READ', 'EXPORT', 'VIEW_SENSITIVE'] },
   { resource: 'ELASTIC_INDEX_POLICY', actions: ['CREATE', 'READ', 'UPDATE', 'DELETE'] },
 ];
+
+const CUSTOM_FIELD_ACTIONS = ['VISIBLE', 'SEARCH', 'FILTER', 'SORT', 'AGGREGATE'];
 
 function permissionKey(resourceType: string, action: string) {
   return `${resourceType}:${action}`;
@@ -38,6 +41,8 @@ export function ProductRoleConsolePage() {
 
   const [products, setProducts] = useState<Product[]>([]);
   const [roles, setRoles] = useState<ProductRoleDefinition[]>([]);
+  const [customFields, setCustomFields] = useState<CustomField[]>([]);
+  const [loadingCustomFields, setLoadingCustomFields] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [loadingRoles, setLoadingRoles] = useState(false);
@@ -51,16 +56,37 @@ export function ProductRoleConsolePage() {
     isActive: true,
   });
 
-  const selectedPermissionList = useMemo<RolePermissionAssignment[]>(
-    () =>
-      Object.entries(selectedPermissions)
-        .filter(([, enabled]) => enabled)
-        .map(([key]) => {
-          const [resourceType, action] = key.split(':');
-          return { resourceType, action };
-        }),
-    [selectedPermissions]
-  );
+  const selectedPermissionList = useMemo<RolePermissionAssignment[]>(() => {
+    const permissions = Object.entries(selectedPermissions)
+      .filter(([, enabled]) => enabled)
+      .map(([key]) => {
+        const separator = key.lastIndexOf(':');
+        return {
+          resourceType: separator >= 0 ? key.slice(0, separator) : key,
+          action: separator >= 0 ? key.slice(separator + 1) : '',
+        };
+      });
+
+    const existing = new Set(permissions.map((permission) => permissionKey(permission.resourceType, permission.action)));
+    customFields.forEach((field) => {
+      const resource = `CUSTOM_FIELD:${field.field_definition_id}`;
+      const defaults: Record<string, boolean> = {
+        VISIBLE: field.is_visible,
+        SEARCH: field.is_searchable,
+        FILTER: field.is_filterable,
+        SORT: field.is_sortable,
+        AGGREGATE: field.is_aggregatable,
+      };
+      CUSTOM_FIELD_ACTIONS.forEach((action) => {
+        const key = permissionKey(resource, action);
+        if (!Object.prototype.hasOwnProperty.call(selectedPermissions, key) && defaults[action]) {
+          permissions.push({ resourceType: resource, action });
+          existing.add(key);
+        }
+      });
+    });
+    return permissions;
+  }, [selectedPermissions, customFields]);
 
   useEffect(() => {
     const loadProducts = async () => {
@@ -102,6 +128,24 @@ export function ProductRoleConsolePage() {
     };
 
     void loadRoles();
+  }, [selectedProductId]);
+
+  useEffect(() => {
+    if (!selectedProductId) {
+      setCustomFields([]);
+      return;
+    }
+    const loadCustomFields = async () => {
+      setLoadingCustomFields(true);
+      try {
+        setCustomFields(await customFieldService.list(selectedProductId));
+      } catch (err: any) {
+        setError(err?.message || 'Failed to load custom fields');
+      } finally {
+        setLoadingCustomFields(false);
+      }
+    };
+    void loadCustomFields();
   }, [selectedProductId]);
 
   const resetForm = () => {
@@ -289,6 +333,66 @@ export function ProductRoleConsolePage() {
                   </tbody>
                 </table>
               </div>
+            </div>
+
+            <div className="mt-5">
+              <div className="text-sm font-medium mb-2">Custom Field capabilities</div>
+              <div className="text-xs text-gray-500 mb-2">
+                ตั้งค่าสิทธิ์การแสดงผลและการใช้งาน Custom Field สำหรับ Role นี้โดยตรง
+              </div>
+              {loadingCustomFields ? <div className="text-sm text-gray-500">Loading custom fields...</div> : null}
+              {!loadingCustomFields && customFields.length === 0 ? (
+                <div className="text-sm text-gray-500 border p-3">ยังไม่มี Custom Field ใน Product นี้</div>
+              ) : null}
+              {!loadingCustomFields && customFields.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full border text-sm">
+                    <thead>
+                      <tr className="bg-gray-50">
+                        <th className="border px-3 py-2 text-left">Field</th>
+                        {CUSTOM_FIELD_ACTIONS.map((action) => (
+                          <th key={action} className="border px-3 py-2 text-center">{action}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {customFields.map((field) => {
+                        const resource = `CUSTOM_FIELD:${field.field_definition_id}`;
+                        const defaultValues: Record<string, boolean> = {
+                          VISIBLE: field.is_visible,
+                          SEARCH: field.is_searchable,
+                          FILTER: field.is_filterable,
+                          SORT: field.is_sortable,
+                          AGGREGATE: field.is_aggregatable,
+                        };
+                        return (
+                          <tr key={field.field_definition_id}>
+                            <td className="border px-3 py-2">
+                              <div className="font-medium">{field.display_name || field.field_key}</div>
+                              <div className="text-xs text-gray-500">{field.field_path || field.field_key}</div>
+                            </td>
+                            {CUSTOM_FIELD_ACTIONS.map((action) => {
+                              const key = permissionKey(resource, action);
+                              const checked = Object.prototype.hasOwnProperty.call(selectedPermissions, key)
+                                ? Boolean(selectedPermissions[key])
+                                : defaultValues[action];
+                              return (
+                                <td key={action} className="border px-3 py-2 text-center">
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={(event) => togglePermission(resource, action, event.target.checked)}
+                                  />
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
             </div>
 
             <div className="text-xs text-gray-500">

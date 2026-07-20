@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"errors"
+	"strings"
 
 	"omnilogs-api/dto"
 	"omnilogs-api/models"
@@ -19,11 +20,27 @@ func (u *usecase) CreatePermissionRule(actor Actor, req dto.CreatePermissionRule
 	if !u.exists(&models.User{}, "user_id = ?", req.UserID) {
 		return nil, responses.ErrInvalid
 	}
-	value := &models.UserRolePermissionRule{UserID: req.UserID, ProductID: req.ProductID, RoleID: req.RoleID, ProjectID: req.ProjectID, CategoryID: req.CategoryID, ResourceType: req.ResourceType, Action: req.Action, Effect: req.Effect, ScopeLevel: req.ScopeLevel, GrantedBy: &actor.UserID, IsActive: true, ExpiresAt: req.ExpiresAt}
-	if err := u.repository.DB().Create(value).Error; err != nil {
+	resourceType := strings.ToUpper(strings.TrimSpace(req.ResourceType))
+	action := strings.ToUpper(strings.TrimSpace(req.Action))
+	lookup := map[string]any{"user_id": req.UserID, "product_id": req.ProductID, "role_id": req.RoleID, "project_id": req.ProjectID, "category_id": req.CategoryID, "resource_type": resourceType, "action": action}
+	var value models.UserRolePermissionRule
+	if err := u.repository.DB().Where(lookup).Limit(1).Find(&value).Error; err != nil {
 		return nil, classifyDBError(err)
 	}
-	return value, nil
+	if value.PermissionRuleID != 0 {
+		if err := u.repository.DB().Model(&value).Updates(map[string]any{"effect": req.Effect, "scope_level": req.ScopeLevel, "granted_by": actor.UserID, "is_active": true, "expires_at": req.ExpiresAt}).Error; err != nil {
+			return nil, classifyDBError(err)
+		}
+		if err := u.repository.DB().First(&value, value.PermissionRuleID).Error; err != nil {
+			return nil, classifyDBError(err)
+		}
+		return &value, nil
+	}
+	value = models.UserRolePermissionRule{UserID: req.UserID, ProductID: req.ProductID, RoleID: req.RoleID, ProjectID: req.ProjectID, CategoryID: req.CategoryID, ResourceType: resourceType, Action: action, Effect: req.Effect, ScopeLevel: req.ScopeLevel, GrantedBy: &actor.UserID, IsActive: true, ExpiresAt: req.ExpiresAt}
+	if err := u.repository.DB().Create(&value).Error; err != nil {
+		return nil, classifyDBError(err)
+	}
+	return &value, nil
 }
 
 func (u *usecase) ListPermissionRules(actor Actor, productID int) ([]models.UserRolePermissionRule, error) {

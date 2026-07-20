@@ -90,3 +90,42 @@ export const userFilterSchema = z.object({
 });
 
 export type UserFilterFormData = z.infer<typeof userFilterSchema>;
+
+// ===== Register Schema =====
+export const registerSchema = z
+  .object({
+    username: z
+      .string()
+      .min(3, 'ชื่อผู้ใช้ต้องมีอย่างน้อย 3 ตัวอักษร')
+      .max(50, 'ชื่อผู้ใช้ต้องไม่เกิน 50 ตัวอักษร')
+      .optional()
+      .or(z.literal('')),
+    first_name: z
+      .string()
+      .min(1, 'กรุณากรอกชื่อจริง'),
+    last_name: z
+      .string()
+      .min(1, 'กรุณากรอกนามสกุล'),
+    email: z
+      .string()
+      .min(1, 'กรุณากรอกอีเมล')
+      .email('รูปแบบอีเมลไม่ถูกต้อง'),
+    phone_number: z
+      .string()
+      .regex(/^[0-9]{8,10}$/, 'เบอร์โทรศัพท์ต้องเป็นตัวเลข 8-10 หลัก')
+      .optional()
+      .or(z.literal('')),
+    password: z
+      .string()
+      .min(1, 'กรุณากรอกรหัสผ่าน')
+      .min(8, 'รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร'),
+    confirm_password: z
+      .string()
+      .min(1, 'กรุณากรอกยืนยันรหัสผ่าน'),
+  })
+  .refine((data) => data.password === data.confirm_password, {
+    message: 'รหัสผ่านและการยืนยันรหัสผ่านไม่ตรงกัน',
+    path: ['confirm_password'],
+  });
+
+export type RegisterFormData = z.infer<typeof registerSchema>;

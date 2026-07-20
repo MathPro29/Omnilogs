@@ -1,6 +1,19 @@
 import axios from 'axios';
 import { apiClient } from '@/api';
 import type {
+  CreateFeaturePayload,
+  CreateMembershipPayload,
+  CreatePermissionRulePayload,
+  CreateProductPayload,
+  CreateProjectPayload,
+  CreateRolePayload,
+  CreateScopePayload,
+  DashboardLogStatsParams,
+  ImportLogsPayload,
+  SearchLogsMultiParams,
+  SearchLogsParams,
+} from '@/dto/product-admin.dto';
+import type {
   ApiResponse,
   LogQueueBatch,
   LogQueueItem,
@@ -11,102 +24,12 @@ import type {
   Product,
   ProductApiKey,
   ProductMembership,
-  RolePermissionAssignment,
   ProductRoleDefinition,
   Project,
   ProjectFeature,
+  ProductAccessOverview,
+  ProductAccessMember,
 } from '@/types';
-
-interface CreateProductPayload {
-  productName: string;
-  productCode?: string;
-  environments?: Array<{ environmentCode: string; environmentName: string }>;
-}
-
-interface CreateProjectPayload {
-  projectCode?: string;
-  projectName: string;
-}
-
-interface CreateFeaturePayload {
-  categoryCode?: string;
-  categoryName: string;
-  parentId?: number | null;
-  categoryType?: string | null;
-}
-
-interface CreateRolePayload {
-  roleCode: string;
-  roleName: string;
-  permissions: RolePermissionAssignment[];
-}
-
-interface CreateMembershipPayload {
-  userId: number;
-  roleId: number;
-  expiresAt?: string | null;
-}
-
-interface CreateScopePayload {
-  projectId?: number | null;
-  categoryId?: number | null;
-  scopeLevel: 'PRODUCT' | 'PROJECT' | 'CATEGORY';
-}
-
-interface CreatePermissionRulePayload {
-  userId: number;
-  productId: number;
-  roleId?: number | null;
-  projectId?: number | null;
-  categoryId?: number | null;
-  resourceType: string;
-  action: string;
-  effect: 'ALLOW' | 'DENY';
-  scopeLevel: 'GLOBAL' | 'PRODUCT' | 'PROJECT' | 'CATEGORY';
-  expiresAt?: string | null;
-}
-
-interface SearchLogsParams {
-  productId: number;
-  environmentId?: number;
-  projectId?: number;
-  categoryId?: number;
-  level?: string;
-  logType?: string;
-  keyword?: string;
-  page?: number;
-  perPage?: number;
-}
-
-interface SearchLogsMultiParams {
-  productId: number;
-  environmentId?: number;
-  projectIds?: number[];
-  categoryIds?: number[];
-  levels?: string[];
-  keyword?: string;
-  page?: number;
-  perPage?: number;
-}
-
-interface DashboardLogStatsParams {
-  productId: number;
-  environmentId?: number;
-  projectIds?: number[];
-  categoryIds?: number[];
-}
-
-interface ImportLogsPayload {
-  productId: number;
-  environmentId: number;
-  projectId?: number;
-  categoryId?: number;
-  featureFullPath?: string | null;
-  featurePathIds?: string | null;
-  logLevel: string;
-  message: string;
-  eventType?: string;
-}
 
 function shouldUseMock(): boolean {
   return import.meta.env.VITE_USE_MOCK === 'true';
@@ -567,6 +490,15 @@ export const productAdminService = {
     return normalizeProject(response.data.data);
   },
 
+  deleteProject: async (productId: number, projectId: number): Promise<void> => {
+    if (shouldUseMock()) {
+      await delay();
+      mockProjects = mockProjects.filter((item) => item.projectId !== projectId);
+      return;
+    }
+    await apiClient.delete(`/products/${productId}/projects/${projectId}`);
+  },
+
   listFeatures: async (productId: number, projectId: number): Promise<ProjectFeature[]> => {
     if (shouldUseMock()) {
       await delay();
@@ -641,6 +573,46 @@ export const productAdminService = {
       return;
     }
     await apiClient.delete(`/products/${productId}/projects/${projectId}/features/${featureId}`);
+  },
+
+  getAccessOverview: async (productId: number): Promise<ProductAccessOverview> => {
+    const response = await apiClient.get<ApiResponse<any>>(`/products/${productId}/access-overview`);
+    const value = response.data.data || {};
+    return {
+      productId: Number(value.product_id || productId),
+      updatedAt: value.updated_at || new Date().toISOString(),
+      roles: (Array.isArray(value.roles) ? value.roles : []).map((role: any) => ({
+        roleId: Number(role.role_id), roleCode: role.role_code, roleName: role.role_name,
+        permissions: (role.permissions || []).map((permission: any) => ({ resourceType: permission.resource_type, action: permission.action })),
+        accessLevel: role.access_level, memberCount: Number(role.member_count || 0), isActive: Boolean(role.is_active),
+      })),
+      members: (Array.isArray(value.members) ? value.members : []).map((member: any) => ({
+        membershipId: Number(member.membership_id), userId: Number(member.user_id), username: member.username,
+        fullName: member.full_name, email: member.email, roleId: Number(member.role_id), roleCode: member.role_code,
+        roleName: member.role_name, accessLevel: member.access_level, expiresAt: member.expires_at,
+        isActive: Boolean(member.is_active),
+        effectivePermissions: (member.effective_permissions || []).map((permission: any) => ({ resourceType: permission.resource_type, action: permission.action, source: permission.source })),
+        scopes: (member.scopes || []).map(normalizeScope),
+      })),
+    };
+  },
+
+  upsertProductAccess: async (productId: number, userId: number, payload: { roleId: number; scopes: CreateScopePayload[]; expiresAt?: string | null; isActive?: boolean }): Promise<ProductAccessMember> => {
+    const response = await apiClient.put<ApiResponse<any>>(`/products/${productId}/access/members/${userId}`, {
+      role_id: payload.roleId,
+      scopes: payload.scopes.map((scope) => ({ project_id: scope.projectId ?? undefined, category_id: scope.categoryId ?? undefined, scope_level: scope.scopeLevel })),
+      expires_at: payload.expiresAt ?? null,
+      is_active: payload.isActive ?? true,
+    });
+    const member = response.data.data;
+    return {
+      membershipId: Number(member.membership_id), userId: Number(member.user_id), username: member.username,
+      fullName: member.full_name, email: member.email, roleId: Number(member.role_id), roleCode: member.role_code,
+      roleName: member.role_name, accessLevel: member.access_level, expiresAt: member.expires_at,
+      isActive: Boolean(member.is_active),
+      effectivePermissions: (member.effective_permissions || []).map((permission: any) => ({ resourceType: permission.resource_type, action: permission.action, source: permission.source })),
+      scopes: (member.scopes || []).map(normalizeScope),
+    };
   },
 
   listRoles: async (productId: number): Promise<ProductRoleDefinition[]> => {
@@ -765,6 +737,15 @@ export const productAdminService = {
       expires_at: payload.expiresAt ?? undefined,
     });
     return normalizeMembership(response.data.data);
+  },
+
+  deleteMembership: async (productId: number, membershipId: number): Promise<void> => {
+    if (shouldUseMock()) {
+      mockMemberships = mockMemberships.filter((item) => item.membershipId !== membershipId);
+      mockScopes = mockScopes.filter((item) => item.membershipId !== membershipId);
+      return;
+    }
+    await apiClient.delete(`/products/${productId}/memberships/${membershipId}`);
   },
 
   listScopes: async (productId: number, membershipId: number): Promise<MembershipScope[]> => {
@@ -971,6 +952,10 @@ export const productAdminService = {
         category_ids: params.categoryIds?.join(',') || undefined,
         level: params.levels?.join(',') || undefined,
         keyword: params.keyword,
+        custom_field_path: params.customFieldPath,
+        custom_field_value: params.customFieldValue,
+        sort_field: params.sortField,
+        sort_order: params.sortOrder,
         page: params.page ?? 1,
         per_page: params.perPage ?? 20,
       },
@@ -1064,7 +1049,8 @@ export const productAdminService = {
           sequence_no: 1,
           source_type: 'application',
           source_platform: 'api-key-import',
-          input_payload: {
+          data: {
+            ...(payload.rawData || {}),
             log_level: payload.logLevel,
             event_type: payload.eventType || 'MANUAL_IMPORT',
             message: payload.message,
@@ -1073,6 +1059,7 @@ export const productAdminService = {
             ...(payload.categoryId ? { category_id: payload.categoryId } : {}),
             ...(payload.featureFullPath ? { feature_full_path: payload.featureFullPath } : {}),
             ...(payload.featurePathIds ? { feature_path_ids: payload.featurePathIds } : {}),
+            ...(payload.customFields && Object.keys(payload.customFields).length > 0 ? { custom_fields: payload.customFields } : {}),
           },
         },
       ],
@@ -1096,7 +1083,11 @@ export const productAdminService = {
     }
 
     const enqueueResponse = await apiClient.post<ApiResponse<any>>('/queues', body);
-    await apiClient.post<ApiResponse<any>>('/queues/consume', {});
+    try {
+      await apiClient.post<ApiResponse<any>>('/queues/consume', {});
+    } catch (e) {
+      console.warn('Manual consume trigger ignored:', e);
+    }
     return normalizeQueueBatch(enqueueResponse.data.data);
   },
 
@@ -1120,7 +1111,7 @@ export const productAdminService = {
 
   getFailedBatches: async (): Promise<ApiResponse<any[]>> => {
     if (shouldUseMock()) {
-      return { success: true, data: [] };
+      return { success: true, data: [], message: 'Mock failed batches retrieved' };
     }
     const response = await apiClient.get<ApiResponse<any[]>>('/queues/failed');
     return response.data;

@@ -25,6 +25,10 @@ type Env struct {
 	DBMaxIdleConns           int
 	DBConnMaxIdleTimeSeconds int
 	DBConnMaxLifetimeSeconds int
+	DBSlowQueryThresholdMS   int
+
+	APIRequestTimeoutSeconds  int
+	APISlowRequestThresholdMS int
 
 	JWTSecret                 string
 	AccessTokenExpireSeconds  int
@@ -39,15 +43,17 @@ type Env struct {
 	UploadRateLimitRequests      int
 	UploadRateLimitWindowSeconds int
 
-	SwaggerEnabled     bool
-	ElasticURL         string
-	NATSURL            string
-	NATSStream         string
-	NATSSubject        string
-	NATSConsumer       string
-	NATSFetchBatchSize int
-	NATSFetchMaxWaitMS int
-	NATSMaxAckPending  int
+	SwaggerEnabled                    bool
+	ElasticURL                        string
+	ElasticsearchQueryTimeoutSeconds  int
+	ElasticsearchSlowQueryThresholdMS int
+	NATSURL                           string
+	NATSStream                        string
+	NATSSubject                       string
+	NATSConsumer                      string
+	NATSFetchBatchSize                int
+	NATSFetchMaxWaitMS                int
+	NATSMaxAckPending                 int
 
 	// UploadProvider    string
 	// UploadMockBaseURL string
@@ -78,6 +84,10 @@ func LoadEnv() *Env {
 		DBMaxIdleConns:           getEnvInt("DB_MAX_IDLE_CONNS", 25),
 		DBConnMaxIdleTimeSeconds: getEnvInt("DB_CONN_MAX_IDLE_TIME_SECONDS", 300),
 		DBConnMaxLifetimeSeconds: getEnvInt("DB_CONN_MAX_LIFETIME_SECONDS", 1800),
+		DBSlowQueryThresholdMS:   getEnvInt("DB_SLOW_QUERY_THRESHOLD_MS", 500),
+
+		APIRequestTimeoutSeconds:  getEnvInt("API_REQUEST_TIMEOUT_SECONDS", 15),
+		APISlowRequestThresholdMS: getEnvInt("API_SLOW_REQUEST_THRESHOLD_MS", 2000),
 
 		JWTSecret:                 getEnv("JWT_SECRET", "change-me"),
 		AccessTokenExpireSeconds:  getEnvInt("ACCESS_TOKEN_EXPIRE_SECONDS", 900),
@@ -92,18 +102,17 @@ func LoadEnv() *Env {
 		UploadRateLimitRequests:      getEnvInt("UPLOAD_RATE_LIMIT_REQUESTS", 20),
 		UploadRateLimitWindowSeconds: getEnvInt("UPLOAD_RATE_LIMIT_WINDOW_SECONDS", 60),
 
-		SwaggerEnabled: getEnvBool("SWAGGER_ENABLED", true),
-		ElasticURL:     getEnv("ELASTICSEARCH_URL", "http://localhost:9200"),
-		NATSURL:        getEnv("NATS_URL", "nats://localhost:4222"),
-		NATSStream:     getEnv("NATS_STREAM", "OMNILOGS_LOGS"),
-		NATSSubject:    getEnv("NATS_SUBJECT", "omnilogs.logs.ingest"),
-		NATSConsumer:   getEnv("NATS_CONSUMER", "omnilogs-worker"),
-		// Keep each pull modest so one noisy product does not monopolize a
-		// processing round. Throughput can still be increased deliberately by
-		// changing these values or adding worker instances.
-		NATSFetchBatchSize: getEnvInt("NATS_FETCH_BATCH_SIZE", 100),
-		NATSFetchMaxWaitMS: getEnvInt("NATS_FETCH_MAX_WAIT_MS", 250),
-		NATSMaxAckPending:  getEnvInt("NATS_MAX_ACK_PENDING", 200),
+		SwaggerEnabled:                    getEnvBool("SWAGGER_ENABLED", true),
+		ElasticURL:                        getEnv("ELASTICSEARCH_URL", "http://localhost:9200"),
+		ElasticsearchQueryTimeoutSeconds:  getEnvInt("ELASTICSEARCH_QUERY_TIMEOUT_SECONDS", 10),
+		ElasticsearchSlowQueryThresholdMS: getEnvInt("ELASTICSEARCH_SLOW_QUERY_THRESHOLD_MS", 1000),
+		NATSURL:                           getEnv("NATS_URL", "nats://localhost:4222"),
+		NATSStream:                        getEnv("NATS_STREAM", "OMNILOGS_LOGS"),
+		NATSSubject:                       getEnv("NATS_SUBJECT", "omnilogs.logs.ingest"),
+		NATSConsumer:                      getEnv("NATS_CONSUMER", "omnilogs-worker"),
+		NATSFetchBatchSize:                getEnvInt("NATS_FETCH_BATCH_SIZE", 100),
+		NATSFetchMaxWaitMS:                getEnvInt("NATS_FETCH_MAX_WAIT_MS", 250),
+		NATSMaxAckPending:                 getEnvInt("NATS_MAX_ACK_PENDING", 200),
 
 		DataEncryptionKey: getEnv("DATA_ENCRYPTION_KEY", ""),
 	}
@@ -165,8 +174,23 @@ func (e *Env) Validate() error {
 	if e.RefreshTokenExpireSeconds <= 0 {
 		problems = append(problems, "REFRESH_TOKEN_EXPIRE_SECONDS must be greater than 0")
 	}
+	if e.APIRequestTimeoutSeconds <= 0 {
+		problems = append(problems, "API_REQUEST_TIMEOUT_SECONDS must be greater than 0")
+	}
+	if e.APISlowRequestThresholdMS <= 0 {
+		problems = append(problems, "API_SLOW_REQUEST_THRESHOLD_MS must be greater than 0")
+	}
+	if e.DBSlowQueryThresholdMS <= 0 {
+		problems = append(problems, "DB_SLOW_QUERY_THRESHOLD_MS must be greater than 0")
+	}
 	if strings.TrimSpace(e.ElasticURL) == "" {
 		problems = append(problems, "ELASTICSEARCH_URL is required")
+	}
+	if e.ElasticsearchQueryTimeoutSeconds <= 0 {
+		problems = append(problems, "ELASTICSEARCH_QUERY_TIMEOUT_SECONDS must be greater than 0")
+	}
+	if e.ElasticsearchSlowQueryThresholdMS <= 0 {
+		problems = append(problems, "ELASTICSEARCH_SLOW_QUERY_THRESHOLD_MS must be greater than 0")
 	}
 	if strings.TrimSpace(e.NATSURL) == "" {
 		problems = append(problems, "NATS_URL is required")

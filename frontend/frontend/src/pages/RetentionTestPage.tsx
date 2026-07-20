@@ -67,8 +67,8 @@ export function RetentionTestPage() {
   };
 
   const policiesQuery = useQuery({
-    queryKey: ['retention-policies', productId],
-    queryFn: () => retentionService.listPolicies(productId!),
+    queryKey: ['retention-policies', productId, environmentId],
+    queryFn: () => retentionService.listPolicies(productId!, environmentId),
     enabled: !!productId,
   });
 
@@ -295,7 +295,7 @@ export function RetentionTestPage() {
       const proj = projects.find(p => p.projectId === value);
       return proj ? proj.projectName : <Text type="secondary">Default (ทั้งหมด)</Text>;
     } },
-    { title: 'ฟีเจอร์', dataIndex: 'category_id', render: (value: any, row: any) => {
+    { title: 'ฟีเจอร์', dataIndex: 'category_id', render: (value: any) => {
       // NOTE: We might not have features for all projects loaded in memory if we only load them for the selected project in the form.
       // For now, display ID or check if it matches the loaded list.
       const feat = features.find(f => f.categoryId === value);
@@ -337,7 +337,8 @@ export function RetentionTestPage() {
               setEditingPolicy(null);
               form.resetFields();
               form.setFieldsValue({
-                index_prefix: getSuggestedPrefix(undefined),
+                environment_id: environmentId,
+                index_prefix: getSuggestedPrefix(environmentId),
               });
               setIsPolicyModalOpen(true);
             }}>เพิ่ม Policy</Button>

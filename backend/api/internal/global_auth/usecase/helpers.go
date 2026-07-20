@@ -3,6 +3,7 @@ package usecase
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"omnilogs-api/dto"
@@ -54,7 +55,7 @@ func validRolePermissions(values []dto.RolePermissionAssignment) bool {
 	for _, value := range values {
 		resource := strings.ToUpper(strings.TrimSpace(value.ResourceType))
 		action := strings.ToUpper(strings.TrimSpace(value.Action))
-		if resource == "" || action == "" {
+		if resource == "" || action == "" || !validPermissionResource(resource) || !validPermissionAction(resource, action) {
 			return false
 		}
 		key := resource + ":" + action
@@ -64,6 +65,38 @@ func validRolePermissions(values []dto.RolePermissionAssignment) bool {
 		seen[key] = struct{}{}
 	}
 	return true
+}
+
+func validPermissionResource(resource string) bool {
+	allowed := map[string]bool{
+		"PRODUCT": true, "PROJECT": true, "FEATURE": true, "CATEGORY": true,
+		"ROLE": true, "ACCESS": true, "USER": true, "API_KEY": true,
+		"ENVIRONMENT": true, "LOG": true, "ELASTIC_INDEX_POLICY": true,
+		"CUSTOM_FIELD": true,
+	}
+	if allowed[resource] {
+		return true
+	}
+	fieldID, ok := strings.CutPrefix(resource, "CUSTOM_FIELD:")
+	if !ok {
+		return false
+	}
+	id, err := strconv.Atoi(fieldID)
+	return err == nil && id > 0
+}
+
+func validPermissionAction(resource, action string) bool {
+	standard := map[string]bool{
+		"CREATE": true, "READ": true, "UPDATE": true, "DELETE": true,
+		"GRANT": true, "REVOKE": true, "EXPORT": true, "VIEW_SENSITIVE": true,
+	}
+	if standard[action] {
+		return true
+	}
+	if resource == "CUSTOM_FIELD" || strings.HasPrefix(resource, "CUSTOM_FIELD:") {
+		return map[string]bool{"VISIBLE": true, "SEARCH": true, "FILTER": true, "SORT": true, "AGGREGATE": true}[action]
+	}
+	return false
 }
 
 func toRolePermissions(roleID int, values []dto.RolePermissionAssignment) []models.ProductRolePermission {
@@ -81,7 +114,9 @@ func toRolePermissions(roleID int, values []dto.RolePermissionAssignment) []mode
 func permissionListAllows(values []models.ProductRolePermission, resource, action string) bool {
 	resource, action = strings.ToUpper(resource), strings.ToUpper(action)
 	for _, value := range values {
-		if strings.EqualFold(value.ResourceType, resource) && strings.EqualFold(value.Action, action) {
+		roleResource := strings.ToUpper(value.ResourceType)
+		matchesResource := roleResource == resource || (strings.HasPrefix(resource, "CUSTOM_FIELD:") && roleResource == "CUSTOM_FIELD")
+		if matchesResource && strings.EqualFold(value.Action, action) {
 			return true
 		}
 	}

@@ -1,6 +1,8 @@
 package routes
 
 import (
+	"time"
+
 	"omnilogs-api/configs"
 	auditmodule "omnilogs-api/internal/audit_logs/module"
 	auditsecretmodule "omnilogs-api/internal/audit_secret/module"
@@ -15,10 +17,19 @@ import (
 func AuditRoutes(router *gin.Engine, db *gorm.DB, esClient *elasticsearch.Client, env *configs.Env) {
 	auditHandler := auditmodule.NewHandler(db)
 	auditSecretHandler := auditsecretmodule.NewHandler(db, env.DataEncryptionKey)
-	mainLogHandler := mainlogmodule.NewHandler(db, esClient, env.DataEncryptionKey, nil)
+	mainLogHandler := mainlogmodule.NewHandler(
+		db,
+		esClient,
+		env.DataEncryptionKey,
+		nil,
+		time.Duration(env.ElasticsearchQueryTimeoutSeconds)*time.Second,
+		time.Duration(env.ElasticsearchSlowQueryThresholdMS)*time.Millisecond,
+	)
 
 	group := router.Group("/api/v1/audit-logs")
 	group.Use(middleware.UserAuthMiddleware(env.JWTSecret))
+	group.Use(middleware.RequestTimeout(time.Duration(env.APIRequestTimeoutSeconds) * time.Second))
+	group.Use(middleware.AuditVisibilityMiddleware(db))
 
 	group.GET("", auditHandler.List)
 	group.GET("/secrets/requests", auditSecretHandler.ListPendingRequests)

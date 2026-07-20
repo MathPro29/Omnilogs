@@ -235,6 +235,43 @@ func (h *Handler) UpdatePermissionRule(c *gin.Context) {
 	utils.Success(c, http.StatusOK, value)
 }
 
+func (h *Handler) GetProductAccessOverview(c *gin.Context) {
+	a, _ := actor(c)
+	productID, ok := idParam(c, "productId")
+	if !ok {
+		return
+	}
+	value, err := h.usecase.GetProductAccessOverview(a, productID)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	utils.Success(c, http.StatusOK, value)
+}
+
+func (h *Handler) UpsertProductAccess(c *gin.Context) {
+	a, _ := actor(c)
+	productID, ok := idParam(c, "productId")
+	if !ok {
+		return
+	}
+	userID, ok := idParam(c, "userId")
+	if !ok {
+		return
+	}
+	var req dto.UpsertProductAccessRequest
+	if !bind(c, &req) {
+		return
+	}
+	value, err := h.usecase.UpsertProductAccess(a, productID, userID, req)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	c.Set("audit_reason", fmt.Sprintf("Upserted centralized product access for user %d in product %d", userID, productID))
+	utils.Success(c, http.StatusOK, value)
+}
+
 func (h *Handler) CheckPermission(c *gin.Context) {
 	a, _ := actor(c)
 	var req dto.PermissionCheckRequest

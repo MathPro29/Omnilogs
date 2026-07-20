@@ -9,7 +9,7 @@ func (r *repository) Create(user *models.User) error {
 		return err
 	}
 
-	defaultRoleID, err := r.getOrCreateDefaultRoleID()
+	defaultRoleID, err := r.getOrCreateRegistrationRoleID()
 	if err != nil {
 		return err
 	}

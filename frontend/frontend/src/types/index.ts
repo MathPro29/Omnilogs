@@ -332,3 +332,41 @@ export interface BreadcrumbItem {
   title: string;
   path?: string;
 }
+export interface ProductAccessRole {
+  roleId: number;
+  roleCode: string;
+  roleName: string;
+  permissions: RolePermissionAssignment[];
+  accessLevel: string;
+  memberCount: number;
+  isActive: boolean;
+}
+
+export interface EffectivePermission {
+  resourceType: string;
+  action: string;
+  source: 'ROLE' | 'RULE_ALLOW' | string;
+}
+
+export interface ProductAccessMember {
+  membershipId: number;
+  userId: number;
+  username?: string;
+  fullName: string;
+  email: string;
+  roleId: number;
+  roleCode: string;
+  roleName: string;
+  accessLevel: string;
+  effectivePermissions: EffectivePermission[];
+  scopes: MembershipScope[];
+  expiresAt?: string | null;
+  isActive: boolean;
+}
+
+export interface ProductAccessOverview {
+  productId: number;
+  roles: ProductAccessRole[];
+  members: ProductAccessMember[];
+  updatedAt: string;
+}

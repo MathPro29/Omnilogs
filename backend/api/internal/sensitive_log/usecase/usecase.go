@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -26,6 +27,7 @@ type Usecase interface {
 	ListSecrets(ctx context.Context, actor Actor, productID int) ([]dto.SensitiveLogSecretResponse, error)
 	RevealValue(ctx context.Context, actor Actor, req dto.RevealSensitiveLogRequest) (*dto.RevealedSensitiveLogResponse, error)
 	ListHistory(ctx context.Context, actor Actor, productID int) ([]models.SensitiveLogAccessHistory, error)
+	RevealMainLog(ctx context.Context, actor Actor, productID int, logID string) (any, error)
 }
 
 type usecase struct {
@@ -41,12 +43,13 @@ func NewUsecase(repo repository.Repository, encryptionKey string) Usecase {
 }
 
 func (u *usecase) CreateRequest(ctx context.Context, actor Actor, req dto.CreateSensitiveLogAccessRequest) (*models.SensitiveLogAccessRequest, error) {
-	if req.SecretID == nil && (req.LogID == nil || req.FieldPath == nil) {
-		return nil, errors.New("request must include secret_id or both log_id and field_path")
+	isMainLogsRequest := req.FieldPath != nil && *req.FieldPath == "$main_logs"
+	if req.SecretID == nil && req.LogID == nil && !isMainLogsRequest {
+		return nil, errors.New("request must include secret_id, log_id, or main logs scope")
 	}
 
 	requestID := newUUID()
-	
+
 	accessReq := &models.SensitiveLogAccessRequest{
 		RequestID:         requestID,
 		UserID:            actor.UserID,
@@ -84,12 +87,12 @@ func (u *usecase) ReviewRequest(ctx context.Context, actor Actor, requestID stri
 	accessReq.ApprovalStatus = req.ApprovalStatus
 	accessReq.ApprovedBy = &actor.UserID
 	accessReq.ApprovedAt = &now
-	
+
 	if req.ExpiresAt != nil {
 		accessReq.ExpiresAt = req.ExpiresAt
 	} else if req.ApprovalStatus == "APPROVED" {
-		// Default to 1 hour expiration
-		exp := now.Add(1 * time.Hour)
+		// [เวลาหมดอายุ ของ Sensitive Request]
+		exp := now.Add(24 * time.Hour)
 		accessReq.ExpiresAt = &exp
 	}
 
@@ -172,12 +175,34 @@ func (u *usecase) RevealValue(ctx context.Context, actor Actor, req dto.RevealSe
 		return nil, errors.New("invalid password")
 	}
 
-	// 5. Get and decrypt secret
 	var secret *models.LogSensitiveFieldSecret
+	// 5. Get and decrypt the requested secret field or complete main log payload.
 	if accessReq.SecretID != nil {
 		secret, err = u.repo.GetSecret(ctx, *accessReq.SecretID)
 	} else if accessReq.LogID != nil && accessReq.FieldPath != nil {
 		secret, err = u.repo.GetSecretByLogAndPath(ctx, *accessReq.LogID, *accessReq.FieldPath)
+	} else if accessReq.LogID != nil {
+		objectRef, payloadErr := u.repo.GetPostgresPayload(ctx, *accessReq.LogID)
+		if payloadErr != nil || objectRef.EncryptedPayload == nil {
+			return nil, responses.ErrNotFound
+		}
+		decryptedPayload, decryptErr := utils.DecryptAESGCM(*objectRef.EncryptedPayload, u.encryptKey)
+		if decryptErr != nil {
+			return nil, errors.New("failed to decrypt main log")
+		}
+		var payload any
+		if jsonErr := json.Unmarshal([]byte(decryptedPayload), &payload); jsonErr != nil {
+			return nil, errors.New("failed to decode main log")
+		}
+		successStatus := "SUCCESS"
+		authMethod := "PASSWORD_RECONFIRM"
+		_ = u.repo.CreateHistory(ctx, &models.SensitiveLogAccessHistory{
+			AccessID: newUUID(), RequestID: &req.RequestID, ProductID: &accessReq.ProductID,
+			UserID: actor.UserID, LogID: accessReq.LogID, AuthMethod: &authMethod, AccessStatus: &successStatus,
+		})
+		return &dto.RevealedSensitiveLogResponse{
+			LogID: accessReq.LogID, FieldKey: "main_log", FieldPath: "$", Value: payload, ExpiresAt: accessReq.ExpiresAt,
+		}, nil
 	}
 	if err != nil {
 		return nil, responses.ErrNotFound
@@ -213,6 +238,39 @@ func (u *usecase) RevealValue(ctx context.Context, actor Actor, req dto.RevealSe
 		Value:     decryptedValue,
 		ExpiresAt: accessReq.ExpiresAt,
 	}, nil
+}
+
+func (u *usecase) RevealMainLog(ctx context.Context, actor Actor, productID int, logID string) (any, error) {
+	allowed, err := u.repo.HasRawMainLogAccess(ctx, actor.UserID, productID)
+	if err != nil {
+		return nil, err
+	}
+	if !allowed && !actor.PlatformAdmin {
+		return nil, responses.ErrForbidden
+	}
+
+	objectRef, err := u.repo.GetPostgresPayload(ctx, logID)
+	if err != nil || objectRef.ProductID != productID || objectRef.EncryptedPayload == nil {
+		return nil, responses.ErrNotFound
+	}
+	decryptedPayload, err := utils.DecryptAESGCM(*objectRef.EncryptedPayload, u.encryptKey)
+	if err != nil {
+		return nil, errors.New("failed to decrypt main log")
+	}
+	var payload any
+	if err := json.Unmarshal([]byte(decryptedPayload), &payload); err != nil {
+		return nil, errors.New("failed to decode main log")
+	}
+
+	status := "SUCCESS"
+	authMethod := "ROLE_PERMISSION"
+	if !actor.PlatformAdmin {
+		_ = u.repo.CreateHistory(ctx, &models.SensitiveLogAccessHistory{
+			AccessID: newUUID(), ProductID: &objectRef.ProductID, UserID: actor.UserID,
+			LogID: &logID, AuthMethod: &authMethod, AccessStatus: &status,
+		})
+	}
+	return payload, nil
 }
 
 func (u *usecase) ListHistory(ctx context.Context, actor Actor, productID int) ([]models.SensitiveLogAccessHistory, error) {

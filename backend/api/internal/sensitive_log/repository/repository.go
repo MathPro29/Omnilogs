@@ -2,8 +2,8 @@ package repository
 
 import (
 	"context"
-	"omnilogs-api/models"
 	"gorm.io/gorm"
+	"omnilogs-api/models"
 )
 
 type Repository interface {
@@ -11,11 +11,13 @@ type Repository interface {
 	GetRequest(ctx context.Context, id string) (*models.SensitiveLogAccessRequest, error)
 	ListRequests(ctx context.Context, productID int) ([]models.SensitiveLogAccessRequest, error)
 	UpdateRequest(ctx context.Context, req *models.SensitiveLogAccessRequest) error
-	
+
 	ListSecrets(ctx context.Context, productID int) ([]models.LogSensitiveFieldSecret, error)
 	GetSecret(ctx context.Context, secretID string) (*models.LogSensitiveFieldSecret, error)
 	GetSecretByLogAndPath(ctx context.Context, logID, path string) (*models.LogSensitiveFieldSecret, error)
-	
+	GetPostgresPayload(ctx context.Context, logID string) (*models.LogObjectStorageRef, error)
+	HasRawMainLogAccess(ctx context.Context, userID int, productID int) (bool, error)
+
 	CreateHistory(ctx context.Context, hist *models.SensitiveLogAccessHistory) error
 	ListHistory(ctx context.Context, productID int) ([]models.SensitiveLogAccessHistory, error)
 	GetUser(ctx context.Context, userID int) (*models.User, error)
@@ -65,6 +67,61 @@ func (r *repository) GetSecretByLogAndPath(ctx context.Context, logID, path stri
 	var s models.LogSensitiveFieldSecret
 	err := r.db.WithContext(ctx).First(&s, "log_id = ? AND field_path = ?", logID, path).Error
 	return &s, err
+}
+
+func (r *repository) GetPostgresPayload(ctx context.Context, logID string) (*models.LogObjectStorageRef, error) {
+	var objectRef models.LogObjectStorageRef
+	err := r.db.WithContext(ctx).
+		Where("log_id = ? AND object_type = ? AND purged_at IS NULL", logID, "INPUT_PAYLOAD").
+		Order("created_at DESC NULLS LAST").
+		First(&objectRef).Error
+	return &objectRef, err
+}
+
+func (r *repository) HasRawMainLogAccess(ctx context.Context, userID int, productID int) (bool, error) {
+	var denied int64
+	if err := r.db.WithContext(ctx).Model(&models.UserRolePermissionRule{}).
+		Where("user_id = ? AND product_id = ? AND resource_type = 'LOG' AND action = 'VIEW_SENSITIVE' AND effect = 'DENY' AND is_active = TRUE AND (expires_at IS NULL OR expires_at > NOW())", userID, productID).
+		Count(&denied).Error; err != nil {
+		return false, err
+	}
+	if denied > 0 {
+		return false, nil
+	}
+
+	var allowed int64
+	if err := r.db.WithContext(ctx).Raw(`
+		SELECT COUNT(*)
+		FROM product_memberships pm
+		JOIN product_roles pr ON pr.role_id = pm.role_id AND pr.product_id = pm.product_id AND pr.is_active = TRUE
+		JOIN product_role_permissions pp ON pp.role_id = pm.role_id
+		WHERE pm.user_id = ? AND pm.product_id = ? AND pm.is_active = TRUE
+		  AND (pm.expires_at IS NULL OR pm.expires_at > NOW())
+		  AND pp.resource_type = 'LOG' AND pp.action = 'VIEW_SENSITIVE'
+	`, userID, productID).Scan(&allowed).Error; err != nil {
+		return false, err
+	}
+	if allowed > 0 {
+		return true, nil
+	}
+
+	var explicitAllowed int64
+	if err := r.db.WithContext(ctx).Model(&models.UserRolePermissionRule{}).
+		Where("user_id = ? AND product_id = ? AND resource_type = 'LOG' AND action = 'VIEW_SENSITIVE' AND effect = 'ALLOW' AND is_active = TRUE AND (expires_at IS NULL OR expires_at > NOW())", userID, productID).
+		Count(&explicitAllowed).Error; err != nil {
+		return false, err
+	}
+	if explicitAllowed > 0 {
+		return true, nil
+	}
+
+	var temporaryAccess int64
+	if err := r.db.WithContext(ctx).Model(&models.SensitiveLogAccessRequest{}).
+		Where("user_id = ? AND product_id = ? AND field_path = ? AND approval_status = 'APPROVED' AND (expires_at IS NULL OR expires_at > NOW())", userID, productID, "$main_logs").
+		Count(&temporaryAccess).Error; err != nil {
+		return false, err
+	}
+	return temporaryAccess > 0, nil
 }
 
 func (r *repository) CreateHistory(ctx context.Context, hist *models.SensitiveLogAccessHistory) error {

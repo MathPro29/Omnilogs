@@ -13,6 +13,10 @@ import (
 )
 
 func Migrate(db *gorm.DB, env *configs.Env) {
+	if err := migrateCustomFieldSchema(db); err != nil {
+		log.Fatalf("Custom field schema migration failed: %v", err)
+	}
+
 	if err := repairOrphanProductEnvironments(db); err != nil {
 		log.Fatalf("Product environment data repair failed: %v", err)
 	}
@@ -22,6 +26,10 @@ func Migrate(db *gorm.DB, env *configs.Env) {
 	// before AutoMigrate creates the user-only unique index.
 	if err := migratePlatformMembershipUniqueness(db); err != nil {
 		log.Fatalf("Platform membership uniqueness migration failed: %v", err)
+	}
+
+	if err := migrateProductMembershipUniqueness(db); err != nil {
+		log.Fatalf("Product membership uniqueness migration failed: %v", err)
 	}
 
 	err := db.AutoMigrate(
@@ -62,9 +70,19 @@ func Migrate(db *gorm.DB, env *configs.Env) {
 		&models.SensitiveLogAccessHistory{},
 		&models.SensitiveLogAccessRequest{},
 		&models.SystemAuditLog{},
+		&models.LogSchemaVersion{},
+		&models.LogFieldTemplate{},
 	)
 	if err != nil {
 		log.Fatalf("AutoMigrate failed: %v", err)
+	}
+
+	if err := ensureProductAccessUniqueness(db); err != nil {
+		log.Fatalf("Product access uniqueness migration failed: %v", err)
+	}
+
+	if err := ensureQueryPerformanceIndexes(db); err != nil {
+		log.Fatalf("Query performance index migration failed: %v", err)
 	}
 
 	if err := backfillLegacyProductRolePermissions(db); err != nil {
@@ -231,6 +249,42 @@ func repairOrphanProductEnvironments(db *gorm.DB) error {
 	})
 }
 
+func migrateProductMembershipUniqueness(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&models.ProductMembership{}) {
+		return nil
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		if tx.Dialector.Name() != "postgres" {
+			return nil
+		}
+		if tx.Migrator().HasTable(&models.ProductMembershipScope{}) {
+			if err := tx.Exec(`
+			WITH ranked AS (
+				SELECT membership_id, FIRST_VALUE(membership_id) OVER (PARTITION BY user_id, product_id ORDER BY is_active DESC, updated_at DESC NULLS LAST, membership_id DESC) keep_id,
+				ROW_NUMBER() OVER (PARTITION BY user_id, product_id ORDER BY is_active DESC, updated_at DESC NULLS LAST, membership_id DESC) rn
+				FROM product_memberships
+			), duplicates AS (SELECT membership_id, keep_id FROM ranked WHERE rn > 1)
+			DELETE FROM product_membership_scopes s USING duplicates d
+			WHERE s.membership_id = d.membership_id AND EXISTS (
+				SELECT 1 FROM product_membership_scopes k WHERE k.membership_id=d.keep_id AND k.product_id=s.product_id
+				AND COALESCE(k.project_id,0)=COALESCE(s.project_id,0) AND COALESCE(k.category_id,0)=COALESCE(s.category_id,0) AND k.scope_level=s.scope_level)
+		`).Error; err != nil {
+				return err
+			}
+			if err := tx.Exec(`WITH ranked AS (SELECT membership_id, FIRST_VALUE(membership_id) OVER (PARTITION BY user_id, product_id ORDER BY is_active DESC, updated_at DESC NULLS LAST, membership_id DESC) keep_id, ROW_NUMBER() OVER (PARTITION BY user_id, product_id ORDER BY is_active DESC, updated_at DESC NULLS LAST, membership_id DESC) rn FROM product_memberships), duplicates AS (SELECT membership_id, keep_id FROM ranked WHERE rn > 1) UPDATE product_membership_scopes s SET membership_id=d.keep_id FROM duplicates d WHERE s.membership_id=d.membership_id`).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Exec(`DELETE FROM product_memberships WHERE membership_id IN (SELECT membership_id FROM (SELECT membership_id, ROW_NUMBER() OVER (PARTITION BY user_id, product_id ORDER BY is_active DESC, updated_at DESC NULLS LAST, membership_id DESC) rn FROM product_memberships) x WHERE rn > 1)`).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec(`DROP INDEX IF EXISTS uq_product_membership`).Error; err != nil {
+			return err
+		}
+		return tx.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS uq_product_membership ON product_memberships (user_id, product_id)`).Error
+	})
+}
+
 func migratePlatformMembershipUniqueness(db *gorm.DB) error {
 	if !db.Migrator().HasTable(&models.PlatformMembership{}) {
 		return nil
@@ -269,6 +323,31 @@ func migratePlatformMembershipUniqueness(db *gorm.DB) error {
 	})
 }
 
+func ensureProductAccessUniqueness(db *gorm.DB) error {
+	if db.Dialector.Name() != "postgres" {
+		return nil
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		if tx.Migrator().HasTable(&models.ProductMembershipScope{}) {
+			if err := tx.Exec(`DELETE FROM product_membership_scopes WHERE scope_id IN (SELECT scope_id FROM (SELECT scope_id, ROW_NUMBER() OVER (PARTITION BY membership_id, product_id, COALESCE(project_id,0), COALESCE(category_id,0), scope_level ORDER BY is_active DESC, updated_at DESC NULLS LAST, scope_id DESC) rn FROM product_membership_scopes) ranked WHERE rn > 1)`).Error; err != nil {
+				return err
+			}
+			if err := tx.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS uq_membership_scope_effective ON product_membership_scopes (membership_id, product_id, COALESCE(project_id,0), COALESCE(category_id,0), scope_level)`).Error; err != nil {
+				return err
+			}
+		}
+		if tx.Migrator().HasTable(&models.UserRolePermissionRule{}) {
+			if err := tx.Exec(`DELETE FROM user_role_permission_rules WHERE permission_rule_id IN (SELECT permission_rule_id FROM (SELECT permission_rule_id, ROW_NUMBER() OVER (PARTITION BY user_id, COALESCE(product_id,0), COALESCE(role_id,0), COALESCE(project_id,0), COALESCE(category_id,0), resource_type, action ORDER BY is_active DESC, updated_at DESC NULLS LAST, permission_rule_id DESC) rn FROM user_role_permission_rules) ranked WHERE rn > 1)`).Error; err != nil {
+				return err
+			}
+			if err := tx.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS uq_permission_rule_effective ON user_role_permission_rules (user_id, COALESCE(product_id,0), COALESCE(role_id,0), COALESCE(project_id,0), COALESCE(category_id,0), resource_type, action)`).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 func seedPlatformRoles(db *gorm.DB) {
 	roles := []models.PlatformRole{
 		{
@@ -303,6 +382,14 @@ func seedPlatformRoles(db *gorm.DB) {
 			IsSystemRole:   true,
 			IsActive:       true,
 		},
+		{
+			PlatformRoleID: 5,
+			RoleCode:       "admin",
+			RoleName:       "Admin",
+			Permissions:    []byte(`{"default_menu_access": true}`),
+			IsSystemRole:   true,
+			IsActive:       true,
+		},
 	}
 
 	for _, r := range roles {
@@ -320,4 +407,15 @@ func seedPlatformRoles(db *gorm.DB) {
 
 	// Reset sequence in PostgreSQL
 	db.Exec("SELECT setval(pg_get_serial_sequence('platform_roles', 'platform_role_id'), COALESCE((SELECT MAX(platform_role_id) FROM platform_roles), 1), true)")
+}
+
+func migrateCustomFieldSchema(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&models.LogFieldDefinition{}) {
+		return nil
+	}
+	if !db.Migrator().HasColumn(&models.LogFieldDefinition{}, "config_json") {
+		return nil // AutoMigrate hasn't run yet, we'll migrate next time or let it be
+	}
+	// Note: Proper migration logic for extracting flat columns to JSONB can be added here
+	return nil
 }

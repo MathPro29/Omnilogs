@@ -5,12 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"omnilogs-api/dto"
 )
 
 func (r *repository) GetLogStats(ctx context.Context, query dto.LogQuery) (map[string]any, error) {
-	mustQueries := []map[string]any{
+	filters := []map[string]any{
 		{
 			"term": map[string]any{
 				"product_id": query.ProductID,
@@ -18,7 +19,7 @@ func (r *repository) GetLogStats(ctx context.Context, query dto.LogQuery) (map[s
 		},
 	}
 	if query.EnvironmentID > 0 {
-		mustQueries = append(mustQueries, map[string]any{
+		filters = append(filters, map[string]any{
 			"term": map[string]any{
 				"environment_id": query.EnvironmentID,
 			},
@@ -28,7 +29,7 @@ func (r *repository) GetLogStats(ctx context.Context, query dto.LogQuery) (map[s
 	// Multi-project filter for stats
 	projectIDs := parseCSVInt64(query.ProjectIDs)
 	if len(projectIDs) > 0 {
-		mustQueries = append(mustQueries, map[string]any{
+		filters = append(filters, map[string]any{
 			"terms": map[string]any{
 				"payload.project_id": projectIDs,
 			},
@@ -49,7 +50,7 @@ func (r *repository) GetLogStats(ctx context.Context, query dto.LogQuery) (map[s
 				map[string]any{"wildcard": map[string]any{"payload.feature_path_ids.keyword": "*," + catStr + ",*"}},
 			)
 		}
-		mustQueries = append(mustQueries, map[string]any{
+		filters = append(filters, map[string]any{
 			"bool": map[string]any{
 				"should":               shouldClauses,
 				"minimum_should_match": 1,
@@ -57,6 +58,7 @@ func (r *repository) GetLogStats(ctx context.Context, query dto.LogQuery) (map[s
 		})
 	}
 
+	mustQueries := make([]map[string]any, 0, 1)
 	if query.Search != "" {
 		mustQueries = append(mustQueries, map[string]any{
 			"multi_match": map[string]any{
@@ -74,7 +76,7 @@ func (r *repository) GetLogStats(ctx context.Context, query dto.LogQuery) (map[s
 		rangeQuery["lte"] = query.EndTime
 	}
 	if len(rangeQuery) > 0 {
-		mustQueries = append(mustQueries, map[string]any{
+		filters = append(filters, map[string]any{
 			"range": map[string]any{
 				"@timestamp": rangeQuery,
 			},
@@ -85,7 +87,8 @@ func (r *repository) GetLogStats(ctx context.Context, query dto.LogQuery) (map[s
 		"size": 0,
 		"query": map[string]any{
 			"bool": map[string]any{
-				"must": mustQueries,
+				"filter": filters,
+				"must":   mustQueries,
 			},
 		},
 		"aggs": map[string]any{
@@ -118,11 +121,14 @@ func (r *repository) GetLogStats(ctx context.Context, query dto.LogQuery) (map[s
 		return nil, fmt.Errorf("failed to encode query: %w", err)
 	}
 
-	indices := r.resolveSearchIndices(query.ProductID)
+	indices := r.resolveSearchIndices(ctx, query.ProductID)
+	startedAt := time.Now()
+	defer r.logSlowElasticsearch("dashboard_stats", startedAt, indices, 0)
 	res, err := r.esClient.Search(
 		r.esClient.Search.WithContext(ctx),
 		r.esClient.Search.WithIndex(indices...),
 		r.esClient.Search.WithBody(&buf),
+		r.esClient.Search.WithTimeout(r.queryTimeout),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("elasticsearch error: %w", err)
@@ -136,6 +142,9 @@ func (r *repository) GetLogStats(ctx context.Context, query dto.LogQuery) (map[s
 	var searchResult map[string]any
 	if err := json.NewDecoder(res.Body).Decode(&searchResult); err != nil {
 		return nil, fmt.Errorf("failed to parse search result: %w", err)
+	}
+	if timedOut, _ := searchResult["timed_out"].(bool); timedOut {
+		return nil, context.DeadlineExceeded
 	}
 
 	return searchResult, nil

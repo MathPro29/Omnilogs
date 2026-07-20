@@ -4,7 +4,7 @@ import LoadingBar, { type LoadingBarRef } from 'react-top-loading-bar';
 import { AuthLayout, AdminLayout } from '@/layouts';
 import { ProtectedRoute, GuestRoute } from '@/routes/ProtectedRoute';
 import { adminRoutes } from '@/routes/routes';
-import { LoginPage, NotFoundPage, GenericBlankPage } from '@/pages';
+import { LoginPage, RegisterPage, ForgotPasswordPage, NotFoundPage, GenericBlankPage } from '@/pages';
 import { ROUTES } from '@/constants';
 
 // ===== Route Change Loading Bar =====
@@ -48,6 +48,8 @@ export function AppRoutes() {
               </GuestRoute>
             }
           />
+          <Route path={ROUTES.REGISTER} element={<GuestRoute><RegisterPage /></GuestRoute>} />
+          <Route path={ROUTES.FORGOT_PASSWORD} element={<GuestRoute><ForgotPasswordPage /></GuestRoute>} />
         </Route>
 
         {/* Protected Admin Routes - generate จาก config */}

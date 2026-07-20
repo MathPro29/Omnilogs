@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { productAdminService } from '@/services';
+import { customFieldService, type CustomField } from '@/services/custom-field.service';
 import { useAutoLogStore } from '@/store/auto-log.store';
 import type { ProjectFeature } from '@/types';
 
@@ -62,6 +63,33 @@ function getHierarchyTargets(features: ProjectFeature[] | undefined, rootCategor
       }
       return (left.fullPath || left.categoryName).localeCompare(right.fullPath || right.categoryName);
     });
+}
+
+async function buildAutoCustomFields(productId: number, projectId: number | undefined, categoryId: number | undefined, sequence: number) {
+  if (!categoryId) return undefined;
+  const definitions = await customFieldService.list(productId, projectId, categoryId);
+  const scoped = definitions.filter((field) => field.is_active && field.product_id === productId && field.category_id === categoryId && (field.project_id == null || field.project_id === projectId));
+  const values: Record<string, unknown> = {};
+  for (const field of scoped) {
+    values[field.field_key] = await buildAutoFieldValue(field, sequence);
+  }
+  return Object.keys(values).length > 0 ? values : undefined;
+}
+
+async function buildAutoFieldValue(field: CustomField, sequence: number): Promise<unknown> {
+  switch (field.data_type.toLowerCase()) {
+    case 'number': return sequence + 1;
+    case 'boolean': return sequence % 2 === 0;
+    case 'date': return new Date().toISOString();
+    case 'object': return { source: 'auto-log', sequence: sequence + 1 };
+    case 'array': return [`auto-${sequence + 1}`];
+    case 'enum': {
+      const options = await customFieldService.listOptions(field.field_definition_id);
+      const active = (options || []).filter((option: any) => option.is_active !== false);
+      return active.length > 0 ? active[sequence % active.length].option_value : field.default_value || null;
+    }
+    default: return field.default_value || `auto-${field.field_key}-${sequence + 1}`;
+  }
 }
 
 export function AutoLogProcessor() {
@@ -129,12 +157,18 @@ export function AutoLogProcessor() {
       }
 
       try {
+        const customFields = !isFailure
+          ? await buildAutoCustomFields(config.productId, finalProjectId, finalCategoryId, currentIndex)
+          : undefined;
         await productAdminService.importLogs({
           ...config,
           projectId: finalProjectId,
           categoryId: finalCategoryId,
+          featureFullPath: dynamicFeatureFullPath,
+          featurePathIds: dynamicFeaturePathIds,
           logLevel: finalLogLevel,
           message: finalMessage,
+          customFields,
         });
 
         sequenceIndexRef.current += 1;

@@ -6,6 +6,7 @@ import (
 
 	"omnilogs-api/dto"
 	"omnilogs-api/internal/audit_logs/usecase"
+	"omnilogs-api/middleware"
 	"omnilogs-api/responses"
 	"omnilogs-api/utils"
 
@@ -38,6 +39,10 @@ func (h *Handler) List(c *gin.Context) {
 	}
 	req.Page = page
 	req.PerPage = perPage
+	global, productIDs := middleware.AuditScope(c)
+	if !global {
+		req.AllowedProductIDs = productIDs
+	}
 
 	values, total, err := h.usecase.List(c.Request.Context(), req)
 	if err != nil {
@@ -56,6 +61,10 @@ func (h *Handler) GetByID(c *gin.Context) {
 			return
 		}
 		responses.Error(c, "INTERNAL_ERROR", "failed to retrieve audit log", err)
+		return
+	}
+	if !middleware.CanReadAuditProduct(c, value.ProductID) {
+		responses.Forbidden(c, "audit log access denied")
 		return
 	}
 	responses.Success(c, http.StatusOK, "AUDIT_LOG_RETRIEVED", value)

@@ -1,6 +1,7 @@
 import { apiClient } from '@/api';
 import { API_ENDPOINTS } from '@/constants';
 import type { LoginRequest, LoginResponse, User, ApiResponse } from '@/types';
+import type { RegisterFormData } from '@/schemas';
 
 // ===== Mock data สำหรับ development =====
 const MOCK_USER: User = {
@@ -131,6 +132,21 @@ export const authService = {
     };
   },
 
+  register: async (data: RegisterFormData): Promise<void> => {
+    if (USE_MOCK) {
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      return;
+    }
+    await apiClient.post(API_ENDPOINTS.AUTH.REGISTER, {
+      username: data.username,
+      first_name: data.first_name,
+      last_name: data.last_name,
+      email: data.email,
+      phone_number: data.phone_number || undefined,
+      password: data.password,
+      confirm_password: data.confirm_password,
+    });
+  },
   logout: async (): Promise<void> => {
     if (USE_MOCK) {
       await new Promise((resolve) => setTimeout(resolve, 300));

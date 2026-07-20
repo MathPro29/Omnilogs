@@ -8,10 +8,9 @@ import (
 	authrepo "omnilogs-api/internal/auth/repository"
 	authservice "omnilogs-api/internal/auth/service"
 	"omnilogs-api/models"
-
 )
 
-const defaultUserRoleID uint = 4
+const defaultRegistrationRoleID uint = 5
 
 var (
 	ErrForbiddenRoleAssignment = errors.New("forbidden role assignment")
@@ -85,6 +84,7 @@ func toUserResponse(user *models.User) *dto.UserResponse {
 		PhoneNumber: user.PhoneNumber,
 		IsActive:    user.IsActive,
 		Role:        getUserRoleName(user),
+		Permissions: user.Permissions,
 		CreatedAt:   user.CreatedAt,
 		UpdatedAt:   user.UpdatedAt,
 	}

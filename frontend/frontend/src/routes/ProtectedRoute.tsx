@@ -34,7 +34,22 @@ export function ProtectedRoute({
     const hasAccess = requireAll
       ? requiredPermissions.every((p) => permissions.includes(p))
       : requiredPermissions.some((p) => permissions.includes(p));
-
+      
+      // เช็คเพิ่ม: ถ้าเป็นสิทธิ์เกี่ยวกับ users หรือ retention_test
+    // คนที่จะผ่านต้องมี role เป็น 'owner', 'superadmin', หรือ 'god' ด้วย
+    const isSensitiveFeature = requiredPermissions.some(p => 
+      p === 'feature:users' || p === 'feature:retention_test'
+    );
+    
+    if (isSensitiveFeature) {
+      const userRoles = useAuthStore.getState().roles.map(r => r.toLowerCase());
+      const hasAllowedRole = userRoles.some(role => 
+        ['god', 'owner', 'superadmin'].includes(role)
+      );
+      if (!hasAllowedRole) {
+        return <Navigate to={ROUTES.FORBIDDEN} replace />;
+      }
+    }
     if (!hasAccess) {
       return <Navigate to={ROUTES.FORBIDDEN} replace />;
     }

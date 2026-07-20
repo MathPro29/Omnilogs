@@ -79,6 +79,7 @@ func NewRouter(env *configs.Env, db *gorm.DB, esClient *elasticsearch.Client, na
 	}
 	router.Use(cors.New(config))
 	router.Use(middleware.RequestID())
+	router.Use(middleware.PerformanceLogger(time.Duration(env.APISlowRequestThresholdMS) * time.Millisecond))
 	router.Use(middleware.GlobalRateLimit(env))
 	router.Use(audit.Logger(db, env.DataEncryptionKey))
 

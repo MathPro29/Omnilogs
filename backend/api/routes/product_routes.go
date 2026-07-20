@@ -71,6 +71,7 @@ func ProductRoutes(router *gin.Engine, db *gorm.DB, env *configs.Env) {
 	products.GET("/:productId/projects", projectHandler.ListProjects)
 	products.GET("/:productId/projects/:projectId", projectHandler.GetProject)
 	products.PATCH("/:productId/projects/:projectId", projectHandler.UpdateProject)
+	products.DELETE("/:productId/projects/:projectId", projectHandler.DeleteProject)
 	products.POST("/:productId/projects/:projectId/features", featureHandler.CreateFeature)
 	products.GET("/:productId/projects/:projectId/features", featureHandler.ListFeatures)
 	products.PATCH("/:productId/projects/:projectId/features/:featureId", featureHandler.UpdateFeature)
@@ -86,6 +87,8 @@ func ProductRoutes(router *gin.Engine, db *gorm.DB, env *configs.Env) {
 	products.GET("/:productId/memberships", accessHandler.ListMemberships)
 	products.PATCH("/:productId/memberships/:membershipId", accessHandler.UpdateMembership)
 	products.DELETE("/:productId/memberships/:membershipId", accessHandler.DeleteMembership)
+	products.GET("/:productId/access-overview", accessHandler.GetProductAccessOverview)
+	products.PUT("/:productId/access/members/:userId", accessHandler.UpsertProductAccess)
 
 	products.POST("/:productId/permission-rules", accessHandler.CreatePermissionRule)
 	products.GET("/:productId/permission-rules", accessHandler.ListPermissionRules)
@@ -96,6 +99,7 @@ func ProductRoutes(router *gin.Engine, db *gorm.DB, env *configs.Env) {
 	products.GET("/:productId/sensitive-logs/requests", sensitiveHandler.ListAccessRequests)
 	products.GET("/:productId/sensitive-logs/secrets", sensitiveHandler.ListSecrets)
 	products.POST("/:productId/sensitive-logs/reveal", sensitiveHandler.RevealSensitiveValue)
+	products.GET("/:productId/sensitive-logs/main-logs/:logId/raw", sensitiveHandler.RevealRawMainLog)
 	products.GET("/:productId/sensitive-logs/history", sensitiveHandler.ListAccessHistory)
 
 	permissions := router.Group("/api/v1/authorization")

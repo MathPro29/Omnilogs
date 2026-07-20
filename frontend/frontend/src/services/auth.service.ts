@@ -1,7 +1,8 @@
 import axios from 'axios';
 import { apiClient } from '@/api';
-import { ALL_PERMISSIONS, API_ENDPOINTS } from '@/constants';
+import { ALL_PERMISSIONS, API_ENDPOINTS, DEFAULT_ADMIN_FEATURES } from '@/constants';
 import type { ApiResponse, LoginRequest, LoginResponse, User } from '@/types';
+import type { RegisterFormData } from '@/schemas';
 
 interface BackendAuthResponse {
   access_token: string;
@@ -20,6 +21,7 @@ interface BackendUserResponse {
   phone_number?: string | null;
   is_active?: boolean;
   role?: string;
+  permissions?: string[];
   platform_role_name?: string;
   created_at?: string;
   updated_at?: string;
@@ -49,17 +51,19 @@ const MOCK_USER: User = {
 
 const USE_MOCK = !import.meta.env.VITE_API_BASE_URL;
 
-function derivePermissions(role?: string): string[] {
-  const normalizedRole = (role || '').toLowerCase();
-  if (['god', 'owner', 'superadmin', 'admin', 'super_admin'].includes(normalizedRole)) {
-    return ALL_PERMISSIONS;
-  }
-  return [];
-}
+
 
 function mapBackendUser(user: BackendUserResponse, fallbackRole?: string): User {
   const roleName = user.role || user.platform_role_name || fallbackRole || 'user';
   const fullName = [user.first_name, user.last_name].filter(Boolean).join(' ').trim() || user.username || user.email;
+
+  const isPlatformAdmin = ['god', 'owner', 'superadmin', 'super_admin'].includes(roleName.toLowerCase());
+  let userPermissions = isPlatformAdmin ? ALL_PERMISSIONS : (user.permissions || []);
+
+  if (roleName.toLowerCase() === 'admin') {
+    const customPerms = user.permissions || [];
+    userPermissions = Array.from(new Set([...DEFAULT_ADMIN_FEATURES, ...customPerms]));
+  }
 
   return {
     id: String(user.user_id || user.id || ''),
@@ -69,7 +73,7 @@ function mapBackendUser(user: BackendUserResponse, fallbackRole?: string): User 
     phone: user.phone_number || undefined,
     status: user.is_active === false ? 'inactive' : 'active',
     roles: [{ id: roleName, name: roleName, permissions: [] }],
-    permissions: derivePermissions(roleName),
+    permissions: userPermissions,
     createdAt: user.created_at || new Date().toISOString(),
     updatedAt: user.updated_at || new Date().toISOString(),
   };
@@ -118,6 +122,23 @@ export const authService = {
       refreshToken: authData.refresh_token,
       user,
     };
+  },
+
+  register: async (data: RegisterFormData): Promise<void> => {
+    if (USE_MOCK) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      return;
+    }
+    const payload = {
+      username: data.username || undefined,
+      first_name: data.first_name,
+      last_name: data.last_name,
+      email: data.email,
+      phone_number: data.phone_number || undefined,
+      password: data.password,
+      confirm_password: data.confirm_password,
+    };
+    await apiClient.post(API_ENDPOINTS.AUTH.REGISTER, payload);
   },
 
   logout: async (): Promise<void> => {

@@ -16,7 +16,7 @@ func (u *usecase) ensureProductAccess(ctx context.Context, actorUserID uint, pla
 	if platformAdmin {
 		return nil
 	}
-	hasAccess, err := u.repo.HasActiveProductMembership(ctx, actorUserID, productID)
+	hasAccess, err := u.repo.HasMainLogAccess(ctx, actorUserID, productID)
 	if err != nil {
 		return err
 	}

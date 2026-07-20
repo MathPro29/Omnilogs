@@ -19,6 +19,7 @@ var ErrorCode = map[string]string{
 	"INVALID_CREDENTIAL":             "Invalid credential",
 	"FORBIDDEN":                      "Forbidden or Permission Denied",
 	"INTERNAL_ERROR":                 "Internal Server Error",
+	"TIMEOUT":                        "Request timed out",
 	"INVALID_RESET_TOKEN":            "Invalid reset token",
 	"ACCESS_RESOURCE_NOT_FOUND":      "access resource not found",
 	"ACCESS_DENIED":                  "access denied",
@@ -34,6 +35,7 @@ var ErrorUserCode = map[string]error{
 	"FORBIDDEN":               errors.New("FORBIDDEN"),
 	"INVALID_REFRESH_TOKEN":   errors.New("INVALID_REFRESH_TOKEN"),
 	"INVALID_RESET_TOKEN":     errors.New("INVALID_RESET_TOKEN"),
+	"USER_INACTIVE":          errors.New("USER_INACTIVE"),
 }
 
 var ErrorScopeCode = map[string]error{

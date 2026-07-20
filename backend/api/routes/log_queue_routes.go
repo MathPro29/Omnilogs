@@ -24,6 +24,10 @@ func LogQueueRoutes(router *gin.Engine, db *gorm.DB, env *configs.Env, esClient 
 	queues.Use(middleware.UserAuthMiddleware(env.JWTSecret))
 
 	queues.POST("", handler.QueueHandler)
+
+	// Product and service backends ingest with their scoped API key and do not
+	// need an interactive user session.
+	router.POST("/api/v1/ingest/logs", middleware.ProductAPIKeyAuthMiddleware(db), handler.QueueHandler)
 	queues.POST("/consume", handler.ConsumeHandler)
 	queues.GET("/batches/:batchId/items", handler.GetBatchItemsHandler)
 	queues.GET("/items/:itemId", handler.GetItemHandler)

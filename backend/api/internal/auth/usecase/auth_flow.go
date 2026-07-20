@@ -35,7 +35,7 @@ func (u *usecase) Register(req dto.RegisterRequest) (*dto.UserResponse, error) {
 		LastName:     req.LastName,
 		Username:     req.Username,
 		Email:        req.Email,
-		RoleID:       defaultUserRoleID,
+		RoleID:       defaultRegistrationRoleID,
 		PasswordHash: PasswordHash,
 		PhoneNumber:  req.PhoneNumber,
 	}
@@ -64,6 +64,10 @@ func (u *usecase) authenticate(req dto.LoginRequest) (*models.User, error) {
 	}
 	if !u.passwordService.Check(req.Password, user.PasswordHash) {
 		return nil, responses.ErrorUserCode["INVALID_CREDENTIAL"]
+	}
+
+	if !user.IsActive {
+		return nil, responses.ErrorUserCode["USER_INACTIVE"]
 	}
 
 	return user, nil
@@ -126,6 +130,10 @@ func (u *usecase) RefreshToken(refreshToken string) (*dto.AuthTokenResponse, err
 	}
 	if err != nil {
 		return nil, err
+	}
+
+	if !user.IsActive {
+		return nil, responses.ErrorUserCode["USER_INACTIVE"]
 	}
 
 	return u.buildAuthTokens(user)

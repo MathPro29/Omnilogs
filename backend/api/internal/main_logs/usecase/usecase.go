@@ -10,12 +10,13 @@ import (
 )
 
 var ErrMainLogNotFound = errors.New("main log not found")
+var ErrInvalidSearchFilter = errors.New("invalid log search filter")
 
 type Usecase interface {
+	AuthorizeProductAccess(ctx context.Context, actorUserID uint, platformAdmin bool, productID int64) error
 	Search(ctx context.Context, input SearchInput, requestID, traceID, ipAddress, userAgent *string) (*SearchResult, error)
 	FindByID(ctx context.Context, actorUserID uint, platformAdmin bool, productID int64, logID string, requestID, traceID, ipAddress, userAgent *string) (*MainLogDocument, error)
 	FindByAudit(ctx context.Context, actorUserID uint, platformAdmin bool, auditID string, requestID, traceID, ipAddress, userAgent *string) (*models.SystemAuditLog, *MainLogDocument, string, error)
-	AuthorizeProductAccess(ctx context.Context, actorUserID uint, platformAdmin bool, productID int64) error
 }
 
 type usecase struct {

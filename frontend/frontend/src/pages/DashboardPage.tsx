@@ -4,10 +4,12 @@ import { Card, Space, Typography, Modal, Button, Select, Input, Table, Tag, Form
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { SearchOutlined, EyeOutlined, SendOutlined, ReloadOutlined, LineChartOutlined } from '@ant-design/icons';
 import { productAdminService } from '@/services';
+import { customFieldService } from '@/services/custom-field.service';
 import { useAppStore, useAutoLogStore } from '@/store';
 import { apiClient } from '@/api';
 import { ROUTES } from '@/constants';
 import type { MainLog, ProjectFeature } from '@/types';
+import type { CustomField } from '@/services/custom-field.service';
 
 const { Text, Title, Paragraph } = Typography;
 
@@ -21,6 +23,16 @@ function getScopedAutoSendFeatures(features: ProjectFeature[], selectedCategoryI
     const pathIds = feature.pathIds?.split(',').map((value) => value.trim()) || [];
     return feature.categoryId === selectedCategoryId || pathIds.includes(String(selectedCategoryId));
   });
+}
+
+function formatCustomValue(fields: CustomField[], key: string, value: unknown): string {
+  const field = fields.find((item) => item.field_key === key);
+  if (field?.data_type === 'enum') {
+    return field.enum_options?.find((option) => option.option_value === String(value))?.option_label || String(value);
+  }
+  if (typeof value === 'boolean') return value ? 'ใช่' : 'ไม่ใช่';
+  if (typeof value === 'object' && value !== null) return JSON.stringify(value);
+  return String(value ?? '—');
 }
 
 export function DashboardPage() {
@@ -144,12 +156,24 @@ export function DashboardPage() {
     enabled: !!generatorProductId && !!generatorProjectId,
   });
 
+
+
   // Features for Monitor Filter
   const { data: monitorFeatures = [], isLoading: isLoadingMonitorFeatures } = useQuery({
     queryKey: ['features-admin-monitor', selectedProductId, selectedProjectId],
     queryFn: () => productAdminService.listFeatures(selectedProductId!, selectedProjectId!),
     enabled: !!selectedProductId && !!selectedProjectId,
   });
+
+  const { data: monitorCustomFields = [] } = useQuery({
+    queryKey: ['custom-fields-dashboard', selectedProductId, selectedProjectId, selectedCategoryId],
+    queryFn: () => customFieldService.list(selectedProductId!, selectedProjectId || undefined, selectedCategoryId || undefined),
+    enabled: !!selectedProductId,
+  });
+
+  const dashboardCustomFields = monitorCustomFields
+    .filter((field) => field.is_active && field.is_visible && field.show_in_dashboard && field.is_aggregatable)
+    .sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0));
 
   // Sync monitor environment options when product changes
   useEffect(() => {
@@ -242,6 +266,8 @@ export function DashboardPage() {
       logLevel: string;
       message: string;
       eventType: string;
+      customFields?: Record<string, unknown>;
+      rawData?: string;
     }) => {
       let featureFullPath = null;
       let featurePathIds = null;
@@ -262,6 +288,8 @@ export function DashboardPage() {
         logLevel: values.logLevel,
         message: values.message,
         eventType: values.eventType,
+        customFields: values.customFields,
+        rawData: (() => { try { return JSON.parse(values.rawData || '{}'); } catch { return {}; } })(),
       });
     },
     onSuccess: (_, variables) => {
@@ -292,6 +320,42 @@ export function DashboardPage() {
   const handleSearch = () => {
     setCurrentPage(1);
     refetchLogs();
+  };
+
+
+  const sendStructuredTestLog = async (inputPayload: Record<string, unknown>) => {
+    const values = generatorForm.getFieldsValue();
+    if (!values.productId || !values.environmentId) {
+      message.warning('Select Product and Environment first');
+      return;
+    }
+    try {
+      await apiClient.post('/queues', {
+        product_id: values.productId,
+        environment_id: values.environmentId,
+        queue_key: 'dashboard-sensitive-test-' + Date.now(),
+        source_type: 'application',
+        source_platform: 'dashboard-test',
+        priority: 1,
+        logs: [{
+          sequence_no: 1,
+          source_type: 'application',
+          source_platform: 'dashboard-test',
+          input_payload: {
+            ...inputPayload,
+            ...(values.projectId ? { project_id: values.projectId } : {}),
+            ...(values.categoryId ? { category_id: values.categoryId } : {}),
+            timestamp: new Date().toISOString(),
+          },
+        }],
+      });
+      try { await apiClient.post('/queues/consume', {}); } catch { /* worker will consume asynchronously */ }
+      message.success('Structured test log sent; check Logs and log_failures');
+      refetchLogs();
+      refetchFailedBatches();
+    } catch (err: any) {
+      message.error('Test log failed: ' + (err?.response?.data?.message || err?.message || err));
+    }
   };
 
   const getLevelColor = (level: string | null | undefined) => {
@@ -383,6 +447,7 @@ export function DashboardPage() {
                   }
                   if ('projectId' in changedValues) {
                     setSelectedProjectId(changedValues.projectId);
+                    generatorForm.setFieldValue('categoryId', null);
                   }
                   if ('categoryId' in changedValues) {
                     setSelectedCategoryId(changedValues.categoryId);
@@ -492,7 +557,32 @@ export function DashboardPage() {
                   <Input.TextArea rows={3} placeholder="กรอกข้อความแจ้งเตือนหรือข้อมูลที่ต้องการเก็บบันทึก..." />
                 </Form.Item>
 
+                <Form.Item label="Arbitrary JSON data (no Custom Field/Table dependency)" name="rawData" rules={[{ required: true }, { validator: async (_, value) => { if (!value) return; const parsed = JSON.parse(value); if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') throw new Error('JSON object required'); } }]}><Input.TextArea rows={10} placeholder={'{\n  "order": { "id": "ORD-1001", "total": 1599.50 },\n  "anything": true,\n  "nested": [1, 2, 3]\n}'} /></Form.Item>
+
                 <Form.Item style={{ marginBottom: '12px' }}>
+
+                   <Button block onClick={() => sendStructuredTestLog({
+                     log_level: 'INFO',
+                     event_type: 'sensitive-data-storage-test',
+                     message: 'Raw customer and contact data should be masked in Main Logs',
+                     customer_name: 'Somchai Jaidee',
+                     customer_address: '99 Sukhumvit Road, Bangkok 10110',
+                     customer_email: 'customer.test@example.com',
+                     callback_url: 'https://example.com/orders/OMNI-1001',
+                   })}>
+                    Case 8: Raw data - REDACTED + URL + Email (valid)
+                   </Button>
+                   <Button danger block onClick={() => sendStructuredTestLog({
+                     log_level: 'WARN',
+                     event_type: 'validation-failure-test',
+                     message: 'Invalid URL and Email should be written to log_failures',
+                     customer_name: 'Somsri Saelim',
+                     customer_address: '88 Silom Road, Bangkok 10500',
+                     customer_email: 'not-an-email',
+                     callback_url: 'not-a-url',
+                   })}>
+                     Case 9: Invalid URL/Email (log_failures)
+                   </Button>
                   <Button
                     danger={isAutoSending}
                     type={isAutoSending ? 'primary' : 'default'}
@@ -513,7 +603,9 @@ export function DashboardPage() {
                   >
                     ส่งข้อความ Log เข้าสู่ระบบ
                   </Button>
+      
                 </Form.Item>
+    
               </Form>
 
               <div style={{ marginTop: '24px', borderTop: '1px solid #f0f0f0', paddingTop: '16px' }}>
@@ -899,6 +991,19 @@ export function DashboardPage() {
                         ),
                       },
                       {
+                        title: 'Custom Fields',
+                        key: 'customFields',
+                        width: 220,
+                        render: (_: unknown, record: MainLog) => record.customFields && Object.keys(record.customFields).length > 0 ? (
+                          <Space wrap size={[4, 4]}>
+                            {Object.entries(record.customFields).filter(([key]) => dashboardCustomFields.some(field => field.field_key === key)).sort(([a], [b]) => dashboardCustomFields.findIndex(field => field.field_key === a) - dashboardCustomFields.findIndex(field => field.field_key === b)).map(([key, value]) => {
+                              const field = monitorCustomFields.find((item) => item.field_key === key);
+                              return <Tag key={key}>{field?.display_name || key}: {formatCustomValue(monitorCustomFields, key, value)}</Tag>;
+                            })}
+                          </Space>
+                        ) : <Text type="secondary">—</Text>,
+                      },
+                      {
                         title: 'ข้อความบันทึก (Message)',
                         dataIndex: 'message',
                         key: 'message',
@@ -982,6 +1087,22 @@ export function DashboardPage() {
                 </Card>
               </Col>
             </Row>
+
+            {selectedLog.customFields && Object.keys(selectedLog.customFields).length > 0 && (
+              <Card size="small" title="Custom Fields" style={{ marginBottom: 16 }}>
+                <Row gutter={[16, 12]}>
+                  {Object.entries(selectedLog.customFields).filter(([key]) => monitorCustomFields.some(field => field.field_key === key && field.is_visible && field.show_in_detail !== false)).sort(([a], [b]) => (monitorCustomFields.find(field => field.field_key === a)?.display_order ?? 0) - (monitorCustomFields.find(field => field.field_key === b)?.display_order ?? 0)).map(([key, value]) => {
+                    const field = monitorCustomFields.find((item) => item.field_key === key);
+                    return (
+                      <Col xs={24} sm={12} key={key}>
+                        <Text type="secondary">{field?.display_name || key}</Text>
+                        <div><Text strong>{formatCustomValue(monitorCustomFields, key, value)}</Text></div>
+                      </Col>
+                    );
+                  })}
+                </Row>
+              </Card>
+            )}
 
             <Title level={5}>Raw JSON Document (Elasticsearch payload)</Title>
             <pre

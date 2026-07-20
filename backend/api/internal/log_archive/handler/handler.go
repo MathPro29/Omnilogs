@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -83,12 +85,24 @@ func (h *Handler) Restore(c *gin.Context) {
 		return
 	}
 
-	// Resolve the target index name by removing path structure and .json.gz suffix
+	// Resolve the original target index name from the archive file name.
 	baseName := filepath.Base(*archive.FilePath)
-	targetIndexName := strings.TrimSuffix(baseName, ".json.gz")
+	targetIndexName := strings.TrimSuffix(strings.TrimSuffix(baseName, ".json.gz"), ".csv.gz")
+	if archive.EnvironmentID != nil {
+		targetIndexName = strings.TrimSuffix(targetIndexName, fmt.Sprintf("-archive-env-%d", *archive.EnvironmentID))
+	}
 
 	restoredCount, err := archive_utils.RestoreIndex(c.Request.Context(), h.db, h.esClient, *archive.FilePath, targetIndexName)
 	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			c.JSON(http.StatusNotFound, gin.H{
+				"error":       "archive file not found",
+				"file_path":   *archive.FilePath,
+				"archive_id":  archive.ArchiveID,
+				"next_action": "recreate the archive after mounting the shared archive storage",
+			})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to restore archive: %v", err)})
 		return
 	}

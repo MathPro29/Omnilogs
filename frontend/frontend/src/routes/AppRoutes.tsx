@@ -8,8 +8,10 @@ import { Suspense, lazy } from 'react';
 import { Spin } from 'antd';
 
 const LoginPage = lazy(() => import('@/pages/LoginPage').then(module => ({ default: module.LoginPage })));
+const RegisterPage = lazy(() => import('@/pages/RegisterPage').then(module => ({ default: module.RegisterPage })));
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage').then(module => ({ default: module.NotFoundPage })));
 const ApiTestPage = lazy(() => import('@/pages/ApiTestPage').then(module => ({ default: module.ApiTestPage })));
+const ForgotPasswordPage = lazy(() => import('@/pages/ForgotPassword').then(module => ({ default: module.default })));
 import { ROUTES } from '@/constants';
 // ===== Route Change Loading Bar =====
 function RouteChangeHandler({ loadingBarRef }: { loadingBarRef: React.RefObject<LoadingBarRef | null> }) {
@@ -57,6 +59,22 @@ export function AppRoutes() {
             element={
               <GuestRoute>
                 <LoginPage />
+              </GuestRoute>
+            }
+          />
+          <Route
+            path={ROUTES.REGISTER}
+            element={
+              <GuestRoute>
+                <RegisterPage />
+              </GuestRoute>
+            }
+          />
+          <Route
+            path={ROUTES.FORGOT_PASSWORD}
+            element={
+              <GuestRoute>
+                <ForgotPasswordPage />
               </GuestRoute>
             }
           />

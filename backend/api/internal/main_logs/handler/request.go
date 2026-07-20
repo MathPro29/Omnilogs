@@ -17,6 +17,14 @@ func parseOptionalInt64(raw string) *int64 {
 	return &value
 }
 
+func parseIntWithDefault(raw string, fallback int) int {
+	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 {
+		return fallback
+	}
+	return value
+}
+
 func stringParam(raw string) *string {
 	if raw == "" {
 		return nil

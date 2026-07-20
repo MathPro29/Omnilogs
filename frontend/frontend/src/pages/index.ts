@@ -1,7 +1,6 @@
 export { LoginPage } from './LoginPage';
 export { DashboardPage } from './DashboardPage';
 export { UsersPage } from './UsersPage';
-export { SettingsPage } from './SettingsPage';
 export { ForbiddenPage } from './ForbiddenPage';
 export { NotFoundPage } from './NotFoundPage';
 export { ApiTestPage } from './ApiTestPage';
@@ -12,4 +11,7 @@ export { default as AuditsPage } from './Audits';
 export { LogsExplorerPage } from './LogsExplorerPage';
 export { RetentionTestPage } from './RetentionTestPage';
 export { SensitiveAccessPage } from './SensitiveAccessPage';
+export { CustomFieldsPage } from './CustomFieldsPage';
+export { default as ForgotPasswordPage } from './ForgotPassword';
+export { RegisterPage } from './RegisterPage';
 

@@ -35,6 +35,18 @@ export function filterMenuByPermissions<T extends { requiredPermissions?: string
       if (!item.requiredPermissions || item.requiredPermissions.length === 0) {
         return true;
       }
+
+      const isSensitiveMenu = item.requiredPermissions.some(p => 
+        p === 'feature:users' || p === 'feature:retention_test'
+      );
+      if (isSensitiveMenu) {
+        const { roles } = useAuthStore.getState();
+        const hasAllowedRole = roles.some(role => 
+          ['god', 'owner', 'superadmin'].includes(role.toLowerCase())
+        );
+        if (!hasAllowedRole) return false;
+      }
+
       return canAny(item.requiredPermissions);
     })
     .map((item) => {

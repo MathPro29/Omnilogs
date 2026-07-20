@@ -2,10 +2,93 @@ package usecase
 
 import (
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
+var elasticFieldSegmentPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+const maxFilterIDs = 100
+
+func normalizeSearchInput(input SearchInput) SearchInput {
+	if input.Page <= 0 {
+		input.Page = 1
+	}
+	if input.PerPage <= 0 {
+		input.PerPage = 20
+	} else if input.PerPage > 100 {
+		input.PerPage = 100
+	}
+	input.ProjectIDs = normalizeFilterIDs(input.ProjectIDs)
+	input.CategoryIDs = normalizeFilterIDs(input.CategoryIDs)
+	return input
+}
+
+func normalizeFilterIDs(values []int64) []int64 {
+	result := make([]int64, 0, min(len(values), maxFilterIDs))
+	seen := make(map[int64]struct{}, min(len(values), maxFilterIDs))
+	for _, value := range values {
+		if value <= 0 {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+		if len(result) == maxFilterIDs {
+			break
+		}
+	}
+	return result
+}
+
+func normalizeCustomFieldPath(raw string) (string, bool) {
+	path := strings.TrimSpace(raw)
+	path = strings.TrimPrefix(path, "raw.")
+	path = strings.ReplaceAll(path, "[]", "")
+	segments := strings.Split(path, ".")
+	if len(segments) == 0 || len(segments) > 20 {
+		return "", false
+	}
+	for _, segment := range segments {
+		if !elasticFieldSegmentPattern.MatchString(segment) {
+			return "", false
+		}
+	}
+	normalized := strings.Join(segments, ".")
+	if strings.HasPrefix(normalized, "payload.") || strings.HasPrefix(normalized, "data.") || normalized == "payload" || normalized == "data" {
+		return normalized, true
+	}
+	// Unqualified paths retain the legacy payload behavior.
+	return "payload." + normalized, true
+}
+
+func validateSearchInput(input SearchInput) error {
+	hasPath := input.CustomFieldPath != nil && strings.TrimSpace(*input.CustomFieldPath) != ""
+	hasValue := input.CustomFieldValue != nil && strings.TrimSpace(*input.CustomFieldValue) != ""
+	if hasPath != hasValue {
+		return fmt.Errorf("%w: custom_field_path and custom_field_value must be provided together", ErrInvalidSearchFilter)
+	}
+	if hasPath {
+		if _, valid := normalizeCustomFieldPath(*input.CustomFieldPath); !valid {
+			return fmt.Errorf("%w: custom_field_path is not allowed", ErrInvalidSearchFilter)
+		}
+	}
+	if input.SortField != nil {
+		if _, valid := normalizeCustomFieldPath(*input.SortField); !valid {
+			return fmt.Errorf("%w: sort_field is not allowed", ErrInvalidSearchFilter)
+		}
+	}
+	if input.SortOrder != "" && !strings.EqualFold(input.SortOrder, "asc") && !strings.EqualFold(input.SortOrder, "desc") {
+		return fmt.Errorf("%w: sort_order must be asc or desc", ErrInvalidSearchFilter)
+	}
+	return nil
+}
+
 func buildSearchQuery(input SearchInput) map[string]any {
+	input = normalizeSearchInput(input)
 	filters := []map[string]any{
 		{"term": map[string]any{"product_id": input.ProductID}},
 	}
@@ -66,6 +149,36 @@ func buildSearchQuery(input SearchInput) map[string]any {
 	if input.TraceID != nil && strings.TrimSpace(*input.TraceID) != "" {
 		filters = append(filters, map[string]any{"term": map[string]any{"payload.trace_id.keyword": strings.TrimSpace(*input.TraceID)}})
 	}
+	if input.CustomFieldPath != nil && input.CustomFieldValue != nil && strings.TrimSpace(*input.CustomFieldPath) != "" {
+		field, valid := normalizeCustomFieldPath(*input.CustomFieldPath)
+		value := strings.TrimSpace(*input.CustomFieldValue)
+		if valid && value != "" {
+			shouldClauses := []map[string]any{
+				{"term": map[string]any{field + ".keyword": value}},
+				{"term": map[string]any{field: value}},
+				{"match_phrase": map[string]any{field: value}},
+			}
+
+			// Try parsing as boolean
+			if strings.EqualFold(value, "true") {
+				shouldClauses = append(shouldClauses, map[string]any{"term": map[string]any{field: true}})
+			} else if strings.EqualFold(value, "false") {
+				shouldClauses = append(shouldClauses, map[string]any{"term": map[string]any{field: false}})
+			}
+
+			// Try parsing as numeric
+			if intVal, err := strconv.ParseInt(value, 10, 64); err == nil {
+				shouldClauses = append(shouldClauses, map[string]any{"term": map[string]any{field: intVal}})
+			} else if floatVal, err := strconv.ParseFloat(value, 64); err == nil {
+				shouldClauses = append(shouldClauses, map[string]any{"term": map[string]any{field: floatVal}})
+			}
+
+			filters = append(filters, map[string]any{"bool": map[string]any{
+				"should":               shouldClauses,
+				"minimum_should_match": 1,
+			}})
+		}
+	}
 
 	must := []map[string]any{}
 	if input.Keyword != nil && strings.TrimSpace(*input.Keyword) != "" {
@@ -75,8 +188,8 @@ func buildSearchQuery(input SearchInput) map[string]any {
 				"should": []map[string]any{
 					{
 						"multi_match": map[string]any{
-							"query":  keyword,
-							"type":   "best_fields",
+							"query": keyword,
+							"type":  "best_fields",
 							"fields": []string{
 								"payload.message^4",
 								"payload.error_message^3",
@@ -89,14 +202,15 @@ func buildSearchQuery(input SearchInput) map[string]any {
 								"payload.trace_id^3",
 								"payload.correlation_id^2",
 								"payload.feature_full_path^2",
+								"data.*",
 							},
 							"operator": "and",
 						},
 					},
 					{
 						"multi_match": map[string]any{
-							"query":  keyword,
-							"type":   "phrase_prefix",
+							"query": keyword,
+							"type":  "phrase_prefix",
 							"fields": []string{
 								"payload.message^5",
 								"payload.request_path^3",
@@ -106,6 +220,7 @@ func buildSearchQuery(input SearchInput) map[string]any {
 								"payload.source_request_id^4",
 								"payload.trace_id^4",
 								"payload.feature_full_path^2",
+								"data.*",
 							},
 						},
 					},
@@ -124,6 +239,7 @@ func buildSearchQuery(input SearchInput) map[string]any {
 								"payload.trace_id^3",
 								"payload.correlation_id^2",
 								"payload.feature_full_path^2",
+								"data.*",
 							},
 							"default_operator": "and",
 						},
@@ -134,6 +250,25 @@ func buildSearchQuery(input SearchInput) map[string]any {
 		})
 	}
 
+	return buildSearchQueryBody(input, filters, must)
+}
+
+func buildSort(input SearchInput) []any {
+	if input.SortField == nil {
+		return []any{map[string]any{"@timestamp": map[string]any{"order": "desc"}}}
+	}
+	field, valid := normalizeCustomFieldPath(*input.SortField)
+	if !valid {
+		return []any{map[string]any{"@timestamp": map[string]any{"order": "desc"}}}
+	}
+	order := strings.ToLower(input.SortOrder)
+	if order == "" {
+		order = "asc"
+	}
+	return []any{map[string]any{field: map[string]any{"order": order, "unmapped_type": "keyword", "missing": "_last"}}}
+}
+
+func buildSearchQueryBody(input SearchInput, filters, must []map[string]any) map[string]any {
 	return map[string]any{
 		"query": map[string]any{
 			"bool": map[string]any{
@@ -141,9 +276,7 @@ func buildSearchQuery(input SearchInput) map[string]any {
 				"must":   must,
 			},
 		},
-		"sort": []any{
-			map[string]any{"@timestamp": map[string]any{"order": "desc"}},
-		},
+		"sort": buildSort(input),
 		"from": (input.Page - 1) * input.PerPage,
 		"size": input.PerPage,
 	}

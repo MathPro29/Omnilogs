@@ -1,6 +1,8 @@
 // ===== Route Paths =====
+// เพิ่มลด ROUTE ของ Frontend จะมีผลต่อ route ของ backend
 export const ROUTES = {
   LOGIN: '/login',
+  REGISTER: '/register',
   API_TEST: '/api-test',
   DASHBOARD: '/dashboard',
   PRODUCTS: '/products',
@@ -14,8 +16,11 @@ export const ROUTES = {
   LOGS_EXPLORER: '/logs-explorer',
   RETENTION_TEST: '/retention-test',
   SENSITIVE_ACCESS: '/sensitive-access',
+  CUSTOM_FIELDS: '/custom-fields',
+  PRODUCT_ROLES: '/product-roles',
   FORBIDDEN: '/403',
   NOT_FOUND: '/404',
+  FORGOT_PASSWORD: '/forgot-password',
 } as const;
 
 // ===== Permission Keys =====
@@ -42,10 +47,34 @@ export const PERMISSIONS = {
 
   // Approvals
   APPROVE_USER: 'approve:user',
+
+  // Features / Pages Access (for custom user permissions)
+  FEATURE_API_TEST: 'feature:api_test',
+  FEATURE_DASHBOARD: 'feature:dashboard',
+  FEATURE_PRODUCTS: 'feature:products',
+  FEATURE_RETENTION_TEST: 'feature:retention_test',
+  FEATURE_USERS: 'feature:users',
+  FEATURE_ROLES: 'feature:roles',
+  FEATURE_AUDITS: 'feature:audits',
+  FEATURE_LOGS_EXPLORER: 'feature:logs_explorer',
+  FEATURE_SENSITIVE_ACCESS: 'feature:sensitive_access',
+  FEATURE_CUSTOM_FIELDS: 'feature:custom_fields',
+  FEATURE_PRODUCT_ROLES: 'feature:product_roles',
 } as const;
 
 // ===== All Permissions (สำหรับ Super Admin) =====
 export const ALL_PERMISSIONS = Object.values(PERMISSIONS);
+
+// ===== Default Admin Features =====
+export const DEFAULT_ADMIN_FEATURES = [
+  PERMISSIONS.FEATURE_DASHBOARD,
+  PERMISSIONS.FEATURE_LOGS_EXPLORER,
+  PERMISSIONS.FEATURE_AUDITS,
+  PERMISSIONS.FEATURE_SENSITIVE_ACCESS,
+  PERMISSIONS.FEATURE_CUSTOM_FIELDS,
+  PERMISSIONS.FEATURE_PRODUCT_ROLES,
+  PERMISSIONS.FEATURE_API_TEST,
+];
 
 // ===== Default Roles =====
 export const DEFAULT_ROLES = {
@@ -92,12 +121,15 @@ export const MENU_KEYS = {
   LOGS_EXPLORER: 'logs-explorer',
   RETENTION_TEST: 'retention-test',
   SENSITIVE_ACCESS: 'sensitive-access',
+  CUSTOM_FIELDS: 'custom-fields',
+  PRODUCT_ROLES: 'product-roles',
 } as const;
 
 // ===== API Endpoints =====
 export const API_ENDPOINTS = {
   AUTH: {
     LOGIN: '/auth/login',
+    REGISTER: '/auth/register',
     LOGOUT: '/auth/logout',
     REFRESH: '/auth/refresh',
     ME: '/auth/me',

@@ -8,6 +8,19 @@ import (
 	"omnilogs-api/models"
 )
 
+func applicableFieldDefinitions(fields []models.LogFieldDefinition, meta indexedLogMeta) []models.LogFieldDefinition {
+	result := make([]models.LogFieldDefinition, 0, len(fields))
+	for _, field := range fields {
+		if field.ProjectID != nil && (meta.ProjectID == nil || *field.ProjectID != *meta.ProjectID) {
+			continue
+		}
+		if field.CategoryID != nil && (meta.CategoryID == nil || *field.CategoryID != *meta.CategoryID) {
+			continue
+		}
+		result = append(result, field)
+	}
+	return result
+}
 func (u *usecase) validateLogHierarchy(
 	ctx context.Context,
 	productID int,

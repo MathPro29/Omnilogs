@@ -57,6 +57,9 @@ services:
         condition: service_completed_successfully
     ports:
       - "2910:2910"
+    volumes:
+      # Archive files are created by the worker and restored by the API.
+      - archive_data:/app/data/archives
 
   worker:
     build:
@@ -76,6 +79,9 @@ services:
         condition: service_started
       migrate:
         condition: service_completed_successfully
+    volumes:
+      # Keep the archive storage shared with the API container.
+      - archive_data:/app/data/archives
 
   postgres:
     image: postgres:16
@@ -128,3 +134,4 @@ volumes:
   postgres_data:
   elastic_data:
   nats_data:
+  archive_data:
