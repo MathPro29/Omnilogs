@@ -1,0 +1,40 @@
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Go build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+__debug_bin
+bin/
+
+# IDEs and OS files
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.DS_Store
+Thumbs.db
+.cache/
+.gocache/
+.tmpgocache/
+.tmpgomodcache/
+
+.github/workflows/*.yml
+
+# Project specific ignores
+frontend.rar
+backend/api/data/
+backend/api/.codex-tmp/
+comparison_summary.html
+.git.bak/
+*.git.bak
+
+

@@ -1,0 +1,2 @@
+# เริ่มต้นสร้าง GOD User
+go run ./cmd/seed -email your-email@domain.com -password YourPassword123!

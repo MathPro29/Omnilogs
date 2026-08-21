@@ -1,0 +1,75 @@
+package usecase
+
+import (
+	"strings"
+	"time"
+
+	"omnilogs-api/models"
+)
+
+func (u *usecase) authorize(actor Actor, productID int, action string) error {
+	var isGlobalAdmin bool
+	var pm models.PlatformMembership
+	if err := u.repository.DB().Where("user_id = ? AND is_active = TRUE AND platform_role_id IN (1, 2, 3, 5)", actor.UserID).Limit(1).Find(&pm).Error; err == nil && pm.PlatformMembershipID != 0 {
+		isGlobalAdmin = true
+	}
+	if isGlobalAdmin {
+		return nil
+	}
+	if productID <= 0 || !existsDB(u.repository.DB(), &models.Product{}, "product_id = ?", productID) {
+		return ErrNotFound
+	}
+
+	var memberships []models.ProductMembership
+	if err := u.repository.DB().
+		Where("user_id = ? AND product_id = ? AND is_active = TRUE AND (expires_at IS NULL OR expires_at > ?)", actor.UserID, productID, time.Now()).
+		Find(&memberships).Error; err != nil {
+		return err
+	}
+	if len(memberships) == 0 {
+		return ErrForbidden
+	}
+
+	var rules []models.UserRolePermissionRule
+	if err := u.repository.DB().
+		Where("user_id = ? AND resource_type = ? AND action = ? AND is_active = TRUE AND (expires_at IS NULL OR expires_at > ?) AND (product_id IS NULL OR product_id = ?)", actor.UserID, "API_KEY", strings.ToUpper(action), time.Now(), productID).
+		Find(&rules).Error; err != nil {
+		return err
+	}
+
+	allowedByRule := false
+	for _, membership := range memberships {
+		if !scopeAllows(u, membership.MembershipID, productID) {
+			continue
+		}
+		for _, rule := range rules {
+			if rule.RoleID != nil && *rule.RoleID != membership.RoleID {
+				continue
+			}
+			if rule.Effect == "DENY" {
+				return ErrForbidden
+			}
+			if rule.Effect == "ALLOW" {
+				allowedByRule = true
+			}
+		}
+		if allowedByRule {
+			return nil
+		}
+
+		var role models.ProductRole
+		if err := u.repository.DB().Preload("Permissions").Where("role_id = ? AND product_id = ?", membership.RoleID, productID).First(&role).Error; err == nil && permissionListAllows(role.Permissions, "API_KEY", action) {
+			return nil
+		}
+	}
+
+	return ErrForbidden
+}
+
+func scopeAllows(u *usecase, membershipID, productID int) bool {
+	var scopes []models.ProductMembershipScope
+	if err := u.repository.DB().Where("membership_id = ? AND product_id = ? AND is_active = TRUE", membershipID, productID).Find(&scopes).Error; err != nil {
+		return false
+	}
+	return len(scopes) > 0
+}

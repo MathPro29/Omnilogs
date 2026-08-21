@@ -1,0 +1,293 @@
+/* ─── Retention Policies Page ─── */
+.retention-page {
+  display: grid;
+  gap: 20px;
+  padding: 8px 4px 28px;
+}
+
+/* Header */
+.retention-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.retention-page-header .ant-typography {
+  margin: 0;
+}
+.retention-title {
+  display: inline;
+  margin: 0 !important;
+  letter-spacing: -0.025em;
+}
+.retention-subtitle {
+  margin-top: 2px;
+  font-size: 14px;
+}
+
+/* Stats Cards */
+.retention-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+.retention-stat-card {
+  border-radius: 14px !important;
+  border: 1px solid #f0f0f0 !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03) !important;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.retention-stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.06) !important;
+}
+.retention-stat-card .ant-card-body {
+  padding: 20px;
+}
+.retention-stat-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  font-size: 18px;
+  margin-bottom: 12px;
+}
+.retention-stat-icon.green {
+  color: #1F8457;
+  background: #e8f5ee;
+}
+.retention-stat-icon.blue {
+  color: #1677ff;
+  background: #e6f4ff;
+}
+.retention-stat-icon.orange {
+  color: #d97706;
+  background: #fff7e6;
+}
+.retention-stat-icon.purple {
+  color: #7c3aed;
+  background: #f3e8ff;
+}
+.retention-stat-value {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: #1a1a1a;
+}
+.retention-stat-label {
+  margin-top: 4px;
+  font-size: 13px;
+  color: #8c8c8c;
+}
+
+/* Filter Card */
+.retention-filter-card {
+  border-radius: 16px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03) !important;
+}
+.retention-filter-card .ant-card-body {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+}
+.retention-filter-card .ant-input-affix-wrapper {
+  max-width: 320px;
+}
+
+/* Table Card */
+.retention-table-card {
+  border-radius: 16px !important;
+  box-shadow: 0 8px 28px rgba(33, 33, 33, 0.05) !important;
+  overflow: hidden;
+}
+.retention-table-card .ant-card-body {
+  padding: 0;
+}
+.retention-table .ant-table {
+  border-radius: 0 !important;
+  border: none !important;
+}
+.retention-table .ant-table-thead > tr > th {
+  background: #fafafa;
+  color: #5f5b6b;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid #f0f0f0;
+}
+.retention-table .ant-table-tbody > tr > td {
+  padding-top: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #f5f5f5;
+}
+.retention-table .ant-table-tbody > tr:hover > td {
+  background: #fafafa !important;
+}
+.retention-table .ant-table-tbody > tr:last-child > td {
+  border-bottom: none;
+}
+
+/* Policy name cell */
+.retention-policy-name {
+  display: grid;
+  gap: 2px;
+}
+.retention-policy-name strong {
+  font-size: 14px;
+  color: #1a1a1a;
+}
+.retention-policy-desc {
+  font-size: 12px;
+  color: #8c8c8c;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 280px;
+}
+
+/* Mode tag enhanced */
+.retention-mode-tag {
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 6px;
+  padding: 2px 10px;
+}
+
+/* Retention summary */
+.retention-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #595959;
+}
+.retention-summary .anticon {
+  color: #8c8c8c;
+  font-size: 14px;
+}
+
+/* On-expiry badge */
+.retention-action-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.retention-action-badge.delete {
+  color: #cf1322;
+  background: #fff1f0;
+}
+.retention-action-badge.archive {
+  color: #1677ff;
+  background: #e6f4ff;
+}
+.retention-action-badge.compress {
+  color: #d97706;
+  background: #fff7e6;
+}
+
+/* Drawer enhancements */
+.retention-drawer .ant-drawer-header {
+  border-bottom: 1px solid #f0f0f0;
+  padding: 20px 24px;
+}
+.retention-drawer .ant-drawer-title {
+  font-weight: 600;
+}
+.retention-drawer .ant-form-item-label > label {
+  font-weight: 500;
+  color: #1a1a1a;
+}
+.retention-mode-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  margin: -8px 0 16px;
+  border-radius: 8px;
+  background: #f6f8fa;
+  border: 1px solid #e8e8e8;
+  font-size: 12px;
+  color: #595959;
+}
+.retention-mode-hint .anticon {
+  color: #1F8457;
+}
+
+/* Simulate modal */
+.simulate-result-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  padding: 16px;
+  background: linear-gradient(135deg, #f8fffe 0%, #f0f7ff 100%);
+  border-radius: 12px;
+  border: 1px solid #e6f4ff;
+}
+.simulate-stat {
+  text-align: center;
+}
+.simulate-stat-value {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.simulate-stat-value.total { color: #1a1a1a; }
+.simulate-stat-value.active { color: #1F8457; }
+.simulate-stat-value.purge { color: #cf1322; }
+.simulate-stat-label {
+  font-size: 12px;
+  color: #8c8c8c;
+  margin-top: 2px;
+}
+.simulate-footer-info {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: #fafafa;
+  border-radius: 8px;
+  margin-top: 12px;
+  font-size: 12px;
+  color: #595959;
+}
+.simulate-footer-info code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: #e8e8e8;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: #1a1a1a;
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+  .retention-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (max-width: 768px) {
+  .retention-page {
+    padding-top: 0;
+  }
+  .retention-page-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .retention-stats {
+    grid-template-columns: 1fr;
+  }
+  .retention-filter-card .ant-card-body {
+    flex-direction: column;
+  }
+  .retention-filter-card .ant-input-affix-wrapper {
+    max-width: 100%;
+  }
+}

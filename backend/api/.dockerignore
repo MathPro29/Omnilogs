@@ -1,0 +1,28 @@
+# Ignore local binaries and build artifacts
+*.exe
+bin/
+obj/
+
+# Ignore environments and secrets
+.env
+.env.*
+!.env.example
+
+# Ignore git and IDE directories
+.git
+.github
+.vscode
+.idea
+
+# Ignore temporary and test cache files
+.tmpgocache
+.tmpgomodcache
+.codex-tmp/
+data/
+scratch/
+*~
+*.log
+*.exe
+*.test
+*.out
+

@@ -1,0 +1,32 @@
+.users-page { display: grid; gap: 20px; }
+.users-page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.users-page-header .ant-typography, .user-access-heading .ant-typography { margin: 0; }
+.users-filter-card .ant-card-body { display: grid; grid-template-columns: minmax(240px, 1fr) 180px auto; gap: 12px; }
+.users-table-card .ant-card-body { padding: 0; }
+.user-identity { display: flex; align-items: center; gap: 12px; }
+.user-identity .ant-avatar { flex: 0 0 auto; background: var(--color-primary); }
+.user-identity > div { display: grid; min-width: 0; }
+.user-identity .ant-typography { overflow: hidden; text-overflow: ellipsis; }
+.user-product-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.user-access-heading { display: flex; align-items: center; gap: 12px; padding: 0 0 20px; }
+.user-access-heading > .anticon { display: grid; width: 44px; height: 44px; place-items: center; border-radius: 12px; color: var(--color-primary); background: var(--color-purple-50); font-size: 22px; }
+.user-access-products .ant-collapse-header { align-items: center !important; }
+.user-product-label { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.user-membership-controls { display: grid; grid-template-columns: minmax(220px, 1fr) auto auto; align-items: center; gap: 12px; width: 100%; }
+.user-scope-editor { display: grid; gap: 20px; width: 100%; padding-top: 16px; border-top: 1px solid #f0f0f0; }
+.user-scope-list { display: grid; gap: 8px; }
+.user-scope-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; padding: 8px 10px; border: 1px solid #f0f0f0; border-radius: 8px; }
+.user-scope-form { padding: 16px; border-radius: 10px; background: #fafafa; }
+.user-scope-form .ant-alert { margin-bottom: 16px; }
+.bulk-access-scope { display: grid; gap: 16px; margin-top: 8px; padding: 18px; border: 1px solid #e8e8e8; border-radius: 12px; background: #fafafa; }
+.bulk-feature-label { display: grid; gap: 2px; }
+.bulk-scope-loading { display: grid; min-height: 160px; place-items: center; }
+.feature-scope-tree { display: grid; gap: 10px; max-height: 360px; padding: 12px; overflow: auto; border: 1px solid #e8e8e8; border-radius: 10px; background: #fff; }
+.feature-scope-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; }
+.feature-scope-title .ant-tag { margin-inline-end: 0; font-size: 11px; }
+.user-scope-editor > div:first-child > .ant-select { margin-top: 8px; }
+@media (max-width: 720px) {
+  .users-page-header { align-items: stretch; flex-direction: column; }
+  .users-page-header .ant-btn { width: 100%; }
+  .users-filter-card .ant-card-body, .user-membership-controls { grid-template-columns: 1fr; }
+}

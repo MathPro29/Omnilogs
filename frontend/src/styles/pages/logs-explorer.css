@@ -1,0 +1,15 @@
+#summarry:hover {
+  text-decoration: underline;
+  cursor: pointer;
+  color: #000;
+}
+#raw:hover {
+  text-decoration: underline;
+  cursor: pointer;
+  color: #000;
+}
+#Expand:hover {
+  text-decoration: underline;
+  cursor: pointer;
+  color: #000;
+}

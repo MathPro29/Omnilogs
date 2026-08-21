@@ -1,0 +1,32 @@
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Go build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+__debug_bin
+bin/
+
+# IDEs and OS files
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.DS_Store
+Thumbs.db
+.cache/
+.gocache/
+.tmpgocache/
+.tmpgomodcache/
+
+# Project specific ignores
+api/data/
+api/.codex-tmp/

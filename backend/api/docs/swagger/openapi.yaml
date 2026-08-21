@@ -1,0 +1,2667 @@
+openapi: 3.0.3
+info:
+  title: OmniLogs Backend API
+  version: 0.1.0
+  description: |
+    Foundational OpenAPI contract for OmniLogs backend.
+    This document starts in Phase 0 and will be expanded alongside each backend phase.
+servers:
+  - url: http://localhost:2910
+    description: Local development
+tags:
+  - name: Health
+  - name: Auth
+  - name: Admin
+  - name: Products
+  - name: Environments
+  - name: Scopes
+  - name: Authorization
+  - name: Users
+  - name: Queues
+paths:
+  /health/live:
+    get:
+      tags: [Health]
+      summary: Liveness probe
+      responses:
+        '200':
+          description: Service is live
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+  /health/ready:
+    get:
+      tags: [Health]
+      summary: Readiness probe
+      responses:
+        '200':
+          description: Service is ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '503':
+          description: Service dependencies are unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a user
+      description: Creates a self-registered account with the non-privileged `admin` platform role. No product membership, scope, or product-data access is granted automatically.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User created with the non-privileged admin role; product access remains unassigned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/auth/login:
+    post:
+      tags: [Auth]
+      summary: Login with username or email and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/auth/refresh-token:
+    post:
+      tags: [Auth]
+      summary: Refresh access token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '200':
+          description: Token refreshed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          description: Invalid refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/auth/logout:
+    post:
+      tags: [Auth]
+      summary: Logout and revoke the current refresh token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+      responses:
+        '200':
+          description: Session revoked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+  /api/v1/auth/forgot-password:
+    post:
+      tags: [Auth]
+      summary: Start password reset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordRequest'
+      responses:
+        '200':
+          description: Password reset started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+  /api/v1/auth/reset-password:
+    post:
+      tags: [Auth]
+      summary: Reset password using email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      responses:
+        '200':
+          description: Password reset completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/auth/me:
+    get:
+      tags: [Auth]
+      summary: Get current authenticated user
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/admin/give-admin:
+    put:
+      tags: [Admin]
+      summary: Change platform role for a user
+      description: |
+        Updates `platform_memberships.platform_role_id` for the target user.
+        This endpoint does not write role data into the `users` table.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GiveAdminAccessRequest'
+      responses:
+        '200':
+          description: Role updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/GiveAdminAccessResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/admin/show-users:
+    get:
+      tags: [Admin]
+      summary: List all users for platform administrators
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: User list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+  /api/v1/admin/edit-user:
+    put:
+      tags: [Admin]
+      summary: Edit platform role and permissions for a user
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EditUserRoleRequest'
+      responses:
+        '200':
+          description: Role updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/admin/user/{id}:
+    get:
+      tags: [Admin]
+      summary: Get user details by ID for platform administrators
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: User details retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    delete:
+      tags: [Admin]
+      summary: Delete user by ID for platform administrators
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: User deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/users:
+    post:
+      tags: [Users]
+      summary: Create user
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/users/{id}:
+    get:
+      tags: [Users]
+      summary: Get user by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: User details retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    put:
+      tags: [Users]
+      summary: Update user
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserAdminRequest'
+      responses:
+        '200':
+          description: User updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    delete:
+      tags: [Users]
+      summary: Delete user
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: User deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/products:
+    get:
+      tags: [Products]
+      summary: List products
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Product list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+    post:
+      tags: [Products]
+      summary: Create product
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProductRequest'
+      responses:
+        '201':
+          description: Product created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+  /api/v1/products/owner-candidates:
+    get:
+      tags: [Products]
+      summary: List candidate users who can be assigned as product owner
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Owner candidates list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            username:
+                              type: string
+                            email:
+                              type: string
+                            first_name:
+                              type: string
+                            last_name:
+                              type: string
+  /api/v1/products/{productId}:
+    get:
+      tags: [Products]
+      summary: Get product by id
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      responses:
+        '200':
+          description: Product detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '404':
+          description: Product not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    patch:
+      tags: [Products]
+      summary: Update product
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProductRequest'
+      responses:
+        '200':
+          description: Product updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+    delete:
+      tags: [Products]
+      summary: Delete product
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      responses:
+        '200':
+          description: Product deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '404':
+          description: Product not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/products/{productId}/projects:
+    get:
+      tags: [Products]
+      summary: List projects for a product
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      responses:
+        '200':
+          description: Project list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '403':
+          description: Project access denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    post:
+      tags: [Products]
+      summary: Create a project
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProjectRequest'
+      responses:
+        '201':
+          description: Project created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          description: Invalid project payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '403':
+          description: Project access denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/products/{productId}/roles:
+    get:
+      tags: [Products]
+      summary: List product roles
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      responses:
+        '200':
+          description: Product role list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+    post:
+      tags: [Products]
+      summary: Create a product role
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProductRoleRequest'
+      responses:
+        '201':
+          description: Product role created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          description: Invalid role payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '409':
+          description: Role code already exists in this product
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/products/{productId}/projects/{projectId}:
+    delete:
+      tags: [Products]
+      summary: Delete a project and its feature categories
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: Project deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '403':
+          description: Project access denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: Project not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    patch:
+      tags: [Products]
+      summary: Update a project
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/ProjectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProjectRequest'
+      responses:
+        '200':
+          description: Project updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          description: Invalid payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: Project not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/products/{productId}/projects/{projectId}/features/{featureId}:
+    patch:
+      tags: [Products]
+      summary: Update a feature category (or child)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/FeatureId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProjectFeatureRequest'
+      responses:
+        '200':
+          description: Feature updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          description: Invalid payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: Feature not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    delete:
+      tags: [Products]
+      summary: Delete a feature category
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/FeatureId'
+      responses:
+        '200':
+          description: Feature deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '404':
+          description: Feature not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/products/{productId}/roles/{roleId}:
+    patch:
+      tags: [Products]
+      summary: Update a product role
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/RoleId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRoleRequest'
+      responses:
+        '200':
+          description: Role updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          description: Invalid role payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: Role not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    delete:
+      tags: [Products]
+      summary: Delete a product role
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/RoleId'
+      responses:
+        '200':
+          description: Role deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '409':
+          description: Role is still assigned to memberships
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/products/{productId}/memberships:
+    get:
+      tags: [Products]
+      summary: List product memberships
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      responses:
+        '200':
+          description: Product membership list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+    post:
+      tags: [Products]
+      summary: Create or update a product membership
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProductMembershipRequest'
+      responses:
+        '201':
+          description: Membership created or updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          description: Invalid membership payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/products/{productId}/memberships/{membershipId}:
+    patch:
+      tags: [Products]
+      summary: Update a product membership
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/MembershipId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProductMembershipRequest'
+      responses:
+        '200':
+          description: Membership updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          description: Invalid membership payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: Membership not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    delete:
+      tags: [Products]
+      summary: Delete a product membership
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/MembershipId'
+      responses:
+        '200':
+          description: Membership deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '404':
+          description: Membership not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/products/{productId}/memberships/bulk:
+    post:
+      tags: [Products]
+      summary: Create product memberships in bulk for a single product
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBulkProductMembershipRequest'
+      responses:
+        '201':
+          description: Memberships created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          description: Invalid membership payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '409':
+          description: One or more memberships already exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/products/{productId}/access-overview:
+    get:
+      tags: [Authorization]
+      summary: Get centralized product access, roles, effective permissions, and scopes
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      responses:
+        '200':
+          description: Product access overview
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+  /api/v1/products/{productId}/access/members/{userId}:
+    put:
+      tags: [Authorization]
+      summary: Create or overwrite a user's product role and scopes
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertProductAccessRequest'
+      responses:
+        '200':
+          description: Existing access overwritten or new access created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          description: Invalid role or scope relationship
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/products/{productId}/permission-rules:
+    get:
+      tags: [Authorization]
+      summary: List product permission rules
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      responses:
+        '200':
+          description: Permission rule list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+    post:
+      tags: [Authorization]
+      summary: Create a product permission rule
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePermissionRuleRequest'
+      responses:
+        '201':
+          description: Permission rule created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          description: Invalid permission rule payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/products/{productId}/permission-rules/{ruleId}:
+    patch:
+      tags: [Authorization]
+      summary: Update a permission rule
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/RuleId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePermissionRuleRequest'
+      responses:
+        '200':
+          description: Permission rule updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '404':
+          description: Permission rule not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/products/{productId}/environments:
+    get:
+      tags: [Environments]
+      summary: List environments for a product
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      responses:
+        '200':
+          description: Environment list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+    post:
+      tags: [Environments]
+      summary: Create environment
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEnvironmentRequest'
+      responses:
+        '201':
+          description: Environment created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+  /api/v1/products/{productId}/environments/{environmentId}:
+    patch:
+      tags: [Environments]
+      summary: Update environment
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/EnvironmentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateEnvironmentRequest'
+      responses:
+        '200':
+          description: Environment updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+    delete:
+      tags: [Environments]
+      summary: Delete environment
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/EnvironmentId'
+      responses:
+        '200':
+          description: Environment deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+  /api/v1/products/{productId}/memberships/{membershipId}/scopes:
+    get:
+      tags: [Scopes]
+      summary: List scopes for a product membership
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/MembershipId'
+      responses:
+        '200':
+          description: Scope list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+    post:
+      tags: [Scopes]
+      summary: Create a scope for a product membership
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/MembershipId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMembershipScopeRequest'
+      responses:
+        '201':
+          description: Scope created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          description: Invalid scope payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/products/{productId}/memberships/{membershipId}/scopes/{scopeId}:
+    patch:
+      tags: [Scopes]
+      summary: Update a membership scope
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/MembershipId'
+        - $ref: '#/components/parameters/ScopeId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMembershipScopeRequest'
+      responses:
+        '200':
+          description: Scope updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '404':
+          description: Scope not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    delete:
+      tags: [Scopes]
+      summary: Delete a membership scope
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/MembershipId'
+        - $ref: '#/components/parameters/ScopeId'
+      responses:
+        '200':
+          description: Scope deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '404':
+          description: Scope not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/products/{productId}/sensitive-logs/requests:
+    get:
+      tags: [Sensitive Logs]
+      summary: List sensitive log access requests for a product
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      responses:
+        '200':
+          description: List of sensitive log access requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          description: Invalid request parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    post:
+      tags: [Sensitive Logs]
+      summary: Create an access request to view sensitive logs
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSensitiveLogAccessRequest'
+      responses:
+        '201':
+          description: Access request created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          description: Invalid payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/products/{productId}/sensitive-logs/requests/{requestId}/review:
+    post:
+      tags: [Sensitive Logs]
+      summary: Review (approve or reject) a sensitive log access request
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewSensitiveLogAccessRequest'
+      responses:
+        '200':
+          description: Access request reviewed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          description: Invalid payload or parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '403':
+          description: Permission denied (only superadmin, owner or god roles can approve requests)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/products/{productId}/sensitive-logs/reveal:
+    post:
+      tags: [Sensitive Logs]
+      summary: Reveal/decrypt a sensitive log value
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevealSensitiveLogRequest'
+      responses:
+        '200':
+          description: Sensitive value revealed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          description: Invalid payload or parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '403':
+          description: Permission denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/products/{productId}/sensitive-logs/history:
+    get:
+      tags: [Sensitive Logs]
+      summary: List access history of sensitive logs
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      responses:
+        '200':
+          description: List of sensitive log access history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '403':
+          description: Permission denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/authorization/check:
+    post:
+      tags: [Authorization]
+      summary: Check effective permission
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PermissionCheckRequest'
+      responses:
+        '200':
+          description: Permission evaluation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+  /api/v1/products/{productId}/retention-policies/{policyId}/run-now:
+    post:
+      tags: [Products]
+      summary: Trigger a retention policy immediately
+      description: Schedules the policy for the Retention Worker without executing archive work in the API process.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+        - name: policyId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '202':
+          description: Retention policy queued for the worker
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          description: Policy is not active or archive is disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '403':
+          description: Permission denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/products/{productId}/elastic-index-policies:
+    post:
+      tags: [Products]
+      summary: Create elastic index policy
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateElasticIndexPolicyRequest'
+      responses:
+        '201':
+          description: Policy created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          description: Invalid request payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    get:
+      tags: [Products]
+      summary: List elastic index policies
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ListElasticIndexPolicyRequest'
+      responses:
+        '200':
+          description: List of policies
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+  /api/v1/products/{productId}/elastic-index-policies/{elasticPolicyId}:
+    get:
+      tags: [Products]
+      summary: Get elastic index policy by id
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/ElasticPolicyId'
+      responses:
+        '200':
+          description: Policy detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '404':
+          description: Policy not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    patch:
+      tags: [Products]
+      summary: Update elastic index policy
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/ElasticPolicyId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateElasticIndexPolicyRequest'
+      responses:
+        '200':
+          description: Policy updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '404':
+          description: Policy not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    delete:
+      tags: [Products]
+      summary: Delete elastic index policy
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/ElasticPolicyId'
+      responses:
+        '200':
+          description: Policy deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+  /api/v1/queues:
+    post:
+      tags: [Queues]
+      summary: Enqueue log batch
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IngestLogBatchRequest'
+      responses:
+        '201':
+          description: Log batch enqueued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          description: Invalid request payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/queues/consume:
+    post:
+      tags: [Queues]
+      summary: Trigger queue consume worker (manual trigger)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Consume completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/queues/batches/{batchId}/items:
+    get:
+      tags: [Queues]
+      summary: Get list of log queue items in a batch
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/BatchId'
+      responses:
+        '200':
+          description: Batch items retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/queues/items/{itemId}:
+    get:
+      tags: [Queues]
+      summary: Get details of a single log queue item
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ItemId'
+      responses:
+        '200':
+          description: Item details retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: Item not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/queues/failed:
+    get:
+      tags: [Queues]
+      summary: List all failed queue batches
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of failed batches retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    ElasticPolicyId:
+      name: elasticPolicyId
+      in: path
+      required: true
+      schema:
+        type: integer
+    ProductId:
+      name: productId
+      in: path
+      required: true
+      schema:
+        type: integer
+    EnvironmentId:
+      name: environmentId
+      in: path
+      required: true
+      schema:
+        type: integer
+    ProjectId:
+      name: projectId
+      in: path
+      required: true
+      schema:
+        type: integer
+    FeatureId:
+      name: featureId
+      in: path
+      required: true
+      schema:
+        type: integer
+    RoleId:
+      name: roleId
+      in: path
+      required: true
+      schema:
+        type: integer
+    MembershipId:
+      name: membershipId
+      in: path
+      required: true
+      schema:
+        type: integer
+    ScopeId:
+      name: scopeId
+      in: path
+      required: true
+      schema:
+        type: integer
+    RuleId:
+      name: ruleId
+      in: path
+      required: true
+      schema:
+        type: integer
+    RequestId:
+      name: requestId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    UserId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    BatchId:
+      name: batchId
+      in: path
+      required: true
+      schema:
+        type: string
+    ItemId:
+      name: itemId
+      in: path
+      required: true
+      schema:
+        type: integer
+  schemas:
+    SuccessEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          additionalProperties: true
+    ErrorEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          $ref: '#/components/schemas/ErrorBody'
+    ErrorBody:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        status:
+          type: integer
+        details:
+          nullable: true
+    RegisterRequest:
+      type: object
+      required: [first_name, last_name, email, password, confirm_password]
+      properties:
+        username:
+          type: string
+          nullable: true
+        first_name:
+          type: string
+        last_name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone_number:
+          type: string
+          nullable: true
+        password:
+          type: string
+          format: password
+        confirm_password:
+          type: string
+          format: password
+    LoginRequest:
+      type: object
+      required: [identifier, password]
+      properties:
+        identifier:
+          type: string
+        password:
+          type: string
+          format: password
+    RefreshTokenRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+    LogoutRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+    ForgotPasswordRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+    ResetPasswordRequest:
+      type: object
+      required: [email, new_password, confirm_password]
+      properties:
+        email:
+          type: string
+          format: email
+        new_password:
+          type: string
+          format: password
+        confirm_password:
+          type: string
+          format: password
+    GiveAdminAccessRequest:
+      type: object
+      required: [id, role_id]
+      properties:
+        id:
+          type: integer
+        role_id:
+          type: integer
+          enum: [1, 2, 3, 4]
+    GiveAdminAccessResponse:
+      type: object
+      properties:
+        user_id:
+          type: integer
+        storage_table:
+          type: string
+          example: platform_memberships
+        previous_role_id:
+          type: integer
+        previous_role_code:
+          type: string
+        new_role_id:
+          type: integer
+        new_role_code:
+          type: string
+        message:
+          type: string
+    CreateProductRequest:
+      type: object
+      required: [product_name]
+      properties:
+        product_name:
+          type: string
+        product_code:
+          type: string
+        environments:
+          type: array
+          items:
+            type: object
+            properties:
+              product_id:
+                type: integer
+                nullable: true
+              environment_code:
+                type: string
+              environment_name:
+                type: string
+    UpdateProductRequest:
+      type: object
+      properties:
+        product_name:
+          type: string
+        product_code:
+          type: string
+        is_active:
+          type: boolean
+    CreateProductRoleRequest:
+      type: object
+      required: [role_code, role_name, permissions]
+      properties:
+        product_id:
+          type: integer
+          nullable: true
+        template_id:
+          type: integer
+          nullable: true
+        role_code:
+          type: string
+        role_name:
+          type: string
+        permissions:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/RolePermissionAssignment'
+    UpdateRoleRequest:
+      type: object
+      properties:
+        role_name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        permissions:
+          type: array
+          items:
+            $ref: '#/components/schemas/RolePermissionAssignment'
+        is_active:
+          type: boolean
+    RolePermissionAssignment:
+      type: object
+      required: [resource_type, action]
+      properties:
+        resource_type:
+          type: string
+          enum: [PRODUCT, PROJECT, FEATURE, CATEGORY, ROLE, ACCESS, USER, API_KEY, ENVIRONMENT, LOG]
+        action:
+          type: string
+          enum: [CREATE, READ, UPDATE, DELETE, GRANT, REVOKE, EXPORT, VIEW_SENSITIVE]
+    CreateEnvironmentRequest:
+      type: object
+      required: [environment_code, environment_name]
+      properties:
+        product_id:
+          type: integer
+          nullable: true
+        environment_code:
+          type: string
+        environment_name:
+          type: string
+    UpdateEnvironmentRequest:
+      type: object
+      properties:
+        environment_name:
+          type: string
+    UpdateProjectRequest:
+      type: object
+      properties:
+        project_name:
+          type: string
+        is_active:
+          type: boolean
+    UpdateProjectFeatureRequest:
+      type: object
+      properties:
+        parent_id:
+          type: integer
+          nullable: true
+        category_type:
+          type: string
+          nullable: true
+        category_name:
+          type: string
+        is_active:
+          type: boolean
+    CreateMembershipScopeRequest:
+      type: object
+      required: [scope_level]
+      properties:
+        project_id:
+          type: integer
+          nullable: true
+        category_id:
+          type: integer
+          nullable: true
+        scope_level:
+          type: string
+          enum: [PRODUCT, PROJECT, CATEGORY]
+    CreateProductMembershipRequest:
+      type: object
+      required: [user_id, role_id]
+      properties:
+        user_id:
+          type: integer
+        product_id:
+          type: integer
+          nullable: true
+        role_id:
+          type: integer
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+    CreateBulkProductMembershipRequest:
+      type: object
+      required: [memberships]
+      properties:
+        memberships:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/CreateProductMembershipRequest'
+    ProductAccessScopeInput:
+      type: object
+      required: [scope_level]
+      properties:
+        project_id:
+          type: integer
+          nullable: true
+        category_id:
+          type: integer
+          nullable: true
+        scope_level:
+          type: string
+          enum: [PRODUCT, PROJECT, CATEGORY]
+    UpsertProductAccessRequest:
+      type: object
+      required: [role_id, scopes]
+      properties:
+        role_id:
+          type: integer
+        scopes:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/ProductAccessScopeInput'
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        is_active:
+          type: boolean
+    UpdateProductMembershipRequest:
+      type: object
+      properties:
+        role_id:
+          type: integer
+          nullable: true
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        is_active:
+          type: boolean
+    UpdateMembershipScopeRequest:
+      type: object
+      required: [scope_level]
+      properties:
+        project_id:
+          type: integer
+          nullable: true
+        category_id:
+          type: integer
+          nullable: true
+        scope_level:
+          type: string
+          enum: [PRODUCT, PROJECT, CATEGORY]
+    CreatePermissionRuleRequest:
+      type: object
+      required: [user_id, resource_type, action, effect, scope_level]
+      properties:
+        user_id:
+          type: integer
+        product_id:
+          type: integer
+          nullable: true
+        role_id:
+          type: integer
+          nullable: true
+        project_id:
+          type: integer
+          nullable: true
+        category_id:
+          type: integer
+          nullable: true
+        resource_type:
+          type: string
+          enum: [PRODUCT, PROJECT, FEATURE, CATEGORY, ROLE, ACCESS, USER, API_KEY, ENVIRONMENT, LOG]
+        action:
+          type: string
+          enum: [CREATE, READ, UPDATE, DELETE, GRANT, REVOKE, EXPORT, VIEW_SENSITIVE]
+        effect:
+          type: string
+          enum: [ALLOW, DENY]
+        scope_level:
+          type: string
+          enum: [GLOBAL, PRODUCT, PROJECT, CATEGORY]
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+    UpdatePermissionRuleRequest:
+      type: object
+      properties:
+        effect:
+          type: string
+          enum: [ALLOW, DENY]
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        is_active:
+          type: boolean
+    PermissionCheckRequest:
+      type: object
+      required: [resource_type, action]
+      properties:
+        product_id:
+          type: integer
+          nullable: true
+        project_id:
+          type: integer
+          nullable: true
+        category_id:
+          type: integer
+          nullable: true
+        resource_type:
+          type: string
+        action:
+          type: string
+    CreateSensitiveLogAccessRequest:
+      type: object
+      required: [product_id, reason]
+      properties:
+        product_id:
+          type: integer
+        log_id:
+          type: string
+          format: uuid
+          nullable: true
+        field_definition_id:
+          type: integer
+          nullable: true
+        secret_id:
+          type: string
+          format: uuid
+          nullable: true
+        field_path:
+          type: string
+          nullable: true
+        reason:
+          type: string
+    ReviewSensitiveLogAccessRequest:
+      type: object
+      required: [approval_status]
+      properties:
+        approval_status:
+          type: string
+          enum: [APPROVED, REJECTED]
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+    RevealSensitiveLogRequest:
+      type: object
+      required: [request_id, password]
+      properties:
+        request_id:
+          type: string
+          format: uuid
+        password:
+          type: string
+    SensitiveLogAccessRequestResponse:
+      type: object
+      properties:
+        request_id:
+          type: string
+          format: uuid
+        user_id:
+          type: integer
+        product_id:
+          type: integer
+        log_id:
+          type: string
+          format: uuid
+          nullable: true
+        field_definition_id:
+          type: integer
+          nullable: true
+        secret_id:
+          type: string
+          format: uuid
+          nullable: true
+        field_path:
+          type: string
+          nullable: true
+        reason:
+          type: string
+          nullable: true
+        approval_status:
+          type: string
+        approved_by:
+          type: integer
+          nullable: true
+        approved_at:
+          type: string
+          format: date-time
+          nullable: true
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+    RevealedSensitiveLogResponse:
+      type: object
+      properties:
+        secret_id:
+          type: string
+          format: uuid
+        field_key:
+          type: string
+        field_path:
+          type: string
+        value:
+          nullable: true
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+    SensitiveLogAccessHistoryResponse:
+      type: object
+      properties:
+        access_id:
+          type: string
+          format: uuid
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+        product_id:
+          type: integer
+          nullable: true
+        user_id:
+          type: integer
+        project_id:
+          type: integer
+          nullable: true
+        category_id:
+          type: integer
+          nullable: true
+        log_id:
+          type: string
+          format: uuid
+          nullable: true
+        field_path:
+          type: string
+          nullable: true
+        access_reason:
+          type: string
+          nullable: true
+        auth_method:
+          type: string
+          nullable: true
+        access_status:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+    CreateElasticIndexPolicyRequest:
+      type: object
+      required: [product_id, index_prefix, rollover_type]
+      properties:
+        product_id:
+          type: integer
+        environment_id:
+          type: integer
+          nullable: true
+        index_prefix:
+          type: string
+        index_pattern:
+          type: string
+          nullable: true
+        write_alias:
+          type: string
+          nullable: true
+        rollover_type:
+          type: string
+          enum: [size, age]
+        number_of_shards:
+          type: integer
+          nullable: true
+        number_of_replicas:
+          type: integer
+          nullable: true
+        retention_days:
+          type: integer
+          nullable: true
+        schema_version:
+          type: string
+          nullable: true
+    UpdateElasticIndexPolicyRequest:
+      type: object
+      required: [elastic_policy_id]
+      properties:
+        elastic_policy_id:
+          type: integer
+        index_pattern:
+          type: string
+          nullable: true
+        write_alias:
+          type: string
+          nullable: true
+        rollover_type:
+          type: string
+          enum: [size, age]
+          nullable: true
+        number_of_shards:
+          type: integer
+          nullable: true
+        number_of_replicas:
+          type: integer
+          nullable: true
+        retention_days:
+          type: integer
+          nullable: true
+        schema_version:
+          type: string
+          nullable: true
+        is_active:
+          type: boolean
+          nullable: true
+    ListElasticIndexPolicyRequest:
+      type: object
+      properties:
+        product_id:
+          type: integer
+        environment_id:
+          type: integer
+          nullable: true
+    EditUserRoleRequest:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: integer
+        first_name:
+          type: string
+        last_name:
+          type: string
+        email:
+          type: string
+          format: email
+        platform_role_id:
+          type: integer
+        product_role_id:
+          type: integer
+        environment_id:
+          type: integer
+        permission_level:
+          type: integer
+        is_active:
+          type: boolean
+          nullable: true
+    CreateUserRequest:
+      type: object
+      required: [fullName, email, password, role]
+      properties:
+        username:
+          type: string
+          nullable: true
+        fullName:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+          nullable: true
+        password:
+          type: string
+          format: password
+        role:
+          type: string
+    UpdateUserAdminRequest:
+      type: object
+      properties:
+        fullName:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+          nullable: true
+        role:
+          type: string
+        status:
+          type: string
+          enum: [active, inactive]
+    UserResponse:
+      type: object
+      required: [id, email, is_active]
+      properties:
+        id:
+          type: integer
+        user_id:
+          type: integer
+        username:
+          type: string
+          nullable: true
+        first_name:
+          type: string
+          nullable: true
+        last_name:
+          type: string
+          nullable: true
+        email:
+          type: string
+          format: email
+        phone_number:
+          type: string
+          nullable: true
+        is_active:
+          type: boolean
+        role:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+    IngestLogItemRequest:
+      type: object
+      required: [sequence_no, source_type, source_platform, input_payload]
+      properties:
+        sequence_no:
+          type: integer
+        source_type:
+          type: string
+        source_platform:
+          type: string
+        input_payload:
+          type: object
+          additionalProperties: true
+        custom_fields:
+          type: object
+          additionalProperties: true
+          description: Optional key:value fields supplied separately from input_payload; body values take precedence.
+        detected_product_code:
+          type: string
+          nullable: true
+    IngestLogBatchRequest:
+      type: object
+      required: [queue_key, source_type, source_platform, logs]
+      properties:
+        product_id:
+          type: integer
+          nullable: true
+        source_id:
+          type: integer
+          nullable: true
+        environment_id:
+          type: integer
+          nullable: true
+        environment_code:
+          type: string
+          description: Explicit environment code scoped to the authenticated product. Required when a product-scoped API key cannot resolve one unique common mapping.
+        queue_key:
+          type: string
+        source_type:
+          type: string
+        source_platform:
+          type: string
+        idempotency_key:
+          type: string
+          nullable: true
+        detected_product_code:
+          type: string
+          nullable: true
+        priority:
+          type: integer
+        logs:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/IngestLogItemRequest'
+    LogQueueBatchResponse:
+      type: object
+      properties:
+        batch_id:
+          type: string
+          format: uuid
+        product_id:
+          type: integer
+          nullable: true
+        source_id:
+          type: integer
+          nullable: true
+        environment_id:
+          type: integer
+          nullable: true
+        queue_key:
+          type: string
+        source_type:
+          type: string
+        source_platform:
+          type: string
+        source_ip:
+          type: string
+          nullable: true
+        user_agent:
+          type: string
+          nullable: true
+        idempotency_key:
+          type: string
+          nullable: true
+        detected_product_code:
+          type: string
+          nullable: true
+        product_resolution_status:
+          type: string
+        product_resolution_reason:
+          type: string
+          nullable: true
+        product_resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+        available_at:
+          type: string
+          format: date-time
+          nullable: true
+        worker_id:
+          type: string
+          nullable: true
+        processing_attempts:
+          type: integer
+        total_logs:
+          type: integer
+        status:
+          type: string
+        priority:
+          type: integer
+        received_at:
+          type: string
+          format: date-time
+          nullable: true
+        processing_started_at:
+          type: string
+          format: date-time
+          nullable: true
+        processed_at:
+          type: string
+          format: date-time
+          nullable: true
+        retention_until:
+          type: string
+          format: date-time
+          nullable: true
+        purged_at:
+          type: string
+          format: date-time
+          nullable: true
+        locked_by:
+          type: string
+          nullable: true
+        locked_at:
+          type: string
+          format: date-time
+          nullable: true
+        error_message:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+    LogQueueItemResponse:
+      type: object
+      properties:
+        queue_item_id:
+          type: integer
+        batch_id:
+          type: string
+          format: uuid
+        sequence_no:
+          type: integer
+        source_type:
+          type: string
+        source_platform:
+          type: string
+        input_payload:
+          type: object
+          additionalProperties: true
+          nullable: true
+        payload_size_bytes:
+          type: integer
+          nullable: true
+        payload_purged:
+          type: boolean
+        detected_product_code:
+          type: string
+          nullable: true
+        worker_id:
+          type: string
+          nullable: true
+        processing_attempts:
+          type: integer
+        status:
+          type: string
+        retry_count:
+          type: integer
+        max_retry_count:
+          type: integer
+        next_retry_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_retry_at:
+          type: string
+          format: date-time
+          nullable: true
+        processing_started_at:
+          type: string
+          format: date-time
+          nullable: true
+        processed_at:
+          type: string
+          format: date-time
+          nullable: true
+        error_message:
+          type: string
+          nullable: true
+        retention_until:
+          type: string
+          format: date-time
+          nullable: true
+        purged_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
