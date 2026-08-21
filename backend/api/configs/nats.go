@@ -24,9 +24,18 @@ func ConnectNATS(env *Env) (*NATSQueue, error) {
 	const maxRetries = 15
 	const retryInterval = 2 * time.Second
 
+	var opts []nats.Option
+	credsPath := env.NATSCredsPath
+	if credsPath == "" {
+		credsPath = env.NATSUserCreds
+	}
+	if credsPath != "" {
+		opts = append(opts, nats.UserCredentials(credsPath))
+	}
+
 	var lastErr error
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		nc, err := nats.Connect(env.NATSURL)
+		nc, err := nats.Connect(env.NATSURL, opts...)
 		if err == nil {
 			var js nats.JetStreamContext
 			js, err = nc.JetStream()

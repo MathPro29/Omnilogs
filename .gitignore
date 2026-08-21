@@ -37,4 +37,6 @@ comparison_summary.html
 .git.bak/
 *.git.bak
 
-
+# Secrets and credentials
+*.creds
+secrets/

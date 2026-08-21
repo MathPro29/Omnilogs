@@ -30,3 +30,7 @@ Thumbs.db
 # Project specific ignores
 api/data/
 api/.codex-tmp/
+
+# NATS credentials
+*.creds
+secrets/

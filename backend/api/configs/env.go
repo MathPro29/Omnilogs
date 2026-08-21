@@ -20,6 +20,8 @@ type Env struct {
 	DBName     string
 	DBUsername string
 	DBPassword string
+	DBSSLMode  string
+	
 
 	DBMaxOpenConns           int
 	DBMaxIdleConns           int
@@ -45,9 +47,12 @@ type Env struct {
 
 	SwaggerEnabled                    bool
 	ElasticURL                        string
+	ElasticAPIKey                     string
 	ElasticsearchQueryTimeoutSeconds  int
 	ElasticsearchSlowQueryThresholdMS int
 	NATSURL                           string
+	NATSUserCreds                     string
+	NATSCredsPath                     string
 	NATSStream                        string
 	NATSSubject                       string
 	NATSConsumer                      string
@@ -87,6 +92,7 @@ func LoadEnv() *Env {
 		DBName:     getEnv("DB_NAME", "omnilogs-api"),
 		DBUsername: getEnv("DB_USERNAME", "postgres"),
 		DBPassword: getEnv("DB_PASSWORD", "admin"),
+		DBSSLMode:  getEnv("DB_SSLMODE", "disable"),
 
 		DBMaxOpenConns:           getEnvInt("DB_MAX_OPEN_CONNS", 25),
 		DBMaxIdleConns:           getEnvInt("DB_MAX_IDLE_CONNS", 25),
@@ -112,9 +118,12 @@ func LoadEnv() *Env {
 
 		SwaggerEnabled:                    getEnvBool("SWAGGER_ENABLED", true),
 		ElasticURL:                        getEnv("ELASTICSEARCH_URL", "http://localhost:9200"),
+		ElasticAPIKey:                     getEnv("ELASTICSEARCH_API_KEY", ""),
 		ElasticsearchQueryTimeoutSeconds:  getEnvInt("ELASTICSEARCH_QUERY_TIMEOUT_SECONDS", 10),
 		ElasticsearchSlowQueryThresholdMS: getEnvInt("ELASTICSEARCH_SLOW_QUERY_THRESHOLD_MS", 1000),
 		NATSURL:                           getEnv("NATS_URL", "nats://localhost:4222"),
+		NATSUserCreds:                     getEnv("NATS_USER_CREDS", ""),
+		NATSCredsPath:                     getEnv("NATS_CREDS_PATH", getEnv("NATS_USER_CREDS", "")),
 		NATSStream:                        getEnv("NATS_STREAM", "OMNILOGS_LOGS"),
 		NATSSubject:                       getEnv("NATS_SUBJECT", "omnilogs.logs.ingest"),
 		NATSConsumer:                      getEnv("NATS_CONSUMER", "omnilogs-worker"),
