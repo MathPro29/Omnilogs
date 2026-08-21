@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -84,7 +85,7 @@ func NewRouter(env *configs.Env, db *gorm.DB, esClient *elasticsearch.Client, na
 	config.AllowHeaders = []string{"Origin", "Content-Type", "Authorization", "X-Request-ID", "X-API-Key", "X-Product-Code", "X-Environment-Code"}
 	config.AllowCredentials = true
 	config.AllowOriginFunc = func(origin string) bool {
-		return isAllowedOrigin(origin)
+		return isAllowedOrigin(origin, env.CORSAllowedOrigins)
 	}
 	router.Use(cors.New(config))
 	router.Use(middleware.RequestID())
@@ -108,10 +109,20 @@ func NewRouter(env *configs.Env, db *gorm.DB, esClient *elasticsearch.Client, na
 	return router
 }
 
-func isAllowedOrigin(origin string) bool {
+func isAllowedOrigin(origin string, allowedOriginsConfig string) bool {
 	if origin == "" || origin == "null" {
 		return true
 	}
+
+	if allowedOriginsConfig != "" {
+		for _, allowed := range strings.Split(allowedOriginsConfig, ",") {
+			allowed = strings.TrimSpace(allowed)
+			if allowed == "*" || allowed == origin || strings.TrimSuffix(allowed, "/") == strings.TrimSuffix(origin, "/") {
+				return true
+			}
+		}
+	}
+
 	u, err := url.Parse(origin)
 	if err != nil {
 		return false

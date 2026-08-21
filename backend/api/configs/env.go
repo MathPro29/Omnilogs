@@ -13,6 +13,7 @@ import (
 type Env struct {
 	AppEnv            string
 	AppPort           string
+	CORSAllowedOrigins string
 	DataEncryptionKey string
 
 	DBHost     string
@@ -84,8 +85,9 @@ func LoadEnv() *Env {
 	loadDotEnv()
 
 	return &Env{
-		AppEnv:  getEnv("APP_ENV", "development"),
-		AppPort: getEnv("APP_PORT", "2910"),
+		AppEnv:             getEnv("APP_ENV", "development"),
+		AppPort:            getEnv("APP_PORT", "2910"),
+		CORSAllowedOrigins: getEnv("CORS_ALLOWED_ORIGINS", ""),
 
 		DBHost:     getEnv("DB_HOST", "localhost"),
 		DBPort:     getEnv("DB_PORT", "5432"),
