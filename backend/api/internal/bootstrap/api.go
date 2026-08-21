@@ -82,7 +82,7 @@ func NewRouter(env *configs.Env, db *gorm.DB, esClient *elasticsearch.Client, na
 
 	config := cors.DefaultConfig()
 	config.AllowMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}
-	config.AllowHeaders = []string{"Origin", "Content-Type", "Authorization", "X-Request-ID", "X-API-Key", "X-Product-Code", "X-Environment-Code"}
+	config.AllowHeaders = []string{"Origin", "Content-Type", "Authorization", "Accept", "X-Requested-With", "X-Request-ID", "X-API-Key", "X-Product-Code", "X-Environment-Code"}
 	config.AllowCredentials = true
 	config.AllowOriginFunc = func(origin string) bool {
 		return isAllowedOrigin(origin, env.CORSAllowedOrigins)
@@ -130,6 +130,10 @@ func isAllowedOrigin(origin string, allowedOriginsConfig string) bool {
 	hostname := u.Hostname()
 
 	if hostname == "" || hostname == "localhost" || hostname == "127.0.0.1" || hostname == "::1" {
+		return true
+	}
+
+	if strings.HasSuffix(hostname, ".vercel.app") || strings.HasSuffix(hostname, ".onrender.com") {
 		return true
 	}
 
