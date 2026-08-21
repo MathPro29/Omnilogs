@@ -38,24 +38,6 @@ FROM builder AS migrate-builder
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app/bin/omnilogs-migrate ./cmd/migrate && \
     test -s /app/bin/omnilogs-migrate
 
-# Stage 2: Final runner stage for API
-FROM debian:bookworm-slim AS api
-
-WORKDIR /app
-
-# Install CA certificates for external HTTPS requests
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
-
-# Copy built binary from builder
-COPY --from=api-builder /app/bin/omnilogs-api /usr/local/bin/omnilogs-api
-
-# Copy API swagger documentation and schema files
-COPY docs/swagger ./docs/swagger
-COPY api/openapi.yaml ./api/openapi.yaml
-
-EXPOSE 2910
-CMD ["omnilogs-api"]
-
 # Stage 3: Final runner stage for Worker
 FROM debian:bookworm-slim AS worker
 
@@ -80,7 +62,7 @@ COPY --from=retention-worker-builder /app/bin/omnilogs-retention-worker /usr/loc
 
 CMD ["omnilogs-retention-worker"]
 
-# Stage 5: Final runner stage for Migrate
+# Stage 4: Final runner stage for Migrate
 FROM debian:bookworm-slim AS migrate
 
 WORKDIR /app
@@ -90,3 +72,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 COPY --from=migrate-builder /app/bin/omnilogs-migrate /usr/local/bin/omnilogs-migrate
 
 CMD ["omnilogs-migrate"]
+
+# Stage 5: Final runner stage for API (Default target)
+FROM debian:bookworm-slim AS api
+
+WORKDIR /app
+
+# Install CA certificates for external HTTPS requests
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+
+# Copy built binary from builder
+COPY --from=api-builder /app/bin/omnilogs-api /usr/local/bin/omnilogs-api
+
+# Copy API swagger documentation and schema files
+COPY docs/swagger ./docs/swagger
+COPY api/openapi.yaml ./api/openapi.yaml
+
+EXPOSE 2910
+CMD ["omnilogs-api"]
