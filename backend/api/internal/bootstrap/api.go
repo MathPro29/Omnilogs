@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"omnilogs-api/configs"
-	workerprocessor "omnilogs-api/internal/worker"
 	"omnilogs-api/middleware"
 	"omnilogs-api/middleware/audit"
 	"omnilogs-api/routes"
@@ -35,14 +34,6 @@ func RunAPIServer(env *configs.Env, db *gorm.DB) error {
 		return err
 	}
 	defer natsQueue.Close()
-
-	processor := workerprocessor.NewProcessor(db, esClient, env.DataEncryptionKey, natsQueue)
-	workerCtx, workerCancel := context.WithCancel(context.Background())
-	defer workerCancel()
-	go func() {
-		slog.Info("background worker engine started for API server")
-		_ = processor.Run(workerCtx)
-	}()
 
 	router := NewRouter(env, db, esClient, natsQueue)
 	server := &http.Server{

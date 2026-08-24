@@ -40,6 +40,23 @@ services:
         condition: service_started
     restart: "no"
 
+  seed:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+      target: seed
+    environment:
+      <<: *common-env
+      APP_PORT: 2910
+      SWAGGER_ENABLED: "false"
+    command: ["omnilogs-seed", "-email", "${SEED_EMAIL:-godmode@godmail.com}", "-password", "${SEED_PASSWORD:-OhMyGod999@!}"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   api:
     build:
       context: ./api
@@ -88,6 +105,8 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      seed:
+        condition: service_completed_successfully
     volumes:
       # Keep the archive storage shared with the API container.
       - archive_data:/app/data/archives
@@ -107,6 +126,8 @@ services:
         condition: service_healthy
       elasticsearch:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     volumes:
       - archive_data:/app/data/archives
     restart: on-failure
@@ -126,7 +147,6 @@ services:
 
   postgres:
     image: postgres:16
-    container_name: omnilogs-postgres
     environment:
       POSTGRES_USER: ${DB_USERNAME:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-admin}
@@ -143,7 +163,6 @@ services:
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.14.0
-    container_name: omnilogs-elastic
     hostname: elasticsearch
     environment:
       discovery.type: single-node
@@ -163,7 +182,6 @@ services:
 
   nats:
     image: nats:2.10-alpine
-    container_name: omnilogs-nats
     command: ["-js", "-m", "8222"]
     ports:
       - "127.0.0.1:${NATS_HOST_PORT:-4222}:4222"
