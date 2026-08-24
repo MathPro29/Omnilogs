@@ -130,19 +130,6 @@ services:
       - archive_data:/app/data/archives
     restart: on-failure
 
-  frontend:
-    build:
-      context: ../frontend
-      dockerfile: Dockerfile
-      args:
-        VITE_API_BASE_URL: /api
-        VITE_INGEST_BASE_URL: ""
-    depends_on:
-      api:
-        condition: service_healthy
-    ports:
-      - "${FRONTEND_PORT:-5173}:80"
-
   postgres:
     image: postgres:16
     environment:

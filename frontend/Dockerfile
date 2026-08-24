@@ -14,7 +14,12 @@ ENV VITE_INGEST_BASE_URL=${VITE_INGEST_BASE_URL}
 RUN npm run build
 
 FROM nginx:1.27-alpine
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# nginx's official entrypoint renders this template with API_UPSTREAM when
+# the container starts, so the frontend image does not depend on a Compose
+# service name from the backend project.
+ENV API_UPSTREAM=http://host.docker.internal:2910
+ENV NGINX_ENVSUBST_FILTER=API_UPSTREAM
+COPY nginx.conf /etc/nginx/templates/default.conf.template
 COPY --from=builder /app/dist /usr/share/nginx/html
 EXPOSE 80
 HEALTHCHECK --interval=15s --timeout=5s --retries=5 CMD wget -qO- http://127.0.0.1/healthz || exit 1

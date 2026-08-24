@@ -1,0 +1,22 @@
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
+        VITE_INGEST_BASE_URL: ${VITE_INGEST_BASE_URL:-}
+    environment:
+      # The backend runs in a separate Compose project and is reached through
+      # the host-published API port by default. Override this for staging/prod.
+      API_UPSTREAM: ${API_UPSTREAM:-http://host.docker.internal:2910}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${FRONTEND_PORT:-5173}:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/healthz >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
